@@ -72,6 +72,7 @@ moco <- function(
   HAL_pMXZ = TRUE,
   HAL_options = list(max_degree = 6, lambda_seq = exp(seq(-1, -10, length = 100)), num_knots = c(1000, 500, 250)),
   cross_fit = TRUE,
+  cv_folds = 5,
   test = TRUE,
   fwer = 0.05, 
   seed = 1, 

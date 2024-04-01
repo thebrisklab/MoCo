@@ -17,23 +17,24 @@
 #' 
 #' @return An n-length vector of the estimated EIF evaluated on the observations
 
-make_full_data_eif = function(a, A, Delta_Y, Delta_M, Y, gA, gDM, gDY_AXZ, eta_AXZ, eta_AXM, xi_AX, mu, pMXD, pMXZ){
-  ipw_a = as.numeric(A == a)/gA
-  ipw_a_prime = as.numeric(Delta_Y == 1&A == a)/(gDY_AXZ*gA)
-  ipw_a_MD = as.numeric(A == 0 & Delta_M == 1)/(((1 - gA)*I(a==1) + gA*I(a==0))*gDM)
+make_full_data_eif <- function(a, A, Delta_Y, Delta_M, Y, gA, gDM, gDY_AXZ, eta_AXZ, eta_AXM, xi_AX, mu, pMXD, pMXZ){
+  ipw_a <- as.numeric(A == a)/gA
+  ipw_a_prime <- as.numeric(Delta_Y == 1&A == a)/(gDY_AXZ*gA)
+  ipw_a_MD <- as.numeric(A == 0 & Delta_M == 1)/(((1 - gA)*I(a==1) + gA*I(a==0))*gDM)
   
-  c_star = pMXD/pMXZ
+  c_star <- pMXD/pMXZ
   
-  p1 = ipw_a_prime * c_star * (Y - mu)
-  p2 = ipw_a * (eta_AXZ - xi_AX)
-  p3 = ipw_a_MD * (eta_AXM - xi_AX)
-  p4 = xi_AX - mean(xi_AX)
+  p1 <- ipw_a_prime * c_star * (Y - mu)
+  p2 <- ipw_a * (eta_AXZ - xi_AX)
+  p3 <- ipw_a_MD * (eta_AXM - xi_AX)
+  p4 <- xi_AX - mean(xi_AX)
   
-  p1[is.na(p1)] = 0
-  p3[is.na(p3)] = 0
+  p1[is.na(p1)] <- 0
+  p3[is.na(p3)] <- 0
   
   return(p1 + p2 + p3 + p4)
 }
+
 
 #' Define a simulation setting where some nuisance quantities are consistently estimated
 #' 
