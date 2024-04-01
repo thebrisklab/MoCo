@@ -157,13 +157,18 @@ moco <- function(
     
     # regions with significant associations
     significant_regions <- (abs(z_score) > conf_band_avg)
+    
+    return(list(
+      est = est,
+      adj_association = adj_association,
+      z_score = z_score,
+      significant_regions = significant_regions)
+    )
   }
-
+  
   return(list(
     est = est,
-    adj_association = adj_association,
-    z_score = z_score,
-    significant_regions = significant_regions)
+    adj_association = adj_association)
   )
 }
 
