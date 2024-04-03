@@ -16,12 +16,15 @@
 #' @param SL_library SuperLearner library for estimating nuisance regressions. Defaults to SL_library if not specified.
 #' @param glm_formula All glm formulas default to NULL, indicating SuperLearner will be used for nuisance regressions.
 #'                    - \code{gA}: GLM formula for estimating the propensity score.
-#'                    - \code{gD}: GLM formula for estimating the probability P(Delta_M = 1 | A, X).
-#'                    - \code{mu_AMXZ}: GLM formula for estimating the outcome regression E(Y | A, M, X, Z).
-#'                    - \code{xi_AX}: GLM formula for estimating E(eta_AXZ | A=a, X).
-#'                    - \code{eta_AXM}: GLM formula for estimating E(Q * p / r | A=a, M, X).
-#'                    - \code{pMX}: GLM formula for estimating p(m | a, x) and p(m | a, x, Delta_M = 1), assuming M follows a normal distribution.
-#'                    - \code{pMXZ}: GLM formula for estimating p(m | a, x, z) and p(m | a, x, z, Delta_M = 1), assuming M follows a normal distribution.
+#'                    - \code{gDM}: GLM formula for estimating the probability P(Delta_M = 1 | A, X).
+#'                    - \code{gDY_AX}: GLM formula for estimating the probability P(Delta_Y = 1 | A, X).
+#'                    - \code{gDY_AXZ}: GLM formula for estimating the probability P(Delta_Y = 1 | A, X, Z).
+#'                    - \code{mu_AMXZ}: GLM formula for estimating the outcome regression E(Y | Delta_Y = 1, A, M, X, Z).
+#'                    - \code{eta_AXZ}: GLM formula for estimating E(mu_AMXZ pMXD / pMXZD | A, X, Z, Delta_M = 1).                
+#'                    - \code{eta_AXM}: GLM formula for estimating E(mu_AMXZ pMX/pMXZ gDY_AX/gDY_AXZ | A, M, X, Delta_Y = 1).
+#'                    - \code{xi_AX}: GLM formula for estimating E(eta_AXZ | A, X).
+#'                    - \code{pMX}: GLM formula for estimating p(m | a, x, Delta_Y = 1) and p(m | a, x, Delta_M = 1), assuming M follows a log normal distribution.
+#'                    - \code{pMXZ}: GLM formula for estimating p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M = 1), assuming M follows a log normal distribution.
 #'                    
 #' @param HAL_pMX Specifies whether to estimate p(m | a, x) and p(m | a, x, Delta_M=1) using the highly adaptive lasso conditional density estimation method. Defaults to \code{TRUE}. 
 #' @param HAL_pMXZ Specifies whether to estimate p(m | a, x, z) and p(m | a, x, z, Delta_M=1) using the highly adaptive lasso conditional density estimation method. Defaults to \code{TRUE}. 
@@ -54,8 +57,8 @@ one_step <- function(
                        gDY_AXZ = NULL,
                        mu_AMXZ = NULL,
                        eta_AXZ = NULL,
-                       xi_AX = NULL,
                        eta_AXM = NULL,
+                       xi_AX = NULL,
                        pMX = NULL,
                        pMXZ = NULL),
     HAL_pMX = TRUE,
@@ -180,13 +183,14 @@ one_step <- function(
     pMXDn_A0 <- rep(NA, n)
     pMXDn_A0[which(!is.na(M))] <- stats::predict(pMXD_fit, new_A = M[which(!is.na(M))], new_W = data.frame(A = 0, X)[which(!is.na(M)),], trim_min = 0)
   }else{
-    pMX_fit <- stats::glm(paste0("M ~ ", glm_formula$pMX), family = gaussian(), data = data.frame(M, A, X)[Delta_Y == 1,])
-    pMXn_A <- dnorm(M, mean = stats::predict(pMX_fit, newdata = data.frame(A,X)), sd = sd(pMX_fit$residuals)) 
+    pMX_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMX), family = gaussian(), data = data.frame(log_M = log(M), A, X)[Delta_Y == 1,])
+    pMXn_A <- rep(NA, n)
+    pMXn_A <- (1/M)[Delta_Y == 1] * dnorm(log(M)[Delta_Y == 1], mean = stats::predict(pMX_fit, newdata = data.frame(A, X)[Delta_Y == 1,]), sd = sd(pMX_fit$residuals)) 
     
-    pMXD_fit <- stats::glm(paste0("M ~ ", glm_formula$pMX), family = gaussian(), data = data.frame(M, A, X)[Delta_M == 1,])
-    pMXDn_A0 <- numeric(n)
+    pMXD_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMX), family = gaussian(), data = data.frame(log_M = log(M), A, X)[Delta_M == 1,])
+    pMXDn_A0 <- rep(NA, n)
     pMXDn_A0[Delta_M==0] <- 0
-    pMXDn_A0[Delta_M==1] <- dnorm(M[Delta_M == 1], mean = stats::predict(pMXD_fit, newdata = data.frame(A=0,X)[Delta_M == 1,]), sd = sd(pMXD_fit$residuals)) 
+    pMXDn_A0[Delta_M==1] <- (1/M)[Delta_M == 1] * dnorm(log(M)[Delta_M == 1], mean = stats::predict(pMXD_fit, newdata = data.frame(A=0,X)[Delta_M == 1,]), sd = sd(pMXD_fit$residuals)) 
   }
   
   if(HAL_pMXZ){
@@ -218,15 +222,16 @@ one_step <- function(
     pMXZDn_A <- rep(NA, n)
     pMXZDn_A[which(!is.na(M))] <- stats::predict(pMXZD_fit, new_A = M[which(!is.na(M))], new_W = data.frame(A, X, Z)[which(!is.na(M)),], trim_min = 0)
   }else{
-    pMXZ_fit <- stats::glm(paste0("M ~ ", glm_formula$pMXZ), family = gaussian(), data = data.frame(M, A, X, Z)[Delta_Y == 1,])
-    pMXZn_A <- dnorm(M, mean = stats::predict(pMXZ_fit, newdata = data.frame(A, X, Z)), sd = sd(pMXZ_fit$residuals))    
-    pMXZn_A0 <- dnorm(M, mean = stats::predict(pMXZ_fit, newdata = data.frame(A = 0, X, Z)), sd = sd(pMXZ_fit$residuals))
-    pMXZn_A1 <- dnorm(M, mean = stats::predict(pMXZ_fit, newdata = data.frame(A = 1, X, Z)), sd = sd(pMXZ_fit$residuals))
+    pMXZ_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMXZ), family = gaussian(), data = data.frame(log_M = log(M), A, X, Z)[Delta_Y == 1,])
+    pMXZn_A0 <- pMXZn_A1 <- pMXZn_A <- rep(NA, n)
+    pMXZn_A[Delta_Y == 1] <- (1/M)[Delta_Y == 1] * dnorm(log(M)[Delta_Y == 1], mean = stats::predict(pMXZ_fit, newdata = data.frame(A, X, Z)[Delta_Y == 1,]), sd = sd(pMXZ_fit$residuals))    
+    pMXZn_A0[Delta_Y == 1] <- (1/M)[Delta_Y == 1] * dnorm(log(M)[Delta_Y == 1], mean = stats::predict(pMXZ_fit, newdata = data.frame(A = 0, X, Z)[Delta_Y == 1,]), sd = sd(pMXZ_fit$residuals))
+    pMXZn_A1[Delta_Y == 1] <- (1/M)[Delta_Y == 1] * dnorm(log(M)[Delta_Y == 1], mean = stats::predict(pMXZ_fit, newdata = data.frame(A = 1, X, Z)[Delta_Y == 1,]), sd = sd(pMXZ_fit$residuals))
     
-    pMXZD_fit <- stats::glm(paste0("M ~ ", glm_formula$pMXZ), family = gaussian(), data = data.frame(M, A, X, Z)[Delta_M == 1,])
-    pMXZDn_A <- numeric(n)
+    pMXZD_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMXZ), family = gaussian(), data = data.frame(log_M = log(M), A, X, Z)[Delta_M == 1,])
+    pMXZDn_A <- rep(NA, n)
     pMXZDn_A[Delta_M==0] <- 0
-    pMXZDn_A[Delta_M==1] <- dnorm(M[Delta_M==1], mean = stats::predict(pMXZD_fit, newdata = data.frame(A, X, Z)[Delta_M==1,]), sd = sd(pMXZD_fit$residuals))
+    pMXZDn_A[Delta_M==1] <- (1/M)[Delta_M==1] * dnorm(log(M)[Delta_M==1], mean = stats::predict(pMXZD_fit, newdata = data.frame(A, X, Z)[Delta_M==1,]), sd = sd(pMXZD_fit$residuals))
   }
   
   # define parameters for storing results

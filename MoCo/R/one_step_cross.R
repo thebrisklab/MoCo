@@ -16,12 +16,15 @@
 #' @param SL_library SuperLearner library for estimating nuisance regressions. Defaults to SL_library if not specified.
 #' @param glm_formula All glm formulas default to NULL, indicating SuperLearner will be used for nuisance regressions.
 #'                    - \code{gA}: GLM formula for estimating the propensity score.
-#'                    - \code{gD}: GLM formula for estimating the probability P(Delta_M = 1 | A, X).
-#'                    - \code{mu_AMXZ}: GLM formula for estimating the outcome regression E(Y | A, M, X, Z).
-#'                    - \code{xi_AX}: GLM formula for estimating E(eta_AXZ | A=a, X).
-#'                    - \code{eta_AXM}: GLM formula for estimating E(Q * p / r | A=a, M, X).
-#'                    - \code{pMX}: GLM formula for estimating p(m | a, x) and p(m | a, x, Delta_M = 1), assuming M follows a normal distribution.
-#'                    - \code{pMXZ}: GLM formula for estimating p(m | a, x, z) and p(m | a, x, z, Delta_M = 1), assuming M follows a normal distribution.
+#'                    - \code{gDM}: GLM formula for estimating the probability P(Delta_M = 1 | A, X).
+#'                    - \code{gDY_AX}: GLM formula for estimating the probability P(Delta_Y = 1 | A, X).
+#'                    - \code{gDY_AXZ}: GLM formula for estimating the probability P(Delta_Y = 1 | A, X, Z).
+#'                    - \code{mu_AMXZ}: GLM formula for estimating the outcome regression E(Y | Delta_Y = 1, A, M, X, Z).
+#'                    - \code{eta_AXZ}: GLM formula for estimating E(mu_AMXZ pMXD / pMXZD | A, X, Z, Delta_M = 1).                
+#'                    - \code{eta_AXM}: GLM formula for estimating E(mu_AMXZ pMX/pMXZ gDY_AX/gDY_AXZ | A, M, X, Delta_Y = 1).
+#'                    - \code{xi_AX}: GLM formula for estimating E(eta_AXZ | A, X).
+#'                    - \code{pMX}: GLM formula for estimating p(m | a, x, Delta_Y = 1) and p(m | a, x, Delta_M = 1), assuming M follows a normal distribution.
+#'                    - \code{pMXZ}: GLM formula for estimating p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M = 1), assuming M follows a normal distribution.
 #'                    
 #' @param HAL_pMX Specifies whether to estimate p(m | a, x) and p(m | a, x, Delta_M=1) using the highly adaptive lasso conditional density estimation method. Defaults to \code{TRUE}. 
 #' @param HAL_pMXZ Specifies whether to estimate p(m | a, x, z) and p(m | a, x, z, Delta_M=1) using the highly adaptive lasso conditional density estimation method. Defaults to \code{TRUE}. 
@@ -56,18 +59,19 @@ fit_mechanism <- function(
                      gDY_AXZ = NULL,
                      mu_AMXZ = NULL,
                      eta_AXZ = NULL,
-                     xi_AX = NULL,
                      eta_AXM = NULL,
+                     xi_AX = NULL,
                      pMX = NULL,
                      pMXZ = NULL),
   HAL_pMX = TRUE,
   HAL_pMXZ = TRUE,
   HAL_options = list(max_degree = 6, lambda_seq = exp(seq(-1, -10, length = 100)), num_knots = c(1000, 500, 250)),
-  seed = 1, 
+  seed_rgn = 1, 
   ...
 ){
   # number of edges
   p <- ncol(train_dat$Y)
+  seed <- seed_rgn
   
   # motion and motion indicator of training and valid data
   M_train <- Reduce(c, train_dat$M)
@@ -470,7 +474,7 @@ one_step_cross <- function(
     HAL_pMX = TRUE,
     HAL_pMXZ = TRUE,
     HAL_options = list(max_degree = 6, lambda_seq = exp(seq(-1, -10, length = 100)), num_knots = c(1000, 500, 250)),
-    seed = 1, 
+    seed_rgn = 1, 
     cv_folds = 5,
     ...
 ){
@@ -491,7 +495,7 @@ one_step_cross <- function(
               Delta_Y = data.frame(Delta_Y), Y = data.frame(Y))
   
   # divide the dataset into train_dat and valid_dat
-  set.seed(seed)
+  set.seed(seed_rgn)
   folds <- caret::createFolds(1:n, k = cv_folds, list = TRUE, returnTrain = FALSE)
   
   # create empty matrix to store results
@@ -512,7 +516,7 @@ one_step_cross <- function(
       HAL_pMX = HAL_pMX,
       HAL_pMXZ = HAL_pMXZ,
       HAL_options = HAL_options,
-      seed = seed
+      seed_rgn = seed_rgn
     )
 
     # store results

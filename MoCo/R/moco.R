@@ -23,8 +23,8 @@
 #'                    - \code{eta_AXZ}: GLM formula for estimating E(mu_AMXZ pMXD / pMXZD | A, X, Z, Delta_M = 1).                
 #'                    - \code{eta_AXM}: GLM formula for estimating E(mu_AMXZ pMX/pMXZ gDY_AX/gDY_AXZ | A, M, X, Delta_Y = 1).
 #'                    - \code{xi_AX}: GLM formula for estimating E(eta_AXZ | A, X).
-#'                    - \code{pMX}: GLM formula for estimating p(m | a, x, Delta_Y = 1) and p(m | a, x, Delta_M = 1), assuming M follows a normal distribution.
-#'                    - \code{pMXZ}: GLM formula for estimating p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M = 1), assuming M follows a normal distribution.
+#'                    - \code{pMX}: GLM formula for estimating p(m | a, x, Delta_Y = 1) and p(m | a, x, Delta_M = 1), assuming M follows a log normal distribution.
+#'                    - \code{pMXZ}: GLM formula for estimating p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M = 1), assuming M follows a log normal distribution.
 #'                    
 #' @param HAL_pMX Specifies whether to estimate p(m | a, x, Delta_Y = 1) and p(m | a, x, Delta_M=1) using the highly adaptive lasso conditional density estimation method. Defaults to \code{TRUE}. 
 #' @param HAL_pMXZ Specifies whether to estimate p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M=1) using the highly adaptive lasso conditional density estimation method. Defaults to \code{TRUE}. 
@@ -37,7 +37,7 @@
 #' @param cross_fit Logical indicating whether to develop the estimator based on cross-fitting. Defaults to TRUE.
 #' @param test Logical indicating whether to conduct hypothesis testing based on simultaneous confidence band. Defaults to TRUE.
 #' @param fwer Family-wise error rate (FWER) to control for multiple hypothesis testing. Defaults to 0.05. Set to NULL if hypo_test is FALSE.
-#' @param seed Specifies the value of seed(s) for nuisance regression calculation using super learner. Can be a vector. Defaults to value 1. 
+#' @param seed_rgn Specifies the value of seed(s) for nuisance regression calculation using super learner. Can be a vector. Defaults to value 1. 
 #' 
 #' @importFrom SuperLearner SuperLearner
 #' @importFrom haldensify haldensify
@@ -64,8 +64,8 @@ moco <- function(
                      gDY_AXZ = NULL,
                      mu_AMXZ = NULL,
                      eta_AXZ = NULL,
-                     xi_AX = NULL,
                      eta_AXM = NULL,
+                     xi_AX = NULL,
                      pMX = NULL,
                      pMXZ = NULL),
   HAL_pMX = TRUE,
@@ -75,12 +75,12 @@ moco <- function(
   cv_folds = 5,
   test = TRUE,
   fwer = 0.05, 
-  seed = 1, 
+  seed_rgn = 1, 
   ...
 ){
   
   # total number of runs for handling Monte Carlo variability
-  r <- length(seed)
+  r <- length(seed_rgn)
   
   # create matrix and vector for storing fitting results
   est <- list()
@@ -108,7 +108,7 @@ moco <- function(
         HAL_pMX = HAL_pMX,
         HAL_pMXZ = HAL_pMXZ,
         HAL_options = HAL_options,
-        seed = seed[i], 
+        seed_rgn = seed_rgn[i], 
         cv_folds = cv_folds
       )
     }else{
@@ -122,7 +122,7 @@ moco <- function(
         HAL_pMX = HAL_pMX,
         HAL_pMXZ = HAL_pMXZ,
         HAL_options = HAL_options,
-        seed = seed[i]
+        seed_rgn = seed_rgn[i]
       )
     }
     
