@@ -108,7 +108,7 @@ moco <- function(
         HAL_pMX = HAL_pMX,
         HAL_pMXZ = HAL_pMXZ,
         HAL_options = HAL_options,
-        seed_rgn = seed_rgn[i], 
+        seed = seed_rgn[i], 
         cv_folds = cv_folds
       )
     }else{
@@ -122,7 +122,7 @@ moco <- function(
         HAL_pMX = HAL_pMX,
         HAL_pMXZ = HAL_pMXZ,
         HAL_options = HAL_options,
-        seed_rgn = seed_rgn[i]
+        seed = seed_rgn[i]
       )
     }
     

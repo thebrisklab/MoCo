@@ -96,7 +96,7 @@ create_setting = function(which_correct){
 #' we declare predictions from a given algorithm the same as another
 tmp_method.CC_LS = function() {
   computeCoef = function(Z, Y, libraryNames, verbose, obsWeights,
-                          errorsInLibrary = NULL, ...) {
+                         errorsInLibrary = NULL, ...) {
     cvRisk = apply(Z, 2, function(x) {
       mean(obsWeights * (x -
                            Y)^2)
@@ -198,7 +198,7 @@ tmp_method.CC_nloglik = function() {
                     matrix(coef[coef != 0]))
   }
   computeCoef = function(Z, Y, libraryNames, obsWeights, control,
-                          verbose, ...) {
+                         verbose, ...) {
     tol = 4
     dupCols = which(duplicated(round(Z, tol), MARGIN = 2))
     anyDupCols = length(dupCols) > 0
@@ -226,7 +226,7 @@ tmp_method.CC_nloglik = function() {
       function(beta) {
         xB = x %*% cbind(beta)
         loglik = y * stats::plogis(xB, log.p = TRUE) + (1 -
-                                                           y) * stats::plogis(xB, log.p = TRUE, lower.tail = FALSE)
+                                                          y) * stats::plogis(xB, log.p = TRUE, lower.tail = FALSE)
         if (!is.null(w)) {
           loglik = loglik * w
         }

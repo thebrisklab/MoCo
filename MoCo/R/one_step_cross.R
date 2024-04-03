@@ -66,12 +66,11 @@ fit_mechanism <- function(
   HAL_pMX = TRUE,
   HAL_pMXZ = TRUE,
   HAL_options = list(max_degree = 6, lambda_seq = exp(seq(-1, -10, length = 100)), num_knots = c(1000, 500, 250)),
-  seed_rgn = 1, 
+  seed = 1, 
   ...
 ){
   # number of edges
   p <- ncol(train_dat$Y)
-  seed <- seed_rgn
   
   # motion and motion indicator of training and valid data
   M_train <- Reduce(c, train_dat$M)
@@ -199,17 +198,19 @@ fit_mechanism <- function(
     pMXDn_A0_valid <- rep(NA, length(Delta_M_valid))
     pMXDn_A0_valid[which(!is.na(M_valid))] <- stats::predict(pMXD_fit, new_A = M_valid[which(!is.na(M_valid))], new_W = data.frame(A = 0, valid_dat$X)[which(!is.na(M_valid)),], trim_min = 0)
   }else{
-    pMX_fit <- stats::glm(paste0("M ~ ", glm_formula$pMX), family = gaussian(), data = data.frame(train_dat$M, train_dat$A, train_dat$X)[Delta_Y_train == 1,])
-    pMXn_A_train <- dnorm(M_train, mean = stats::predict(pMX_fit, newdata = data.frame(train_dat$A, train_dat$X)), sd = sd(pMX_fit$residuals)) 
-    pMXn_A_valid <- dnorm(M_valid, mean = stats::predict(pMX_fit, newdata = data.frame(valid_dat$A, valid_dat$X)), sd = sd(pMX_fit$residuals))
+    pMX_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMX), family = gaussian(), data = data.frame(log_M = log(M_train), train_dat$A, train_dat$X)[Delta_Y_train == 1,])
+    pMXn_A_train <- rep(NA, length(Delta_M_train))
+    pMXn_A_valid <- rep(NA, length(Delta_M_valid))
+    pMXn_A_train[Delta_Y_train == 1] <- (1/M_train)[Delta_Y_train == 1] * dnorm(log(M_train)[Delta_Y_train == 1], mean = stats::predict(pMX_fit, newdata = data.frame(train_dat$A, train_dat$X)[Delta_Y_train == 1,]), sd = sd(pMX_fit$residuals)) 
+    pMXn_A_valid[Delta_Y_valid == 1] <- (1/M_valid)[Delta_Y_valid == 1] * dnorm(log(M_valid)[Delta_Y_valid == 1], mean = stats::predict(pMX_fit, newdata = data.frame(valid_dat$A, valid_dat$X)[Delta_Y_valid == 1,]), sd = sd(pMX_fit$residuals))
     
-    pMXD_fit <- stats::glm(paste0("M ~ ", glm_formula$pMX), family = gaussian(), data = data.frame(train_dat$M, train_dat$A, train_dat$X)[Delta_M_train == 1,])
-    pMXDn_A0_train <- numeric(length(Delta_M_train))
+    pMXD_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMX), family = gaussian(), data = data.frame(log_M = log(M_train), train_dat$A, train_dat$X)[Delta_M_train == 1,])
+    pMXDn_A0_train <- rep(NA, length(Delta_M_train))
     pMXDn_A0_train[Delta_M_train==0] <- 0
-    pMXDn_A0_train[Delta_M_train==1] <- dnorm(M_train[Delta_M_train == 1], mean = stats::predict(pMXD_fit, newdata = data.frame(A=0, train_dat$X)[Delta_M_train == 1,]), sd = sd(pMXD_fit$residuals))
-    pMXDn_A0_valid <- numeric(length(Delta_M_valid))
+    pMXDn_A0_train[Delta_M_train==1] <- (1/M_train)[Delta_M_train == 1] * dnorm(log(M_train)[Delta_M_train == 1], mean = stats::predict(pMXD_fit, newdata = data.frame(A=0, train_dat$X)[Delta_M_train == 1,]), sd = sd(pMXD_fit$residuals))
+    pMXDn_A0_valid <- rep(NA, length(Delta_M_valid))
     pMXDn_A0_valid[Delta_M_valid==0] <- 0
-    pMXDn_A0_valid[Delta_M_valid==1] <- dnorm(M_valid[Delta_M_valid == 1], mean = stats::predict(pMXD_fit, newdata = data.frame(A=0, valid_dat$X)[Delta_M_valid == 1,]), sd = sd(pMXD_fit$residuals))
+    pMXDn_A0_valid[Delta_M_valid==1] <- (1/M_valid)[Delta_M_valid == 1] * dnorm(log(M_valid)[Delta_M_valid == 1], mean = stats::predict(pMXD_fit, newdata = data.frame(A=0, valid_dat$X)[Delta_M_valid == 1,]), sd = sd(pMXD_fit$residuals))
   }
   
   if(HAL_pMXZ){
@@ -246,24 +247,24 @@ fit_mechanism <- function(
     pMXZDn_A_valid <- rep(NA, length(Delta_M_valid))
     pMXZDn_A_valid[which(!is.na(M_valid))] <- stats::predict(pMXZD_fit, new_A = M_valid[which(!is.na(M_valid))], new_W = data.frame(valid_dat$A, valid_dat$X, valid_dat$Z)[which(!is.na(M_valid)),], trim_min = 0)
   }else{
-    pMXZ_fit <- stats::glm(paste0("M ~ ", glm_formula$pMXZ), family = gaussian(), data = data.frame(train_dat$M, train_dat$A, train_dat$X, train_dat$Z)[Delta_Y_train == 1,])
+    pMXZ_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMXZ), family = gaussian(), data = data.frame(log_M = log(M_train), train_dat$A, train_dat$X, train_dat$Z)[Delta_Y_train == 1,])
     pMXZn_A0_train <- pMXZn_A1_train <- pMXZn_A_train <- rep(NA, length(Delta_M_train))
-    pMXZn_A_train[Delta_Y_train==1] <- dnorm(M_train[Delta_Y_train==1], mean = stats::predict(pMXZ_fit, newdata = data.frame(train_dat$A, train_dat$X, train_dat$Z)[Delta_Y_train==1, ]), sd = sd(pMXZ_fit$residuals))
-    pMXZn_A0_train[Delta_Y_train==1] <- dnorm(M_train[Delta_Y_train==1], mean = stats::predict(pMXZ_fit, newdata = data.frame(A = 0, train_dat$X, train_dat$Z)[Delta_Y_train==1, ]), sd = sd(pMXZ_fit$residuals))
-    pMXZn_A1_train[Delta_Y_train==1] <- dnorm(M_train[Delta_Y_train==1], mean = stats::predict(pMXZ_fit, newdata = data.frame(A = 1, train_dat$X, train_dat$Z)[Delta_Y_train==1, ]), sd = sd(pMXZ_fit$residuals))      
+    pMXZn_A_train[Delta_Y_train==1] <- (1/M_train)[Delta_Y_train==1] * dnorm(log(M_train)[Delta_Y_train==1], mean = stats::predict(pMXZ_fit, newdata = data.frame(train_dat$A, train_dat$X, train_dat$Z)[Delta_Y_train==1, ]), sd = sd(pMXZ_fit$residuals))
+    pMXZn_A0_train[Delta_Y_train==1] <- (1/M_train)[Delta_Y_train==1] * dnorm(log(M_train)[Delta_Y_train==1], mean = stats::predict(pMXZ_fit, newdata = data.frame(A = 0, train_dat$X, train_dat$Z)[Delta_Y_train==1, ]), sd = sd(pMXZ_fit$residuals))
+    pMXZn_A1_train[Delta_Y_train==1] <- (1/M_train)[Delta_Y_train==1] * dnorm(log(M_train)[Delta_Y_train==1], mean = stats::predict(pMXZ_fit, newdata = data.frame(A = 1, train_dat$X, train_dat$Z)[Delta_Y_train==1, ]), sd = sd(pMXZ_fit$residuals))      
     pMXZn_A0_valid <- pMXZn_A1_valid <- pMXZn_A_valid <- rep(NA, length(Delta_M_valid))
-    pMXZn_A_valid[Delta_Y_valid==1] <- dnorm(M_valid[Delta_Y_valid==1], mean = stats::predict(pMXZ_fit, newdata = data.frame(valid_dat$A, valid_dat$X, valid_dat$Z)[Delta_Y_valid==1, ]), sd = sd(pMXZ_fit$residuals))
-    pMXZn_A0_valid[Delta_Y_valid==1] <- dnorm(M_valid[Delta_Y_valid==1], mean = stats::predict(pMXZ_fit, newdata = data.frame(A = 0, valid_dat$X, valid_dat$Z)[Delta_Y_valid==1, ]), sd = sd(pMXZ_fit$residuals))
-    pMXZn_A1_valid[Delta_Y_valid==1] <- dnorm(M_valid[Delta_Y_valid==1], mean = stats::predict(pMXZ_fit, newdata = data.frame(A = 1, valid_dat$X, valid_dat$Z)[Delta_Y_valid==1, ]), sd = sd(pMXZ_fit$residuals))      
+    pMXZn_A_valid[Delta_Y_valid==1] <- (1/M_valid)[Delta_Y_valid==1] * dnorm(log(M_valid)[Delta_Y_valid==1], mean = stats::predict(pMXZ_fit, newdata = data.frame(valid_dat$A, valid_dat$X, valid_dat$Z)[Delta_Y_valid==1, ]), sd = sd(pMXZ_fit$residuals))
+    pMXZn_A0_valid[Delta_Y_valid==1] <- (1/M_valid)[Delta_Y_valid==1] * dnorm(log(M_valid)[Delta_Y_valid==1], mean = stats::predict(pMXZ_fit, newdata = data.frame(A = 0, valid_dat$X, valid_dat$Z)[Delta_Y_valid==1, ]), sd = sd(pMXZ_fit$residuals))
+    pMXZn_A1_valid[Delta_Y_valid==1] <- (1/M_valid)[Delta_Y_valid==1] * dnorm(log(M_valid)[Delta_Y_valid==1], mean = stats::predict(pMXZ_fit, newdata = data.frame(A = 1, valid_dat$X, valid_dat$Z)[Delta_Y_valid==1, ]), sd = sd(pMXZ_fit$residuals))      
     
-    pMXZD_fit <- stats::glm(paste0("M ~ ", glm_formula$pMXZ), family = gaussian(), data = data.frame(train_dat$M, train_dat$A, train_dat$X, train_dat$Z)[Delta_M_train == 1,])
-    pMXZDn_A_train <- numeric(length(Delta_M_train))
+    pMXZD_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMXZ), family = gaussian(), data = data.frame(log_M = log(M_train), train_dat$A, train_dat$X, train_dat$Z)[Delta_M_train == 1,])
+    pMXZDn_A_train <- rep(NA, length(Delta_M_train))
     pMXZDn_A_train[Delta_M_train==0] <- 0
-    pMXZDn_A_train[Delta_M_train==1] <- dnorm(M_train[Delta_M_train==1], mean = stats::predict(pMXZD_fit, newdata = data.frame(train_dat$A, train_dat$X, train_dat$Z)[Delta_M_train==1,]), 
+    pMXZDn_A_train[Delta_M_train==1] <- (1/M_train)[Delta_M_train==1] * dnorm(log(M_train)[Delta_M_train==1], mean = stats::predict(pMXZD_fit, newdata = data.frame(train_dat$A, train_dat$X, train_dat$Z)[Delta_M_train==1,]), 
                                               sd = sd(pMXZD_fit$residuals))
-    pMXZDn_A_valid <- numeric(length(Delta_M_valid))
+    pMXZDn_A_valid <- rep(NA, length(Delta_M_valid))
     pMXZDn_A_valid[Delta_M_valid==0] <- 0
-    pMXZDn_A_valid[Delta_M_valid==1] <- dnorm(M_valid[Delta_M_valid==1], mean = stats::predict(pMXZD_fit, newdata = data.frame(valid_dat$A, valid_dat$X, valid_dat$Z)[Delta_M_valid==1,]), 
+    pMXZDn_A_valid[Delta_M_valid==1] <- (1/M_valid)[Delta_M_valid==1] * dnorm(log(M_valid)[Delta_M_valid==1], mean = stats::predict(pMXZD_fit, newdata = data.frame(valid_dat$A, valid_dat$X, valid_dat$Z)[Delta_M_valid==1,]), 
                                               sd = sd(pMXZD_fit$residuals))
   }
   
@@ -474,7 +475,7 @@ one_step_cross <- function(
     HAL_pMX = TRUE,
     HAL_pMXZ = TRUE,
     HAL_options = list(max_degree = 6, lambda_seq = exp(seq(-1, -10, length = 100)), num_knots = c(1000, 500, 250)),
-    seed_rgn = 1, 
+    seed = 1, 
     cv_folds = 5,
     ...
 ){
@@ -495,7 +496,7 @@ one_step_cross <- function(
               Delta_Y = data.frame(Delta_Y), Y = data.frame(Y))
   
   # divide the dataset into train_dat and valid_dat
-  set.seed(seed_rgn)
+  set.seed(seed)
   folds <- caret::createFolds(1:n, k = cv_folds, list = TRUE, returnTrain = FALSE)
   
   # create empty matrix to store results
@@ -516,7 +517,7 @@ one_step_cross <- function(
       HAL_pMX = HAL_pMX,
       HAL_pMXZ = HAL_pMXZ,
       HAL_options = HAL_options,
-      seed_rgn = seed_rgn
+      seed = seed
     )
 
     # store results
