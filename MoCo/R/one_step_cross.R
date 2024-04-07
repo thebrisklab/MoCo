@@ -14,7 +14,7 @@
 #' @param Delta_Y Binary vector indicating the quality of T1-weighted image or missingness of rs-fMRI data. 
 #' 
 #' @param SL_library SuperLearner library for estimating nuisance regressions. 
-#'                   Defaults to c("SL.earth","SL.glmnet","SL.gam","SL.glm","SL.glm.interaction","SL.ranger", "SL.xgboost","SL.mean") if not specified.
+#'                   Defaults to c("SL.earth","SL.glmnet","SL.gam","SL.glm", "SL.glm.interaction", "SL.step","SL.step.interaction","SL.xgboost","SL.ranger","SL.mean") if not specified.
 #' @param SL_library_customize Customize SuperLearner library for estimating each nuisance regression. 
 #'                    - \code{gA}: SuperLearner library for estimating the propensity score.
 #'                    - \code{gDM}: SuperLearner library for estimating the probability P(Delta_M = 1 | A, X).
@@ -63,7 +63,7 @@
 fit_mechanism <- function(
     train_dat, 
     valid_dat,
-    SL_library = c("SL.earth","SL.glmnet","SL.gam","SL.glm","SL.glm.interaction","SL.ranger", "SL.xgboost","SL.mean"),
+    SL_library = c("SL.earth","SL.glmnet","SL.gam","SL.glm", "SL.glm.interaction", "SL.step","SL.step.interaction","SL.xgboost","SL.ranger","SL.mean"),
     SL_library_customize = list(
       gA = NULL, 
       gDM = NULL,
@@ -464,7 +464,7 @@ fit_mechanism <- function(
 #' @param Delta_Y Binary vector indicating the quality of T1-weighted image or missingness of rs-fMRI data. 
 #' 
 #' @param SL_library SuperLearner library for estimating nuisance regressions. 
-#'                   Defaults to c("SL.earth","SL.glmnet","SL.gam","SL.glm","SL.glm.interaction","SL.ranger", "SL.xgboost","SL.mean") if not specified.
+#'                   Defaults to c("SL.earth","SL.glmnet","SL.gam","SL.glm", "SL.glm.interaction", "SL.step","SL.step.interaction","SL.xgboost","SL.ranger","SL.mean") if not specified.
 #' @param SL_library_customize Customize SuperLearner library for estimating each nuisance regression. 
 #'                    - \code{gA}: SuperLearner library for estimating the propensity score.
 #'                    - \code{gDM}: SuperLearner library for estimating the probability P(Delta_M = 1 | A, X).
@@ -510,7 +510,7 @@ one_step_cross <- function(
     Delta_M, 
     thresh = NULL,
     Delta_Y,
-    SL_library = c("SL.earth","SL.glmnet","SL.gam","SL.glm","SL.glm.interaction","SL.ranger", "SL.xgboost","SL.mean"),
+    SL_library = c("SL.earth","SL.glmnet","SL.gam","SL.glm", "SL.glm.interaction", "SL.step","SL.step.interaction","SL.xgboost","SL.ranger","SL.mean"),
     SL_library_customize = list(
       gA = NULL, 
       gDM = NULL,
