@@ -15,8 +15,10 @@ one_step_cross(
   Delta_Y,
   SL_library = c("SL.earth", "SL.glmnet", "SL.gam", "SL.glm", "SL.glm.interaction",
     "SL.ranger", "SL.xgboost", "SL.mean"),
+  SL_library_customize = list(gA = NULL, gDM = NULL, gDY_AX = NULL, gDY_AXZ = NULL,
+    mu_AMXZ = NULL, eta_AXZ = NULL, eta_AXM = NULL, xi_AX = NULL),
   glm_formula = list(gA = NULL, gDM = NULL, gDY_X = NULL, gDY_AX = NULL, gDY_AXZ = NULL,
-    mu_AMXZ = NULL, eta_AXZ = NULL, xi_AX = NULL, eta_AXM = NULL, pMX = NULL, pMXZ =
+    mu_AMXZ = NULL, eta_AXZ = NULL, eta_AXM = NULL, xi_AX = NULL, pMX = NULL, pMXZ =
     NULL),
   HAL_pMX = TRUE,
   HAL_pMXZ = TRUE,
@@ -46,7 +48,18 @@ It corresponds to a binary variable indicating whether motion is available and m
 
 \item{Delta_Y}{Binary vector indicating the quality of T1-weighted image or missingness of rs-fMRI data.}
 
-\item{SL_library}{SuperLearner library for estimating nuisance regressions. Defaults to SL_library if not specified.}
+\item{SL_library}{SuperLearner library for estimating nuisance regressions.
+Defaults to c("SL.earth","SL.glmnet","SL.gam","SL.glm","SL.glm.interaction","SL.ranger", "SL.xgboost","SL.mean") if not specified.}
+
+\item{SL_library_customize}{Customize SuperLearner library for estimating each nuisance regression.
+- \code{gA}: SuperLearner library for estimating the propensity score.
+- \code{gDM}: SuperLearner library for estimating the probability P(Delta_M = 1 | A, X).
+- \code{gDY_AX}: SuperLearner library for estimating the probability P(Delta_Y = 1 | A, X).
+- \code{gDY_AXZ}: SuperLearner library for estimating the probability P(Delta_Y = 1 | A, X, Z).
+- \code{mu_AMXZ}: SuperLearner library for estimating the outcome regression E(Y | Delta_Y = 1, A, M, X, Z).
+- \code{eta_AXZ}: SuperLearner library for estimating E(mu_AMXZ pMXD / pMXZD | A, X, Z, Delta_M = 1).
+- \code{eta_AXM}: SuperLearner library for estimating E(mu_AMXZ pMX/pMXZ gDY_AX/gDY_AXZ | A, M, X, Delta_Y = 1).
+- \code{xi_AX}: SuperLearner library for estimating E(eta_AXZ | A, X).}
 
 \item{glm_formula}{All glm formulas default to NULL, indicating SuperLearner will be used for nuisance regressions.
 - \code{gA}: GLM formula for estimating the propensity score.

@@ -13,7 +13,18 @@
 #' @param thresh Value used to threshold M to produce Delta_M. One can specify either Delta_M or thresh.
 #' @param Delta_Y Binary vector indicating the quality of T1-weighted image or missingness of rs-fMRI data. 
 #' 
-#' @param SL_library SuperLearner library for estimating nuisance regressions. Defaults to SL_library if not specified.
+#' @param SL_library SuperLearner library for estimating nuisance regressions. 
+#'                   Defaults to c("SL.earth","SL.glmnet","SL.gam","SL.glm","SL.glm.interaction","SL.ranger", "SL.xgboost","SL.mean") if not specified.
+#' @param SL_library_customize Customize SuperLearner library for estimating each nuisance regression. 
+#'                    - \code{gA}: SuperLearner library for estimating the propensity score.
+#'                    - \code{gDM}: SuperLearner library for estimating the probability P(Delta_M = 1 | A, X).
+#'                    - \code{gDY_AX}: SuperLearner library for estimating the probability P(Delta_Y = 1 | A, X).
+#'                    - \code{gDY_AXZ}: SuperLearner library for estimating the probability P(Delta_Y = 1 | A, X, Z).
+#'                    - \code{mu_AMXZ}: SuperLearner library for estimating the outcome regression E(Y | Delta_Y = 1, A, M, X, Z).
+#'                    - \code{eta_AXZ}: SuperLearner library for estimating E(mu_AMXZ pMXD / pMXZD | A, X, Z, Delta_M = 1).                
+#'                    - \code{eta_AXM}: SuperLearner library for estimating E(mu_AMXZ pMX/pMXZ gDY_AX/gDY_AXZ | A, M, X, Delta_Y = 1).
+#'                    - \code{xi_AX}: SuperLearner library for estimating E(eta_AXZ | A, X).
+#'                    
 #' @param glm_formula All glm formulas default to NULL, indicating SuperLearner will be used for nuisance regressions.
 #'                    - \code{gA}: GLM formula for estimating the propensity score.
 #'                    - \code{gDM}: GLM formula for estimating the probability P(Delta_M = 1 | A, X).
@@ -50,24 +61,40 @@
 #' @export
 
 fit_mechanism <- function(
-  train_dat, 
-  valid_dat,
-  SL_library = c("SL.earth","SL.glmnet","SL.gam","SL.glm","SL.glm.interaction","SL.ranger", "SL.xgboost","SL.mean"),
-  glm_formula = list(gA = NULL, 
-                     gDM = NULL,
-                     gDY_AX = NULL,
-                     gDY_AXZ = NULL,
-                     mu_AMXZ = NULL,
-                     eta_AXZ = NULL,
-                     eta_AXM = NULL,
-                     xi_AX = NULL,
-                     pMX = NULL,
-                     pMXZ = NULL),
-  HAL_pMX = TRUE,
-  HAL_pMXZ = TRUE,
-  HAL_options = list(max_degree = 6, lambda_seq = exp(seq(-1, -10, length = 100)), num_knots = c(1000, 500, 250)),
-  seed = 1, 
-  ...
+    train_dat, 
+    valid_dat,
+    SL_library = c("SL.earth","SL.glmnet","SL.gam","SL.glm","SL.glm.interaction","SL.ranger", "SL.xgboost","SL.mean"),
+    SL_library_customize = list(
+      gA = NULL, 
+      gDM = NULL,
+      gDY_AX = NULL,
+      gDY_AXZ = NULL,
+      mu_AMXZ = NULL,
+      eta_AXZ = NULL,
+      eta_AXM = NULL,
+      xi_AX = NULL
+    ),
+    glm_formula = list(
+      gA = NULL, 
+      gDM = NULL,
+      gDY_AX = NULL,
+      gDY_AXZ = NULL,
+      mu_AMXZ = NULL,
+      eta_AXZ = NULL,
+      eta_AXM = NULL,
+      xi_AX = NULL,
+      pMX = NULL,
+      pMXZ = NULL
+    ),
+    HAL_pMX = TRUE,
+    HAL_pMXZ = TRUE,
+    HAL_options = list(
+      max_degree = 6, 
+      lambda_seq = exp(seq(-1, -10, length = 100)), 
+      num_knots = c(1000, 500, 250)
+    ),
+    seed = 1, 
+    ...
 ){
   # number of edges
   p <- ncol(train_dat$Y)
@@ -80,6 +107,20 @@ fit_mechanism <- function(
   Delta_Y_train <- Reduce(c, train_dat$Delta_Y)
   Delta_Y_valid <- Reduce(c, valid_dat$Delta_Y)
   
+  # SL options
+  if(is.null(SL_library)){
+    SL_gA <- SL_library_customize$gA
+    SL_gDM <- SL_library_customize$gDM
+    SL_gDY_AX <- SL_library_customize$gDY_AX
+    SL_gDY_AXZ <- SL_library_customize$gDY_AXZ
+    SL_mu_AMXZ <- SL_library_customize$mu_AMXZ
+    SL_eta_AXZ <- SL_library_customize$eta_AXZ
+    SL_eta_AXM <- SL_library_customize$eta_AXM
+    SL_xi_AX <- SL_library_customize$xi_AX
+  }else{
+    SL_gA <- SL_gDM <- SL_gDY_AX <- SL_gDY_AXZ <- SL_mu_AMXZ <- SL_eta_AXZ <- SL_eta_AXM <- SL_xi_AX <- SL_library
+  }
+  
   # fit regression for propensity score 
   # disease status, conditional on baseline covariates
   if(!is.null(glm_formula$gA)){
@@ -89,9 +130,7 @@ fit_mechanism <- function(
   }else{
     set.seed(seed)
     if(ncol(train_dat$X) == 1){
-      SL_gA <- SL_library[SL_library != "SL.glmnet"]
-    }else{
-      SL_gA <- SL_library
+      SL_gA <- SL_gA[SL_gA != "SL.glmnet"]
     }
     gA_fit <- SuperLearner::SuperLearner(Y = train_dat$A$A, X = train_dat$X,
                                          family = binomial(), 
@@ -110,7 +149,7 @@ fit_mechanism <- function(
     set.seed(seed)
     gDM_fit <- SuperLearner::SuperLearner(Y = Delta_M_train, X = data.frame(train_dat$A, train_dat$X),
                                           family = binomial(), 
-                                          SL.library = SL_library,
+                                          SL.library = SL_gDM,
                                           method = tmp_method.CC_nloglik(),
                                           control = list(saveCVFitLibrary = TRUE))
     gDMn_1_A0_train <- stats::predict(gDM_fit, type = "response", newdata = data.frame(A = 0, train_dat$X))[[1]]
@@ -135,7 +174,7 @@ fit_mechanism <- function(
       set.seed(seed)
       gDY_AX_fit <- SuperLearner::SuperLearner(Y = Delta_Y_train, X = data.frame(train_dat$A, train_dat$X),
                                                family = binomial(), 
-                                               SL.library = SL_library,
+                                               SL.library = SL_gDY_AX,
                                                method = tmp_method.CC_nloglik(),
                                                control = list(saveCVFitLibrary = TRUE))
       gDYn_1_AX_train <- stats::predict(gDY_AX_fit, type = "response", newdata = data.frame(train_dat$A, train_dat$X))[[1]]
@@ -156,7 +195,7 @@ fit_mechanism <- function(
       set.seed(seed)
       gDY_AXZ_fit <- SuperLearner::SuperLearner(Y = Delta_Y_train, X = data.frame(train_dat$A, train_dat$X, train_dat$Z),
                                                 family = binomial(), 
-                                                SL.library = SL_library,
+                                                SL.library = SL_gDY_AXZ,
                                                 method = tmp_method.CC_nloglik(),
                                                 control = list(saveCVFitLibrary = TRUE))
       gDYn_1_AXZ_train <- stats::predict(gDY_AXZ_fit, type = "response", newdata = data.frame(train_dat$A, train_dat$X, train_dat$Z))[[1]]
@@ -286,7 +325,7 @@ fit_mechanism <- function(
       set.seed(seed)
       mu_AMXZ_fit <- SuperLearner::SuperLearner(Y = Reduce(c, train_dat$Y[,j])[Delta_Y_train==1], X = data.frame(train_dat$A, train_dat$M, train_dat$X, train_dat$Z)[Delta_Y_train==1,],
                                                 family = gaussian(), 
-                                                SL.library = SL_library,
+                                                SL.library = SL_mu_AMXZ,
                                                 method = tmp_method.CC_LS(),
                                                 control = list(saveCVFitLibrary = TRUE))
       mu_MXZn_A0_train <- stats::predict(mu_AMXZ_fit, newdata = data.frame(A = 0, train_dat$M, train_dat$X, train_dat$Z))[[1]]
@@ -314,7 +353,7 @@ fit_mechanism <- function(
       eta_AXZ_fit <- SuperLearner::SuperLearner(Y = mu_pseudo_A_train[Delta_M_train==1],
                                                 X = data.frame(train_dat$A, train_dat$X, train_dat$Z)[Delta_M_train==1,],
                                                 family = gaussian(), 
-                                                SL.library = SL_library,
+                                                SL.library = SL_eta_AXZ,
                                                 method = tmp_method.CC_LS(),
                                                 control = list(saveCVFitLibrary = TRUE))
       eta_AXZn_A_train <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(train_dat$A, train_dat$X, train_dat$Z))[[1]]
@@ -337,14 +376,14 @@ fit_mechanism <- function(
       
       eta_AXMn_A0_valid <- stats::predict(eta_AXM_fit, newdata = data.frame(A = 0, valid_dat$M, valid_dat$X))
       eta_AXMn_A1_valid <- stats::predict(eta_AXM_fit, newdata = data.frame(A = 1, valid_dat$M, valid_dat$X))
-    }else if(!is.null(SL_library)){
+    }else if(!is.null(SL_eta_AXM)){
       set.seed(seed)
       # since observations with Delta=0 will not be considered in the next step
       # so add restrictions here to better depict data with Delta=1
       eta_AXM_fit <- SuperLearner::SuperLearner(Y = mu_pseudo_A_star_train[Delta_Y_train==1], 
                                                 X = data.frame(train_dat$A, train_dat$M, train_dat$X)[Delta_Y_train==1,],
                                                 family = gaussian(),
-                                                SL.library = SL_library,
+                                                SL.library = SL_eta_AXM,
                                                 method = tmp_method.CC_LS(),
                                                 control = list(saveCVFitLibrary = TRUE))
       eta_AXMn_A0_train <- stats::predict(eta_AXM_fit, newdata = data.frame(A = 0, train_dat$M, train_dat$X))[[1]]
@@ -372,7 +411,7 @@ fit_mechanism <- function(
       set.seed(seed)
       xi_fit <- SuperLearner::SuperLearner(Y = eta_AXZn_A_train, X = data.frame(train_dat$A, train_dat$X),
                                            family = gaussian(), 
-                                           SL.library = SL_library,
+                                           SL.library = SL_xi_AX,
                                            method = tmp_method.CC_LS(),
                                            control = list(saveCVFitLibrary = TRUE))
       xi_AXn_A0 <- stats::predict(xi_fit, newdata = data.frame(A = 0, valid_dat$X))[[1]]
@@ -424,7 +463,18 @@ fit_mechanism <- function(
 #' @param thresh Value used to threshold M to produce Delta_M. One can specify either Delta_M or thresh.
 #' @param Delta_Y Binary vector indicating the quality of T1-weighted image or missingness of rs-fMRI data. 
 #' 
-#' @param SL_library SuperLearner library for estimating nuisance regressions. Defaults to SL_library if not specified.
+#' @param SL_library SuperLearner library for estimating nuisance regressions. 
+#'                   Defaults to c("SL.earth","SL.glmnet","SL.gam","SL.glm","SL.glm.interaction","SL.ranger", "SL.xgboost","SL.mean") if not specified.
+#' @param SL_library_customize Customize SuperLearner library for estimating each nuisance regression. 
+#'                    - \code{gA}: SuperLearner library for estimating the propensity score.
+#'                    - \code{gDM}: SuperLearner library for estimating the probability P(Delta_M = 1 | A, X).
+#'                    - \code{gDY_AX}: SuperLearner library for estimating the probability P(Delta_Y = 1 | A, X).
+#'                    - \code{gDY_AXZ}: SuperLearner library for estimating the probability P(Delta_Y = 1 | A, X, Z).
+#'                    - \code{mu_AMXZ}: SuperLearner library for estimating the outcome regression E(Y | Delta_Y = 1, A, M, X, Z).
+#'                    - \code{eta_AXZ}: SuperLearner library for estimating E(mu_AMXZ pMXD / pMXZD | A, X, Z, Delta_M = 1).                
+#'                    - \code{eta_AXM}: SuperLearner library for estimating E(mu_AMXZ pMX/pMXZ gDY_AX/gDY_AXZ | A, M, X, Delta_Y = 1).
+#'                    - \code{xi_AX}: SuperLearner library for estimating E(eta_AXZ | A, X).
+#'                    
 #' @param glm_formula All glm formulas default to NULL, indicating SuperLearner will be used for nuisance regressions.
 #'                    - \code{gA}: GLM formula for estimating the propensity score.
 #'                    - \code{gD}: GLM formula for estimating the probability P(Delta_M = 1 | A, X).
@@ -461,17 +511,29 @@ one_step_cross <- function(
     thresh = NULL,
     Delta_Y,
     SL_library = c("SL.earth","SL.glmnet","SL.gam","SL.glm","SL.glm.interaction","SL.ranger", "SL.xgboost","SL.mean"),
-    glm_formula = list(gA = NULL, 
-                       gDM = NULL,
-                       gDY_X = NULL,
-                       gDY_AX = NULL,
-                       gDY_AXZ = NULL,
-                       mu_AMXZ = NULL,
-                       eta_AXZ = NULL,
-                       xi_AX = NULL,
-                       eta_AXM = NULL,
-                       pMX = NULL,
-                       pMXZ = NULL),
+    SL_library_customize = list(
+      gA = NULL, 
+      gDM = NULL,
+      gDY_AX = NULL,
+      gDY_AXZ = NULL,
+      mu_AMXZ = NULL,
+      eta_AXZ = NULL,
+      eta_AXM = NULL,
+      xi_AX = NULL
+    ),
+    glm_formula = list(
+      gA = NULL, 
+      gDM = NULL,
+      gDY_X = NULL,
+      gDY_AX = NULL,
+      gDY_AXZ = NULL,
+      mu_AMXZ = NULL,
+      eta_AXZ = NULL,
+      eta_AXM = NULL,
+      xi_AX = NULL,
+      pMX = NULL,
+      pMXZ = NULL
+    ),
     HAL_pMX = TRUE,
     HAL_pMXZ = TRUE,
     HAL_options = list(max_degree = 6, lambda_seq = exp(seq(-1, -10, length = 100)), num_knots = c(1000, 500, 250)),
@@ -513,6 +575,7 @@ one_step_cross <- function(
       train_dat = lapply(dat, function(x){x[-folds[[i]], , drop = FALSE]}), 
       valid_dat = lapply(dat, function(x){x[folds[[i]], , drop = FALSE]}),
       SL_library = SL_library,
+      SL_library_customize = SL_library_customize,
       glm_formula = glm_formula,
       HAL_pMX = HAL_pMX,
       HAL_pMXZ = HAL_pMXZ,
