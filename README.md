@@ -1,6 +1,6 @@
 # MoCo
 
-MoCo is an R package designed for motion control in MRI studies. Please note that MoCo is now a private repository. To install MoCo, use the code below:
+MoCo is an R package designed for motion control in MRI studies. Please note that MoCo is still under development. To install MoCo, please use the following code:
 
 ```{r}
 library(devtools)
