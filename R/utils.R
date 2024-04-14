@@ -1,21 +1,19 @@
 #' Evaluate EIF for stochastic interventional (in)direct effects
-#' 
-#' @param a either 0 or 1
-#' @param A a binary vector of length n \code{number of participants}, denoting diagnosis status
-#' @param Delta a binary vector of data usability. For example, this corresponds to the binary variable indicating 
-#' whether data pass a motion criteria, such that these data would be excluded in conventional analyses.
-#' @param Y a vector of continuous outcome of interest
-#' 
-#' @param gA estimate of P(A = 1 | X_i), i = 1,...,n
-#' @param gD estimate of P(Delta = 1 | A_i, X_i), i = 1,...,n
-#' @param eta_AXZ estimate of E(mu_pseudo_A | A_i, Delta_i, X_i)
-#' @param eta_AXM estimate of E(mu_pseudo_A_star | A_i, M_i, X_i)
-#' @param xi_AX estimate of E(eta_AXZ | A_i, Delta_i, X_i)
-#' @param mu estimate of E(Y| A_i, M_i, X_i, Z_i)
-#' @param pMX estimate of p(M | 0, Delta_i = 1, X_i)
-#' @param pMXZ Estimate of p(M | A_i, X_i, Z_i)
-#' 
-#' @return An n-length vector of the estimated EIF evaluated on the observations
+#'
+#' @param a Either 0 or 1.
+#' @param A A binary vector of length n \code{number of participants} representing the diagnosis status.
+#' @param Delta A binary vector indicating data usability, such as whether data pass a motion criteria.
+#' @param Y A vector of continuous outcome of interest.
+#' @param gA Estimate of P(A = 1 | X_i), i = 1,...,n.
+#' @param gD Estimate of P(Delta = 1 | A_i, X_i), i = 1,...,n.
+#' @param eta_AXZ Estimate of E(mu_pseudo_A | A_i, Delta_i, X_i).
+#' @param eta_AXM Estimate of E(mu_pseudo_A_star | A_i, M_i, X_i).
+#' @param xi_AX Estimate of E(eta_AXZ | A_i, Delta_i, X_i).
+#' @param mu Estimate of E(Y| A_i, M_i, X_i, Z_i).
+#' @param pMX Estimate of p(M | 0, Delta_i = 1, X_i).
+#' @param pMXZ Estimate of p(M | A_i, X_i, Z_i).
+#'
+#' @return An n-length vector of the estimated EIF evaluated on the observations.
 
 make_full_data_eif <- function(a, A, Delta_Y, Delta_M, Y, gA, gDM, gDY_AXZ, eta_AXZ, eta_AXM, xi_AX, mu, pMXD, pMXZ){
   ipw_a <- as.numeric(A == a)/gA
@@ -33,6 +31,22 @@ make_full_data_eif <- function(a, A, Delta_Y, Delta_M, Y, gA, gDM, gDY_AXZ, eta_
   p3[is.na(p3)] <- 0
   
   return(p1 + p2 + p3 + p4)
+}
+
+#' Add NA value back indicating seed position
+#'
+#' @param vec A vector indicating the MoCo estimates, adjusted association, z-scores, or significant regions.
+#' @param seed_position Position indicator of where the seed region is.
+#' @return A vector with NA values inserted to indicate the position of the seed region.
+
+add_NA <- function(vec, seed_position){
+  if(seed_position == (length(vec) + 1)){
+    vec <- c(vec[1:(seed_position-1)], NA)
+  }else{
+    vec <- c(vec[1:(seed_position-1)], NA, vec[seed_position:length(vec)])
+  }
+  
+  return(vec)
 }
 
 #' Temporary fix for convex combination method mean squared error

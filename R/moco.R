@@ -6,8 +6,9 @@
 #' @param X Dataframe or matrix of baseline covariates, typically demographic covariates that would be balanced in a randomized control trial.
 #' @param Z Dataframe or matrix of diagnosis-related covariates.
 #' @param M Numeric vector of length n representing the motion values.
-#' @param Y Matrix of dimension n \times p, where n is the number of participants, and p is the number of functional connectivity of interest. 
-#'          Each (i, j) element denotes participant i's functional connectivity between the seed node and node j.
+#' @param Y Matrix of dimension n \times p, where n is the number of participants, and p is the number of regions of interest. 
+#'          Each (i, j) element denotes participant i's functional connectivity between the seed region and region j. 
+#'          The column representing the functional connectivity of the seed region with itself should be filled with NA values to indicate its position.
 #' @param Delta_M Binary vector of length n indicating data usability, based on the motion value. 
 #'                It corresponds to a binary variable indicating whether motion is available and meets inclusion criteria for conventional analyses.
 #' @param thresh Value used to threshold M to produce Delta_M. One can specify either Delta_M or thresh.
@@ -103,6 +104,13 @@ moco <- function(
   # total number of runs for handling Monte Carlo variability
   r <- length(seed_rgn)
   
+  # seed position
+  seed_position = which(apply(Y, 2, function(x){
+    sum(is.na(x))
+  }) == nrow(Y))
+  # remove NA column for subsequent calculation
+  Y = Y[, -seed_position]
+  
   # create matrix and vector for storing fitting results
   est <- list()
   adj_association <- matrix(nrow = r, ncol = ncol(Y))
@@ -166,15 +174,16 @@ moco <- function(
   
   # merge multi-run estimation results
   est <- Reduce("+", est)/r
+  est <- t(apply(est, 1, add_NA, seed_position))
   est <- as.data.frame(est, row.names = c('est_A0', 'est_A1'))
   colnames(est) <- NULL
   
   # motion-controlled association
-  adj_association <- colMeans(adj_association)
+  adj_association <- add_NA(colMeans(adj_association), seed_position)
   
   if(test){
     # calculate z_score average across runs
-    z_score <- colMeans(z_score_mat)
+    z_score <- add_NA(colMeans(z_score_mat), seed_position)
     # calculate average confidence band
     conf_band_avg <- mean(conf_band)
     

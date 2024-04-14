@@ -6,7 +6,7 @@
 #' @param X Dataframe or matrix of baseline covariates, typically demographic covariates that would be balanced in a randomized control trial
 #' @param Z Dataframe or matrix of diagnosis-related covariates
 #' @param M Numeric vector of length n representing the motion values.
-#' @param Y Matrix of dimension n \times p, where p is the number of functional connectivity of interest. 
+#' @param Y Matrix of dimension n \times (p-1), where p is the number of functional connectivity of interest. 
 #'          Each (i, j) element denotes participant i's functional connectivity between the seed node and node j.
 #' @param Delta_M Binary vector of length n indicating data usability, based on the motion value. 
 #'                It corresponds to a binary variable indicating whether motion is available and meets inclusion criteria for conventional analyses.
@@ -456,7 +456,7 @@ fit_mechanism <- function(
 #' @param X Dataframe or matrix of baseline covariates, typically demographic covariates that would be balanced in a randomized control trial
 #' @param Z Dataframe or matrix of diagnosis-related covariates
 #' @param M Numeric vector of length n representing the motion values.
-#' @param Y Matrix of dimension n \times p, where p is the number of functional connectivity of interest. 
+#' @param Y Matrix of dimension n \times (p-1), where p is the number of functional connectivity of interest. 
 #'          Each (i, j) element denotes participant i's functional connectivity between the seed node and node j.
 #' @param Delta_M Binary vector of length n indicating data usability, based on the motion value. 
 #'                It corresponds to a binary variable indicating whether motion is available and meets inclusion criteria for conventional analyses.

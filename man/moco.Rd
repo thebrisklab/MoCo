@@ -14,7 +14,7 @@ moco(
   thresh = NULL,
   Delta_Y,
   SL_library = c("SL.earth", "SL.glmnet", "SL.gam", "SL.glm", "SL.glm.interaction",
-    "SL.ranger", "SL.xgboost", "SL.mean"),
+    "SL.step", "SL.step.interaction", "SL.xgboost", "SL.ranger", "SL.mean"),
   SL_library_customize = list(gA = NULL, gDM = NULL, gDY_AX = NULL, gDY_AXZ = NULL,
     mu_AMXZ = NULL, eta_AXZ = NULL, eta_AXM = NULL, xi_AX = NULL),
   glm_formula = list(gA = NULL, gDM = NULL, gDY_AX = NULL, gDY_AXZ = NULL, mu_AMXZ =
@@ -40,8 +40,9 @@ moco(
 
 \item{M}{Numeric vector of length n representing the motion values.}
 
-\item{Y}{Matrix of dimension n \times p, where n is the number of participants, and p is the number of functional connectivity of interest.
-Each (i, j) element denotes participant i's functional connectivity between the seed node and node j.}
+\item{Y}{Matrix of dimension n \times p, where n is the number of participants, and p is the number of regions of interest.
+Each (i, j) element denotes participant i's functional connectivity between the seed region and region j.
+The column representing the functional connectivity of the seed region with itself should be filled with NA values to indicate its position.}
 
 \item{Delta_M}{Binary vector of length n indicating data usability, based on the motion value.
 It corresponds to a binary variable indicating whether motion is available and meets inclusion criteria for conventional analyses.}
@@ -51,7 +52,7 @@ It corresponds to a binary variable indicating whether motion is available and m
 \item{Delta_Y}{Binary vector indicating the quality of T1-weighted image or missingness of rs-fMRI data.}
 
 \item{SL_library}{SuperLearner library for estimating nuisance regressions.
-Defaults to c("SL.earth","SL.glmnet","SL.gam","SL.glm","SL.glm.interaction","SL.ranger", "SL.xgboost","SL.mean") if not specified.}
+Defaults to c("SL.earth","SL.glmnet","SL.gam","SL.glm", "SL.glm.interaction", "SL.step","SL.step.interaction","SL.xgboost","SL.ranger","SL.mean") if not specified.}
 
 \item{SL_library_customize}{Customize SuperLearner library for estimating each nuisance regression.
 - \code{gA}: SuperLearner library for estimating the propensity score.
