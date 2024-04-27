@@ -1,17 +1,24 @@
-#' Non-parametric efficient motion-adjusted functional connectivity estimators
+#' Non-parametric efficient motion-controlled brain phenotype estimators
 #' 
-#' @details Compute non-parametric efficient motion-adjusted functional connectivity estimators based on the proposed method.
+#' @details Compute non-parametric efficient motion-controlled brain phenotype estimators (MoCo) using one-step cross-fitting
 #' 
-#' @param A Binary vector of length n \code{number of participants}, denoting diagnosis status
-#' @param X Dataframe or matrix of baseline covariates, typically demographic covariates that would be balanced in a randomized control trial
-#' @param Z Dataframe or matrix of diagnosis-related covariates
+#' @param A Binary vector of length n \code{number of participants}, denoting diagnosis status.
+#' @param X Dataframe or matrix of baseline covariates, typically demographic covariates that would be balanced in a randomized control trial.
+#' @param Z Dataframe or matrix of diagnosis-related covariates.
 #' @param M Numeric vector of length n representing the motion values.
-#' @param Y Matrix of dimension n \times (p-1), where p is the number of functional connectivity of interest. 
-#'          Each (i, j) element denotes participant i's functional connectivity between the seed node and node j.
-#' @param Delta_M Binary vector of length n indicating data usability, based on the motion value. 
+#' @param Y Matrix of dimension n \times p, where n is the number of participants, and p is the number of regions of interest.
+#'          If it represents seed-based association measures:
+#'            Each (i, j) element denotes participant i's association measure between the seed region and region j.
+#'            The column representing the association measure of the seed region with itself should be filled with NA values to indicate its position.
+#'          If it represents other types of association measures:
+#'            Each (i, j) element denotes participant i's association measure between two brain regions of interest, such as the upper diagonal part of the functional connectivity matrix.
+#'            No NA values are allowed in \code{Y} in this case.
+#' @param Delta_M Binary vector of length n indicating data usability, based on the motion value.
 #'                It corresponds to a binary variable indicating whether motion is available and meets inclusion criteria for conventional analyses.
+#'                If motion meets inclusion criteria for analysis, set \code{Delta_M = 1}; otherwise, set \code{Delta_M = 0}.                
 #' @param thresh Value used to threshold M to produce Delta_M. One can specify either Delta_M or thresh.
-#' @param Delta_Y Binary vector indicating the quality of T1-weighted image or missingness of rs-fMRI data. 
+#' @param Delta_Y Binary vector indicating the non-missingness of brain image data \code{Y}. 
+#'                Set \code{Delta_Y = 1} if \code{Y} is available; otherwise, set \code{Delta_Y = 0}.
 #' 
 #' @param SL_library SuperLearner library for estimating nuisance regressions. 
 #'                   Defaults to c("SL.earth","SL.glmnet","SL.gam","SL.glm", "SL.glm.interaction", "SL.step","SL.step.interaction","SL.xgboost","SL.ranger","SL.mean") if not specified.
@@ -448,20 +455,27 @@ fit_mechanism <- function(
   return(out)
 }
 
-#' Non-parametric efficient motion-adjusted functional connectivity estimators
+#' Non-parametric efficient motion-controlled brain phenotype estimators
 #' 
-#' @details Compute non-parametric efficient motion-adjusted functional connectivity estimators based on the proposed method.
+#' @details Compute non-parametric efficient motion-controlled brain phenotype estimators (MoCo) using one-step cross-fitting
 #' 
-#' @param A Binary vector of length n \code{number of participants}, denoting diagnosis status
-#' @param X Dataframe or matrix of baseline covariates, typically demographic covariates that would be balanced in a randomized control trial
-#' @param Z Dataframe or matrix of diagnosis-related covariates
+#' @param A Binary vector of length n \code{number of participants}, denoting diagnosis status.
+#' @param X Dataframe or matrix of baseline covariates, typically demographic covariates that would be balanced in a randomized control trial.
+#' @param Z Dataframe or matrix of diagnosis-related covariates.
 #' @param M Numeric vector of length n representing the motion values.
-#' @param Y Matrix of dimension n \times (p-1), where p is the number of functional connectivity of interest. 
-#'          Each (i, j) element denotes participant i's functional connectivity between the seed node and node j.
-#' @param Delta_M Binary vector of length n indicating data usability, based on the motion value. 
+#' @param Y Matrix of dimension n \times p, where n is the number of participants, and p is the number of regions of interest.
+#'          If it represents seed-based association measures:
+#'            Each (i, j) element denotes participant i's association measure between the seed region and region j.
+#'            The column representing the association measure of the seed region with itself should be filled with NA values to indicate its position.
+#'          If it represents other types of association measures:
+#'            Each (i, j) element denotes participant i's association measure between two brain regions of interest, such as the upper diagonal part of the functional connectivity matrix.
+#'            No NA values are allowed in \code{Y} in this case.
+#' @param Delta_M Binary vector of length n indicating data usability, based on the motion value.
 #'                It corresponds to a binary variable indicating whether motion is available and meets inclusion criteria for conventional analyses.
+#'                If motion meets inclusion criteria for analysis, set \code{Delta_M = 1}; otherwise, set \code{Delta_M = 0}.                
 #' @param thresh Value used to threshold M to produce Delta_M. One can specify either Delta_M or thresh.
-#' @param Delta_Y Binary vector indicating the quality of T1-weighted image or missingness of rs-fMRI data. 
+#' @param Delta_Y Binary vector indicating the non-missingness of brain image data \code{Y}. 
+#'                Set \code{Delta_Y = 1} if \code{Y} is available; otherwise, set \code{Delta_Y = 0}.
 #' 
 #' @param SL_library SuperLearner library for estimating nuisance regressions. 
 #'                   Defaults to c("SL.earth","SL.glmnet","SL.gam","SL.glm", "SL.glm.interaction", "SL.step","SL.step.interaction","SL.xgboost","SL.ranger","SL.mean") if not specified.
