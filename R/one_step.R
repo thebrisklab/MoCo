@@ -115,6 +115,9 @@ one_step <- function(
   # change X and Z to a dataframe if is a vector
   if(is.null(dim(X))){X <- data.frame(X = X)}
   if(is.null(dim(Z))){Z <- data.frame(Z = Z)}
+
+  # non-missing motion index
+  index_nomissingM <- which(!is.na(M))
   
   # SL options
   if(is.null(SL_library)){
@@ -227,7 +230,7 @@ one_step <- function(
       num_knots = HAL_options$num_knots
     ) 
     pMXDn_A0 <- rep(NA, n)
-    pMXDn_A0[which(!is.na(M))] <- stats::predict(pMXD_fit, new_A = M[which(!is.na(M))], new_W = data.frame(A = 0, X)[which(!is.na(M)),], trim_min = 0)
+    pMXDn_A0[index_nomissingM] <- stats::predict(pMXD_fit, new_A = M[index_nomissingM], new_W = data.frame(A = 0, X)[index_nomissingM,], trim_min = 0)
   }else{
     pMX_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMX), family = gaussian(), data = data.frame(log_M = log(M), A, X)[Delta_Y == 1,])
     pMXn_A <- rep(NA, n)
@@ -266,7 +269,7 @@ one_step <- function(
     ) 
     # predict and set probability for M value out of the support to be 0
     pMXZDn_A <- rep(NA, n)
-    pMXZDn_A[which(!is.na(M))] <- stats::predict(pMXZD_fit, new_A = M[which(!is.na(M))], new_W = data.frame(A, X, Z)[which(!is.na(M)),], trim_min = 0)
+    pMXZDn_A[index_nomissingM] <- stats::predict(pMXZD_fit, new_A = M[index_nomissingM], new_W = data.frame(A, X, Z)[index_nomissingM,], trim_min = 0)
   }else{
     pMXZ_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMXZ), family = gaussian(), data = data.frame(log_M = log(M), A, X, Z)[Delta_Y == 1,])
     pMXZn_A0 <- pMXZn_A1 <- pMXZn_A <- rep(NA, n)
@@ -286,7 +289,7 @@ one_step <- function(
   cov_mat <- list(p)
   for(j in 1:p){
     # fit outcome regression
-    mu_MXZn_A0 <- mu_MXZn_A1 <- mu_MXZn_A <- numeric(n)
+    mu_MXZn_A0 <- mu_MXZn_A1 <- mu_MXZn_A <- rep(NA, n)
     if(!is.null(glm_formula$mu_AMXZ)){
       mu_AMXZ_fit <- stats::glm(paste0("Y ~ ", glm_formula$mu_AMXZ), family = gaussian(), 
                                 data = data.frame(Y = Y[,j], A, M, X, Z)[Delta_Y==1,])
@@ -300,9 +303,9 @@ one_step <- function(
                                                 SL.library = SL_mu_AMXZ,
                                                 method = tmp_method.CC_LS(),
                                                 control = list(saveCVFitLibrary = TRUE))
-      mu_MXZn_A0 <- stats::predict(mu_AMXZ_fit, newdata = data.frame(A = 0, M, X, Z))[[1]]
-      mu_MXZn_A1 <- stats::predict(mu_AMXZ_fit, newdata = data.frame(A = 1, M, X, Z))[[1]]
-      mu_MXZn_A <- stats::predict(mu_AMXZ_fit, newdata = data.frame(A, M, X, Z))[[1]]
+      mu_MXZn_A0[index_nomissingM] <- stats::predict(mu_AMXZ_fit, newdata = data.frame(A = 0, M, X, Z)[index_nomissingM,])[[1]]
+      mu_MXZn_A1[index_nomissingM] <- stats::predict(mu_AMXZ_fit, newdata = data.frame(A = 1, M, X, Z)[index_nomissingM,])[[1]]
+      mu_MXZn_A[index_nomissingM] <- stats::predict(mu_AMXZ_fit, newdata = data.frame(A, M, X, Z)[index_nomissingM,])[[1]]
     }
     
     # fit additional pseudo-outcome regression for mu_MXZ*pMXD/pMXZD, conditioning on disease status, binary mediator and baseline covariates
@@ -335,6 +338,7 @@ one_step <- function(
       eta_AXMn_A1 <- stats::predict(eta_AXM_fit, newdata = data.frame(A = 1, M, X))
     }else if(!is.null(SL_eta_AXM)){
       set.seed(seed)
+      eta_AXMn_A0 <- eta_AXMn_A1 <- rep(NA, n)
       # since observations with Delta_M=0 will not be considered in the next step
       # so add restrictions here to better depict data with Delta_M=1 # [Delta_M==1]
       eta_AXM_fit <- SuperLearner::SuperLearner(Y = mu_pseudo_A_star[Delta_Y == 1], X = data.frame(A, M, X)[Delta_Y == 1,],
@@ -342,8 +346,8 @@ one_step <- function(
                                                 SL.library = SL_eta_AXM,
                                                 method = tmp_method.CC_LS(),
                                                 control = list(saveCVFitLibrary = TRUE))
-      eta_AXMn_A0 <- stats::predict(eta_AXM_fit, type = "response", newdata = data.frame(A = 0, M, X))[[1]]
-      eta_AXMn_A1 <- stats::predict(eta_AXM_fit, type = "response", newdata = data.frame(A = 1, M, X))[[1]]
+      eta_AXMn_A0[index_nomissingM] <- stats::predict(eta_AXM_fit, type = "response", newdata = data.frame(A = 0, M, X)[index_nomissingM,])[[1]]
+      eta_AXMn_A1[index_nomissingM] <- stats::predict(eta_AXM_fit, type = "response", newdata = data.frame(A = 1, M, X)[index_nomissingM,])[[1]]
     }else{
       set.seed(seed)
       eta_AXM_fit <- hal9001::fit_hal(X = data.frame(A, M, X)[Delta_Y == 1,], Y = mu_pseudo_A_star[Delta_Y == 1]) 
