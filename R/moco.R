@@ -54,7 +54,7 @@
 #' 
 #' @param cross_fit Logical indicating whether to develop the estimator based on cross-fitting. Defaults to TRUE.
 #' @param test Logical indicating whether to conduct hypothesis testing based on simultaneous confidence band. Defaults to TRUE.
-#' @param fwer Family-wise error rate (FWER) to control for multiple hypothesis testing. Defaults to 0.05. Set to NULL if hypo_test is FALSE.
+#' @param fwer A vector of family-wise error rates (FWER) to control for multiple hypothesis testing. Defaults to 0.05. Set to NULL if hypo_test is FALSE.
 #' @param seed_rgn Specifies the value of seed(s) for nuisance regression calculation using super learner. Can be a vector. Defaults to value 1. 
 #' 
 #' @importFrom SuperLearner SuperLearner
@@ -65,6 +65,7 @@
 #'   \item{est}{A two times p matrix showing the one-step estimators of the control group and the disease group for each functional connectivity of interest, respectively.}
 #'   \item{adj_association}{A p-length vector showing the motion-adjusted association for each functional connectivity of interest, respectively.}
 #'   \item{z_score}{A p-length vector of z_score for each functional connectivity if \code{test} is TRUE.}
+#'   \item{conf_band}{Simultaneous confidence band based on specified FWER.}
 #'   \item{significant_regions}{A p-length vector of TRUE or FALSE, indicating significance for each functional connectivity if \code{test} is TRUE.}
 #' }
 #' 
@@ -125,8 +126,10 @@ moco <- function(
   if(test){
     # matrix for storing z_score
     z_score_mat <- matrix(nrow = r, ncol = ncol(Y))
+    # number of fwer under consideration
+    n_fwer <- length(fwer)
     # vector for storing confidence band
-    conf_band <- numeric(r)
+    conf_band <- matrix(nrow = r, ncol = n_fwer)
   }
   
   for(i in 1:r){
@@ -174,7 +177,7 @@ moco <- function(
       
       # store z_score and confidence band
       z_score_mat[i,] <- hypo$z_score
-      conf_band[i] <- hypo$conf_band
+      conf_band[i,] <- hypo$conf_band
     }
   }
   
@@ -191,15 +194,23 @@ moco <- function(
     # calculate z_score average across runs
     z_score <- add_NA(colMeans(z_score_mat), seed_position)
     # calculate average confidence band
-    conf_band_avg <- mean(conf_band)
+    conf_band_avg <- colMeans(conf_band)
     
     # regions with significant associations
-    significant_regions <- (abs(z_score) > conf_band_avg)
+    if(n_fwer == 1){
+      significant_regions <- (abs(z_score) > conf_band_avg)
+    }else{
+      significant_regions <- matrix(nrow = n_fwer, ncol = length(z_score))
+      for(j in 1:n_fwer){
+        significant_regions[j,] <- (abs(z_score) > conf_band_avg[j])
+      }
+    }
     
     return(list(
       est = est,
       adj_association = adj_association,
       z_score = z_score,
+      conf_band = conf_band_avg,
       significant_regions = significant_regions)
     )
   }
