@@ -112,11 +112,14 @@ moco <- function(
   r <- length(seed_rgn)
   
   # seed position
-  seed_position = which(apply(Y, 2, function(x){
+  seed_position <- which(apply(Y, 2, function(x){
     sum(is.na(x))
   }) == nrow(Y))
-  # remove NA column for subsequent calculation
-  Y = Y[, -seed_position]
+  
+  if(length(seed_position) != 0){
+    # remove NA column for subsequent calculation
+    Y <- Y[, -seed_position]
+  }
   
   # create matrix and vector for storing fitting results
   est <- list()
