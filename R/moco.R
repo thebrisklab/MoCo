@@ -108,6 +108,11 @@ moco <- function(
   ...
 ){
   
+  # check if A, X, Z are complete
+  if(sum(is.na(A)) != 0 | sum(is.na(X)) != 0 | sum(is.na(Z)) != 0) {
+    stop("There are missing values in A, X, or Z. Please input full data for these variables.")
+  }
+  
   # total number of runs for handling Monte Carlo variability
   r <- length(seed_rgn)
   
@@ -186,16 +191,22 @@ moco <- function(
   
   # merge multi-run estimation results
   est <- Reduce("+", est)/r
-  est <- t(apply(est, 1, add_NA, seed_position))
+  if(length(seed_position) != 0){
+    est <- t(apply(est, 1, add_NA, seed_position))
+  }
   est <- as.data.frame(est, row.names = c('est_A0', 'est_A1'))
   colnames(est) <- NULL
   
   # motion-controlled association
-  adj_association <- add_NA(colMeans(adj_association), seed_position)
+  if(length(seed_position) != 0){
+    adj_association <- add_NA(colMeans(adj_association), seed_position)
+  }
   
   if(test){
     # calculate z_score average across runs
-    z_score <- add_NA(colMeans(z_score_mat), seed_position)
+    if(length(seed_position) != 0){
+      z_score <- add_NA(colMeans(z_score_mat), seed_position)
+    }
     # calculate average confidence band
     conf_band_avg <- colMeans(conf_band)
     
