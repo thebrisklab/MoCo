@@ -198,14 +198,16 @@ moco <- function(
   colnames(est) <- NULL
   
   # motion-controlled association
+  adj_association <- colMeans(adj_association)
   if(length(seed_position) != 0){
-    adj_association <- add_NA(colMeans(adj_association), seed_position)
+    adj_association <- add_NA(adj_association, seed_position)
   }
   
   if(test){
     # calculate z_score average across runs
+    z_score <- colMeans(z_score_mat)
     if(length(seed_position) != 0){
-      z_score <- add_NA(colMeans(z_score_mat), seed_position)
+      z_score <- add_NA(z_score, seed_position)
     }
     # calculate average confidence band
     conf_band_avg <- colMeans(conf_band)
