@@ -108,13 +108,18 @@ moco <- function(
   ...
 ){
   
+  # total number of runs for handling Monte Carlo variability
+  r <- length(seed_rgn)
+  
   # check if A, X, Z are complete
   if(sum(is.na(A)) != 0 | sum(is.na(X)) != 0 | sum(is.na(Z)) != 0) {
     stop("There are missing values in A, X, or Z. Please input full data for these variables.")
   }
   
-  # total number of runs for handling Monte Carlo variability
-  r <- length(seed_rgn)
+  # change Y to matrix if it is a vector
+  if(is.null(dim(Y))){
+    Y <- as.matrix(Y)
+  }
   
   # seed position
   seed_position <- which(apply(Y, 2, function(x){
