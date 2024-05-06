@@ -96,7 +96,7 @@ fit_mechanism <- function(
     HAL_pMX = TRUE,
     HAL_pMXZ = TRUE,
     HAL_options = list(
-      max_degree = 6, 
+      max_degree = 3, 
       lambda_seq = exp(seq(-1, -10, length = 100)), 
       num_knots = c(1000, 500, 250)
     ),
@@ -562,7 +562,7 @@ one_step_cross <- function(
     ),
     HAL_pMX = TRUE,
     HAL_pMXZ = TRUE,
-    HAL_options = list(max_degree = 6, lambda_seq = exp(seq(-1, -10, length = 100)), num_knots = c(1000, 500, 250)),
+    HAL_options = list(max_degree = 3, lambda_seq = exp(seq(-1, -10, length = 100)), num_knots = c(1000, 500, 250)),
     seed = 1, 
     cv_folds = 5,
     ...
