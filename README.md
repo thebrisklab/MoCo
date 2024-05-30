@@ -85,8 +85,9 @@ moco(
 - `Delta_M`: A binary vector of length n indicating whether motion is available and meets inclusion criteria. If motion meets inclusion criteria for analysis, set Delta\_M = 1; otherwise, set Delta\_M = 0.                
 - `thresh`: A numeric value used to threshold M to produce Delta_M. One can specify either Delta\_M or thresh.
 - `Delta_Y`: A binary vector indicating the non-missingness and whether the brain image data `Y` passes quality control after preprocessing. Set `Delta_Y = 1` if `Y` is usable; otherwise, set `Delta_Y = 0`.
-- `SL_library` SuperLearner library for estimating nuisance regressions. Defaults to c("SL.earth","SL.glmnet","SL.gam","SL.glm", "SL.glm.interaction", "SL.step","SL.step.interaction","SL.xgboost","SL.ranger","SL.mean") if not specified.
-- `SL_library_customize` Customize SuperLearner library for estimating each nuisance regression. 
+- `SL_library`: SuperLearner library for estimating nuisance regressions. Defaults to c("SL.earth","SL.glmnet","SL.gam","SL.glm", "SL.glm.interaction", "SL.step","SL.step.interaction","SL.xgboost","SL.ranger","SL.mean") if not specified.
+- `SL_library_customize`: Customize SuperLearner library for estimating each nuisance regression. 
+
       - `gA`: SuperLearner library for estimating the propensity score.
       - `gDM`: SuperLearner library for estimating the probability P(Delta_M = 1 | A, X).
       - `gDY_AX`: SuperLearner library for estimating the probability P(Delta_Y = 1 | A, X).
@@ -96,6 +97,7 @@ moco(
       - `eta_AXM`: SuperLearner library for estimating E(mu_AMXZ pMX/pMXZ gDY_AX/gDY_AXZ | A, M, X, Delta_Y = 1).
       - `xi_AX`: SuperLearner library for estimating E(eta_AXZ | A, X).
 - `glm_formula`: All glm formulas default to NULL, indicating SuperLearner will be used for nuisance regressions.
+
       - `gA`: GLM formula for estimating the propensity score.
       - `gDM`: GLM formula for estimating the probability P(Delta_M = 1 | A, X).
       - `gDY_AX`: GLM formula for estimating the probability P(Delta_Y = 1 | A, X).
@@ -109,6 +111,7 @@ moco(
 - `HAL_pMX`: Specifies whether to estimate p(m | a, x, Delta_Y = 1) and p(m | a, x, Delta_M=1) using the highly adaptive lasso conditional density estimation method. Defaults to TRUE. If set to FALSE, please specify the pMX option in glm_formula, such as pMX = ".".
 - `HAL_pMXZ`: Specifies whether to estimate p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M=1) using the highly adaptive lasso conditional density estimation method. Defaults to TRUE. If set to FALSE, please specify the pMXZ option in glm_formula, such as pMXZ = ".".
 - `HAL_options`: Additional options for the highly adaptive lasso (HAL) method. These will be passed to the haldensify function in the haldensify package.
+
       - `max_degree`: The highest order of interaction terms for generating basis functions.
       - `lambda_seq`: A numeric sequence of values for the regularization parameter of Lasso regression.
       - `num_knots`: The maximum number of knot points (i.e., bins) for any covariate for generating basis functions.
