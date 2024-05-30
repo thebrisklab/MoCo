@@ -28,7 +28,7 @@ install_github("thebrisklab/MoCo")
 library(MoCo)
 ```
 
-## Description of main function
+## Description of the main function
 
 The `moco()` function serves as the main function of MoCo. The input and output of the function are illustrated in the figure below.
 
