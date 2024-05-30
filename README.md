@@ -32,5 +32,5 @@ library(MoCo)
 
 The `moco()` is the main function of MoCo. The input and output of the function is in the figure below.
 
-<img src="fig/input_output.png" width="300" align="center"/>
+<img src="fig/input_output.png" width="600" align="center"/>
 
