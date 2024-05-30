@@ -32,7 +32,7 @@ library(MoCo)
 
 The `moco()` function serves as the main function of MoCo. The input and output of the function are illustrated in the figure below.
 
-<img src="fig/input_output.png" width="800" align="center"/>
+<img src="fig/input_output.png" width="750" align="center"/>
 
 ```
 moco(
