@@ -96,24 +96,22 @@ moco(
   - `eta_AXM`: SuperLearner library for estimating E(mu_AMXZ pMX/pMXZ gDY_AX/gDY_AXZ | A, M, X, Delta_Y = 1).
   - `xi_AX`: SuperLearner library for estimating E(eta_AXZ | A, X).
 - `glm_formula`: All glm formulas default to NULL, indicating SuperLearner will be used for nuisance regressions.
-
-      - `gA`: GLM formula for estimating the propensity score.
-      - `gDM`: GLM formula for estimating the probability P(Delta_M = 1 | A, X).
-      - `gDY_AX`: GLM formula for estimating the probability P(Delta_Y = 1 | A, X).
-      - `gDY_AXZ`: GLM formula for estimating the probability P(Delta_Y = 1 | A, X, Z).
-      - `mu_AMXZ`: GLM formula for estimating the outcome regression E(Y | Delta_Y = 1, A, M, X, Z).
-      - `eta_AXZ`: GLM formula for estimating E(mu_AMXZ pMXD / pMXZD | A, X, Z, Delta_M = 1).
-      - `eta_AXM`: GLM formula for estimating E(mu_AMXZ pMX/pMXZ gDY_AX/gDY_AXZ | A, M, X, Delta_Y = 1).
-      - `xi_AX`: GLM formula for estimating E(eta_AXZ | A, X).
-      - `pMX`: GLM formula for estimating p(m | a, x, Delta_Y = 1) and p(m | a, x, Delta_M = 1), assuming M follows a log normal distribution.
-      - `pMXZ`: GLM formula for estimating p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M = 1), assuming M follows a log normal distribution.
+  - `gA`: GLM formula for estimating the propensity score.
+  - `gDM`: GLM formula for estimating the probability P(Delta_M = 1 | A, X).
+  - `gDY_AX`: GLM formula for estimating the probability P(Delta_Y = 1 | A, X).
+  - `gDY_AXZ`: GLM formula for estimating the probability P(Delta_Y = 1 | A, X, Z).
+  - `mu_AMXZ`: GLM formula for estimating the outcome regression E(Y | Delta_Y = 1, A, M, X, Z).
+  - `eta_AXZ`: GLM formula for estimating E(mu_AMXZ pMXD / pMXZD | A, X, Z, Delta_M = 1).
+  - `eta_AXM`: GLM formula for estimating E(mu_AMXZ pMX/pMXZ gDY_AX/gDY_AXZ | A, M, X, Delta_Y = 1).
+  - `xi_AX`: GLM formula for estimating E(eta_AXZ | A, X).
+  - `pMX`: GLM formula for estimating p(m | a, x, Delta_Y = 1) and p(m | a, x, Delta_M = 1), assuming M follows a log normal distribution.
+  - `pMXZ`: GLM formula for estimating p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M = 1), assuming M follows a log normal distribution.
 - `HAL_pMX`: Specifies whether to estimate p(m | a, x, Delta_Y = 1) and p(m | a, x, Delta_M=1) using the highly adaptive lasso conditional density estimation method. Defaults to TRUE. If set to FALSE, please specify the pMX option in glm_formula, such as pMX = ".".
 - `HAL_pMXZ`: Specifies whether to estimate p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M=1) using the highly adaptive lasso conditional density estimation method. Defaults to TRUE. If set to FALSE, please specify the pMXZ option in glm_formula, such as pMXZ = ".".
 - `HAL_options`: Additional options for the highly adaptive lasso (HAL) method. These will be passed to the haldensify function in the haldensify package.
-
-      - `max_degree`: The highest order of interaction terms for generating basis functions.
-      - `lambda_seq`: A numeric sequence of values for the regularization parameter of Lasso regression.
-      - `num_knots`: The maximum number of knot points (i.e., bins) for any covariate for generating basis functions.
+  - `max_degree`: The highest order of interaction terms for generating basis functions.
+  - `lambda_seq`: A numeric sequence of values for the regularization parameter of Lasso regression.
+  - `num_knots`: The maximum number of knot points (i.e., bins) for any covariate for generating basis functions.
 - `cross_fit`: Logical indicating whether to develop the estimator based on cross-fitting. Defaults to TRUE.
 - `test`: Logical indicating whether to conduct hypothesis testing based on simultaneous confidence band. Defaults to TRUE.
 - `fwer`: A vector of family-wise error rates (FWER) to control for multiple hypothesis testing. Defaults to c(0.05). Set to NULL if `test` is FALSE.
