@@ -87,15 +87,14 @@ moco(
 - `Delta_Y`: A binary vector indicating the non-missingness and whether the brain image data `Y` passes quality control after preprocessing. Set `Delta_Y = 1` if `Y` is usable; otherwise, set `Delta_Y = 0`.
 - `SL_library`: SuperLearner library for estimating nuisance regressions. Defaults to c("SL.earth","SL.glmnet","SL.gam","SL.glm", "SL.glm.interaction", "SL.step","SL.step.interaction","SL.xgboost","SL.ranger","SL.mean") if not specified.
 - `SL_library_customize`: Customize SuperLearner library for estimating each nuisance regression. 
-
-      - `gA`: SuperLearner library for estimating the propensity score.
-      - `gDM`: SuperLearner library for estimating the probability P(Delta_M = 1 | A, X).
-      - `gDY_AX`: SuperLearner library for estimating the probability P(Delta_Y = 1 | A, X).
-      - `gDY_AXZ`: SuperLearner library for estimating the probability P(Delta_Y = 1 | A, X, Z).
-      - `mu_AMXZ`: SuperLearner library for estimating the outcome regression E(Y | Delta_Y = 1, A, M, X, Z).
-      - `eta_AXZ`: SuperLearner library for estimating E(mu_AMXZ pMXD / pMXZD | A, X, Z, Delta_M = 1).                
-      - `eta_AXM`: SuperLearner library for estimating E(mu_AMXZ pMX/pMXZ gDY_AX/gDY_AXZ | A, M, X, Delta_Y = 1).
-      - `xi_AX`: SuperLearner library for estimating E(eta_AXZ | A, X).
+                       - `gA`: SuperLearner library for estimating the propensity score.
+                       - `gDM`: SuperLearner library for estimating the probability P(Delta_M = 1 | A, X).
+                       - `gDY_AX`: SuperLearner library for estimating the probability P(Delta_Y = 1 | A, X).
+                       - `gDY_AXZ`: SuperLearner library for estimating the probability P(Delta_Y = 1 | A, X, Z).
+                       - `mu_AMXZ`: SuperLearner library for estimating the outcome regression E(Y | Delta_Y = 1, A, M, X, Z).
+                       - `eta_AXZ`: SuperLearner library for estimating E(mu_AMXZ pMXD / pMXZD | A, X, Z, Delta_M = 1).                
+                       - `eta_AXM`: SuperLearner library for estimating E(mu_AMXZ pMX/pMXZ gDY_AX/gDY_AXZ | A, M, X, Delta_Y = 1).
+                       - `xi_AX`: SuperLearner library for estimating E(eta_AXZ | A, X).
 - `glm_formula`: All glm formulas default to NULL, indicating SuperLearner will be used for nuisance regressions.
 
       - `gA`: GLM formula for estimating the propensity score.
