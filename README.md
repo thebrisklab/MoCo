@@ -32,7 +32,7 @@ library(MoCo)
 
 The `moco()` function serves as the main function of MoCo. The input and output of the function are illustrated in the figure below.
 
-<img src="fig/input_output.png" width="600" align="center"/>
+<img src="fig/input_output.png" width="800" align="center"/>
 
 ```
 moco(
@@ -114,3 +114,6 @@ moco(
 - `test`: Logical indicating whether to conduct hypothesis testing based on simultaneous confidence band. Defaults to TRUE.
 - `fwer`: A vector of family-wise error rates (FWER) to control for multiple hypothesis testing. Defaults to c(0.05). Set to NULL if `test` is FALSE.
 - `seed_rgn`: Specifies the value of seed(s) for nuisance regression calculation using super learner. Can be a vector. Defaults to value 1. 
+
+## Tutorial
+
