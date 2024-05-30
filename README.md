@@ -27,3 +27,10 @@ install_github("thebrisklab/MoCo")
 
 library(MoCo)
 ```
+
+## Tutorial
+
+The `moco()` is the main function of MoCo. The input and output of the function is in the figure below.
+
+<img src="fig/input_output.png" width="300" align="center"/>
+
