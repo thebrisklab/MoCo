@@ -135,3 +135,63 @@ The dataset includes a total of $n = 400$ participants. A, M, Delta\_M, Delta\_Y
 Demographic confounders X and behavioral phenotypes Z are represented as data frames, each containing multiple variables. Data frame X is of size $n \times 3$, containing three demographic dimensions: sex (X1), age (X2), and handedness (X3). In X1, females are coded as 0 and males as 1. X2 represents age as a continuous numeric value. X3 indicates handedness, with left-handed individuals coded as 0 and right-handed individuals as 1. Data frame Z is of size $n \times 4$, containing four behavior phenotypes. Z1 represents scores from the Autism Diagnostic Observation Schedule (ADOS), which measures social disability. Z2 contains the FIQ scores. Medication status is captured in two dimensions: Z3 indicates stimulant medication use, and Z4 indicates non-stimulant medication use. For both Z3 and Z4, a value of 0 denotes that the individual is not currently taking the respective medication.
 
 The functional connectivity matrix Y has dimensions $n \times 7$. Each row represents the z-transformed functional connectivity derived from rs-fMRI between the seed region and the other regions for a given participant. The 7th column, representing the functional connectivity of the seed region with itself, is filled with NA values to indicate its position. For participants with Delta\_Y = 0, the corresponding rows in Y contain all NAs, as their functional connectivity data is not available. The true differences in functional connectivity between each region and region 7 are as follows: for regions 1-4, the association is 0; for region 5, it is -0.0485; and for region 6, it is -0.0682. Region 5 and 6 are set to have significant associations.
+
+Then, we apply the `moco()` function is utilized to compute motion-controlled functional connectivity and associations. For illustrative purposes, we choose a simple setting. Here we select a basic SL\_Library, employ cross-fitting with cv\_folds = 5, and utilize glm for motion density estimation. In the end, we provide a suggested setting for conducting a more comprehensive analysis based on more accurate density estimation using highly adaptive lasso density estimation.
+
+```
+# computing motion-controlled functional connectivity and associations
+result = moco(
+  X = data$X,
+  Z = data$Z,
+  A = data$A,
+  M = data$M,
+  Y = data$Y,
+  Delta_M = data$Delta_M,
+  Delta_Y = data$Delta_Y,
+  SL_library = c("SL.mean", "SL.glm","SL.glm.interaction"),
+  glm_formula = list(pMX = ".",
+                     pMXZ = "."),
+  HAL_pMX = FALSE,
+  HAL_pMXZ = FALSE,
+  cross_fit = TRUE,
+  cv_folds = 5,  
+  seed_rgn = 1, 
+  test = TRUE,
+  fwer = 0.05
+)
+```
+
+The result will be a list of 4 elements as follows:
+
+```
+# motion-controlled mean functional connectivity
+round(result$est, 4)
+# est_A0 -0.2180 -0.1632 -0.1823 0.0535  0.0388 0.0828 NA
+# est_A1 -0.2194 -0.1654 -0.1813 0.0513 -0.0084 0.0141 NA
+
+# motion-controlled association
+round(result$adj_association, 4)
+# -0.0014 -0.0023  0.0010 -0.0022 -0.0472 -0.0687      NA
+
+# z-scores
+round(result$z_score, 4)
+# -0.0586 -0.0853  0.0413 -0.0933 -1.9196 -3.3033      NA
+
+# significant regions
+result$significant_regions
+# FALSE FALSE FALSE FALSE FALSE  TRUE    NA
+```
+
+Below is the code for a comprehensive setting recommended for running MoCo. This setting uses highly adaptive lasso for conditional density motion estimation, offering more flexible modeling of the conditional motion distribution. It utilizes all default parameters provided by the function, which uses the default Super Learner library for flexible nuisance regression estimation. Users only need to specify the definition of each variable to obtain results.
+
+```
+result = moco(
+  X = data$X,
+  Z = data$Z,
+  A = data$A,
+  M = data$M,
+  Y = data$Y,
+  Delta_M = data$Delta_M,
+  Delta_Y = data$Delta_Y
+)
+```
