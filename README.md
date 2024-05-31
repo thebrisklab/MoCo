@@ -193,6 +193,7 @@ result$significant_regions
 Below is the code for a comprehensive setting recommended for running MoCo. This setting uses highly adaptive lasso for conditional density motion estimation, offering more flexible modeling of the conditional motion distribution. It utilizes all default parameters provided by the function, which uses the default Super Learner library for flexible nuisance regression estimation. Users only need to specify the definition of each variable to obtain results.
 
 ```
+# computing motion-controlled functional connectivity and associations (recommended)
 result = moco(
   X = data$X,
   Z = data$Z,
