@@ -2,23 +2,22 @@
 #' 
 #' @details Compute non-parametric efficient motion-controlled brain phenotype estimators (MoCo) using one-step estimation
 #' 
-#' @param A Binary vector of length n \code{number of participants}, denoting diagnosis status.
-#' @param X Dataframe or matrix of baseline covariates, typically demographic covariates that would be balanced in a randomized control trial.
-#' @param Z Dataframe or matrix of diagnosis-related covariates.
-#' @param M Numeric vector of length n representing the motion values.
-#' @param Y Matrix of dimension n \times p, where n is the number of participants, and p is the number of regions of interest.
+#' @param X A dataframe or matrix containing demographic confounders that would ideally be balanced in a randomized controlled trial.
+#' @param Z A dataframe or matrix of covariates representing brain phenotypes.
+#' @param A A binary vector of length n (number of participants), serving as a group indicator, such as diagnosis group or control group.
+#' @param M A numeric vector of length n representing continuous motion values for each participant.
+#' @param Y A matrix of dimension n x p, where n is the number of participants, and p is the number of regions of interest.
 #'          If it represents seed-based association measures:
 #'            Each (i, j) element denotes participant i's association measure between the seed region and region j.
 #'            The column representing the association measure of the seed region with itself should be filled with NA values to indicate its position.
 #'          If it represents other types of association measures:
 #'            Each (i, j) element denotes participant i's association measure between two brain regions of interest, such as the upper diagonal part of the functional connectivity matrix.
 #'            No NA values are allowed in \code{Y} in this case.
-#' @param Delta_M Binary vector of length n indicating data usability, based on the motion value.
-#'                It corresponds to a binary variable indicating whether motion is available and meets inclusion criteria for conventional analyses.
-#'                If motion meets inclusion criteria for analysis, set \code{Delta_M = 1}; otherwise, set \code{Delta_M = 0}.                
-#' @param thresh Value used to threshold M to produce Delta_M. One can specify either Delta_M or thresh.
-#' @param Delta_Y Binary vector indicating the non-missingness of brain image data \code{Y}. 
-#'                Set \code{Delta_Y = 1} if \code{Y} is available; otherwise, set \code{Delta_Y = 0}.
+#' @param Delta_M A binary vector of length n indicating whether motion is available and meets inclusion criteria. 
+#'          If motion meets inclusion criteria for analysis, set \code{Delta_M} = 1; otherwise, set \code{Delta_M} = 0.             
+#' @param thresh A numeric value used to threshold M to produce \code{Delta_M}. One can specify either \code{Delta_M} or thresh.
+#' @param Delta_Y A binary vector indicating the non-missingness and whether the brain image data \code{Y} passes quality control after preprocessing. 
+#'          Set \code{Delta_Y = 1} if \code{Y} is usable; otherwise, set \code{Delta_Y = 0}.
 #' 
 #' @param SL_library SuperLearner library for estimating nuisance regressions. 
 #'                   Defaults to c("SL.earth","SL.glmnet","SL.gam","SL.glm", "SL.glm.interaction", "SL.step","SL.step.interaction","SL.xgboost","SL.ranger","SL.mean") if not specified.
@@ -54,8 +53,8 @@
 #'                   - \code{lambda_seq}: A numeric sequence of values for the regularization parameter of Lasso regression (passed to \code{haldensify}).
 #'                   - \code{num_knots}: The maximum number of knot points (i.e., bins) for any covariate for generating basis functions (passed to \code{haldensify}).
 #' 
-#' @importFrom SuperLearner SuperLearner
-#' @importFrom haldensify haldensify
+#' @import SuperLearner 
+#' @import haldensify 
 #' 
 #' @return A list with named entries 
 #' \describe{

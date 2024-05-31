@@ -6,6 +6,8 @@
 #' @param fwer Family-wise error rates (FWER) for control.
 #' @param seed A numeric value to control the randomness of the random variable sampling.
 #' 
+#' @import MASS
+#' 
 #' @return A list with named entries:
 #'   \item{conf_band}{Simultaneous confidence band based on specified FWER.}
 #'   \item{z_score}{A p-length vector of z-scores for each functional connectivity.}

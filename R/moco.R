@@ -59,8 +59,9 @@
 #' @param fwer A vector of family-wise error rates (FWER) to control for multiple hypothesis testing. Defaults to c(0.05). Set to NULL if test is FALSE.
 #' @param seed_rgn Specifies the value of seed(s) for nuisance regression calculation using super learner. Can be a vector. Defaults to value 1. 
 #' 
-#' @importFrom SuperLearner SuperLearner
-#' @importFrom haldensify haldensify
+#' @import SuperLearner 
+#' @import haldensify 
+#' @import MASS
 #' 
 #' @return A list with named entries 
 #' \describe{
