@@ -161,18 +161,26 @@ result = moco(
 )
 ```
 
-The result will be a list of 4 elements as follows. The motion-controlled mean functional connectivity is stored in the `est` element. The first row corresponds to the adjusted mean functional connectivity for the non-ASD group ($A = 0$), and the second row corresponds to the ASD group ($A = 1$).  The first six columns represent the results for six regions with the seed region, respectively, and the last column is NA, as the seed region is at the 7th position. The motion-controlled association is stored in the `adj_association` vector of length seven, where the first six elements represent the adjusted association for the corresponding region. MoCo achieves satisfactory accuracy when comparing the estimated motion-controlled association with the ground truth. In addition to the motion-controlled functional connectivity and association, it contains 2 other elements: z-scores and a binary indicator indicating significance for each of the regions.
+The result will be a list of 4 elements. The motion-controlled mean functional connectivity is stored in the `est` element. The first row corresponds to the adjusted mean functional connectivity for the non-ASD group ($A = 0$), and the second row corresponds to the ASD group ($A = 1$).  The first six columns represent the results for six regions with the seed region, respectively, and the last column is NA, as the seed region is at the 7th position. 
 
 ```
 # motion-controlled mean functional connectivity
 round(result$est, 4)
 # est_A0 -0.2180 -0.1632 -0.1823 0.0535  0.0388 0.0828 NA
 # est_A1 -0.2194 -0.1654 -0.1813 0.0513 -0.0084 0.0141 NA
+```
 
+The motion-controlled association is stored in the `adj_association` vector of length seven, where the first six elements represent the adjusted association for the corresponding region. MoCo achieves satisfactory accuracy when comparing the estimated motion-controlled association with the ground truth. 
+
+```
 # motion-controlled association
 round(result$adj_association, 4)
 # -0.0014 -0.0023  0.0010 -0.0022 -0.0472 -0.0687      NA
+```
 
+In addition to the motion-controlled functional connectivity and association, it contains 2 other elements: z-scores and a binary indicator indicating significance for each of the regions.
+
+```
 # z-scores
 round(result$z_score, 4)
 # -0.0586 -0.0853  0.0413 -0.0933 -1.9196 -3.3033      NA
