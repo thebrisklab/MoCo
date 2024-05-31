@@ -9,13 +9,14 @@ Ensure you have the following R packages installed:
 
 -   SuperLearner
 -   haldensify
+-   MASS
 -   devtools
 
 You can install them by running the following code:
 
 ``` r
-if(!require(c("SuperLearner","haldensify", "devtools"))){
-    install.packages(c("SuperLearner","haldensify", "devtools"))
+if(!require(c("SuperLearner","haldensify", "MASS", "devtools"))){
+    install.packages(c("SuperLearner","haldensify", "MASS", "devtools"))
 }
 ```
 
