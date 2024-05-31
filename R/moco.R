@@ -56,7 +56,7 @@
 #' 
 #' @param cross_fit Logical indicating whether to develop the estimator based on cross-fitting. Defaults to TRUE.
 #' @param test Logical indicating whether to conduct hypothesis testing based on simultaneous confidence band. Defaults to TRUE.
-#' @param fwer A vector of family-wise error rates (FWER) to control for multiple hypothesis testing. Defaults to 0.05. Set to NULL if hypo_test is FALSE.
+#' @param fwer A vector of family-wise error rates (FWER) to control for multiple hypothesis testing. Defaults to c(0.05). Set to NULL if test is FALSE.
 #' @param seed_rgn Specifies the value of seed(s) for nuisance regression calculation using super learner. Can be a vector. Defaults to value 1. 
 #' 
 #' @importFrom SuperLearner SuperLearner

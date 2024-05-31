@@ -117,3 +117,17 @@ moco(
 
 ## Tutorial
 
+In this tutorial, we demonstrate the application of the MoCo package with a straightforward example analysis. We generate a simulated dataset based on the Autism Brain Imaging Data Exchange [(ABIDE)](https://www.nature.com/articles/mp201378). Our seed region of interest is the default mode network (DMN). We are interested in studying the functional connectivity between DMN and the other six regions defined using the [Yeo 7 parcellation](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3174820/). We use MoCo to compute the motion-controlled mean functional connectivity and associations. 
+
+The dataset includes a total of $n = 400$ participants. A, M, Delta\_M, Delta\_Y are vectors of length $n$: Each element of A denotes a participant's diagnostic status, with 1 representing ASD and 0 representing non-ASD. M represents continuous motion values corresponding to mean FD. Participants are classified as having high motion if M exceeds 0.2 (Delta\_M = 0), consistent with the threshold used in the analysis of real data. The binary indicator Delta\_Y is a binary indicator equal to 0 for participants with poor-quality preprocessed images and 1 otherwise. The proportion of participants with Delta\_Y=0 is 7\%. Demographic confounders X and behavioral phenotypes Z are represented as data frames, each containing multiple variables. Data frame X is of size $n \times 3$, containing three demographic dimensions: sex (X1), age (X2), and handedness (X3). In X1, females are coded as 0 and males as 1. X2 represents age as a continuous numeric value. X3 indicates handedness, with left-handed individuals coded as 0 and right-handed individuals as 1. Data frame Z is of size $n \times 4$, containing four behavior phenotypes. Z1 represents scores from the Autism Diagnostic Observation Schedule (ADOS), which measures social disability. Z2 contains the FIQ scores. Medication status is captured in two dimensions: Z3 indicates stimulant medication use, and Z4 indicates non-stimulant medication use. For both Z3 and Z4, a value of 0 denotes that the individual is not currently taking the respective medication. The functional connectivity matrix Y has dimensions $n \times 7$. Each row represents the z-transformed functional connectivity derived from rs-fMRI between the seed region and the other regions for a given participant. The 7th column, representing the functional connectivity of the seed region with itself, is filled with NA values to indicate its position. For participants with Delta\_Y = 0, the corresponding rows in Y contain all NAs, as their functional connectivity data is not available. The true differences in functional connectivity between each region and region 7 are as follows: for regions 1-4, the association is 0; for region 5, it is -0.0485; and for region 6, it is -0.0682. Region 5 and 6 are set to have significant associations.
+
+```
+# library
+library(MoCo)
+
+# load data
+data(data)
+
+# inspect the data
+str(data)
+```
