@@ -161,7 +161,7 @@ result = moco(
 )
 ```
 
-The result will be a list of 4 elements as follows:
+The result will be a list of 4 elements as follows. The motion-controlled mean functional connectivity is stored in the `est` element. The first row corresponds to the adjusted mean functional connectivity for the non-ASD group ($A = 0$), and the second row corresponds to the ASD group ($A = 1$).  The first six columns represent the results for six regions with the seed region, respectively, and the last column is NA, as the seed region is at the 7th position. The motion-controlled association is stored in the `adj_association` vector of length seven, where the first six elements represent the adjusted association for the corresponding region. MoCo achieves satisfactory accuracy when comparing the estimated motion-controlled association with the ground truth. In addition to the motion-controlled functional connectivity and association, it contains 2 other elements: z-scores and a binary indicator indicating significance for each of the regions.
 
 ```
 # motion-controlled mean functional connectivity
