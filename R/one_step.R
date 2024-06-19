@@ -114,8 +114,14 @@ one_step <- function(
   }
   
   # change X and Z to a dataframe if is a vector
-  if(is.null(dim(X))){X <- data.frame(X = X)}
-  if(is.null(dim(Z))){Z <- data.frame(Z = Z)}
+  if(is.null(dim(X))){
+    if(is.null(X)){X <- rep(1, n)}
+    X <- data.frame(X = X)
+  }
+  if(is.null(dim(Z))){
+    if(is.null(Z)){Z <- rep(1, n)}
+    Z <- data.frame(Z = Z)
+  }
 
   # non-missing motion index
   index_nomissingM <- which(!is.na(M))

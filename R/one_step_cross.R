@@ -580,6 +580,10 @@ one_step_cross <- function(
     Delta_M[is.na(M)] <- 0
   }
   
+  # if X or Z is null
+  if(is.null(X)){X <- rep(1, n)}
+  if(is.null(Z)){Z <- rep(1, n)}
+  
   # the original dataset
   dat <- list(X = data.frame(X), Z = data.frame(Z), A = data.frame(A), 
               M = data.frame(M), Delta_M = data.frame(Delta_M), 
