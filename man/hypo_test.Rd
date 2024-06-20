@@ -9,7 +9,7 @@ hypo_test(result, fwer = 0.05, seed = 1)
 \arguments{
 \item{result}{The result of fitting based on the one-step function or one-step cross function.}
 
-\item{fwer}{Family-wise error rate (FWER) for control.}
+\item{fwer}{Family-wise error rates (FWER) for control.}
 
 \item{seed}{A numeric value to control the randomness of the random variable sampling.}
 }

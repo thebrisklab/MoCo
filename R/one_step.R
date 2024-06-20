@@ -106,8 +106,16 @@ one_step <- function(
   n <- nrow(Y)
   # number of edges
   p <- ncol(Y)
+  # whether motion is available
+  M_indicator <- (!is.null(M))
   
-  if(!is.null(thresh)){
+  if(!M_indicator){
+    # missingness indicator as in Nebel
+    Delta_Y <- ifelse(Delta_M + Delta_Y == 2, 1, 0)
+    # impute M to be all 1's for computation convenience
+    M <- rep(1, n)
+    # M[Delta_Y == 0] <- NA
+  }else if(!is.null(thresh)){
     # if thresh is not null, collapse M into dummy variables based on truncated level thresh
     Delta_M <- as.numeric(M < thresh)
     Delta_M[is.na(M)] <- 0
@@ -159,41 +167,10 @@ one_step <- function(
     gAn_1 <- stats::predict(gA_fit, type = "response", newdata = X)[[1]]
   }
   
-  # fit binary mediator regression
-  if(!is.null(glm_formula$gDM)){
-    gDM_fit <- stats::glm(paste0("Delta_M ~ ", glm_formula$gDM), family = binomial(), 
-                          data = data.frame(Delta_M = Delta_M, A, X))
-    gDMn_1_A0 <- stats::predict(gDM_fit, type = "response", newdata = data.frame(A = 0, X))
-  }else{
-    set.seed(seed)
-    gDM_fit <- SuperLearner::SuperLearner(Y = Delta_M, X = data.frame(A, X),
-                                          family = binomial(), 
-                                          SL.library = SL_gDM,
-                                          method = tmp_method.CC_nloglik(),
-                                          control = list(saveCVFitLibrary = TRUE))
-    gDMn_1_A0 <- stats::predict(gDM_fit, type = "response", newdata = data.frame(A = 0, X))[[1]]
-  }
-  
   # fit missingness indicator regression
   if(sum(Delta_Y) == n){
-    gDYn_1_AX <- rep(1, n)
     gDYn_1_AXZ <- gDYn_1_A0XZ <- gDYn_1_A1XZ <- rep(1, n)
   }else{
-    # probability of non-missing conditioning on disease status A, baseline covariates X and diagnosis-related covariates Z
-    if(!is.null(glm_formula$gDY_AX)){
-      gDY_AX_fit <- stats::glm(paste0("Delta_Y ~ ", glm_formula$gDY_AX), family = binomial(), 
-                               data = data.frame(Delta_Y = Delta_Y, A, X))
-      gDYn_1_AX <- stats::predict(gDY_AX_fit, type = "response", newdata = data.frame(A, X))
-    }else{
-      set.seed(seed)
-      gDY_AX_fit <- SuperLearner::SuperLearner(Y = Delta_Y, X = data.frame(A, X),
-                                               family = binomial(), 
-                                               SL.library = SL_gDY_AX,
-                                               method = tmp_method.CC_nloglik(),
-                                               control = list(saveCVFitLibrary = TRUE))
-      gDYn_1_AX <- stats::predict(gDY_AX_fit, type = "response", newdata = data.frame(A, X))[[1]]
-    }
-  
     # probability of non-missing conditioning on disease status A, baseline covariates X and diagnosis-related covariates Z
     if(!is.null(glm_formula$gDY_AXZ)){
       gDY_AXZ_fit <- stats::glm(paste0("Delta_Y ~ ", glm_formula$gDY_AXZ), family = binomial(), 
@@ -214,80 +191,116 @@ one_step <- function(
     }
   }
   
-  if(HAL_pMX){
-    # density estimation for mediator, conditioning on disease status and baseline covariates p(m|a,x)
-    # estimate p(m|a,x) use highly adaptive lasso conditional density estimation method
-    # use default n_bins range, use cv to choose number of bins
-    pMX_fit <- haldensify::haldensify(
-      A = M[Delta_Y == 1],
-      W = data.frame(A, X)[Delta_Y == 1,],
-      max_degree = HAL_options$max_degree,
-      lambda_seq = HAL_options$lambda_seq,
-      num_knots = HAL_options$num_knots
-    ) 
-    pMXn_A <- rep(NA, n)
-    pMXn_A[Delta_Y == 1] <- stats::predict(pMX_fit, new_A = M[Delta_Y == 1], new_W = data.frame(A, X)[Delta_Y == 1,])
+  if(M_indicator){
+    # fit binary mediator regression
+    if(!is.null(glm_formula$gDM)){
+      gDM_fit <- stats::glm(paste0("Delta_M ~ ", glm_formula$gDM), family = binomial(), 
+                            data = data.frame(Delta_M = Delta_M, A, X))
+      gDMn_1_A0 <- stats::predict(gDM_fit, type = "response", newdata = data.frame(A = 0, X))
+    }else{
+      set.seed(seed)
+      gDM_fit <- SuperLearner::SuperLearner(Y = Delta_M, X = data.frame(A, X),
+                                            family = binomial(), 
+                                            SL.library = SL_gDM,
+                                            method = tmp_method.CC_nloglik(),
+                                            control = list(saveCVFitLibrary = TRUE))
+      gDMn_1_A0 <- stats::predict(gDM_fit, type = "response", newdata = data.frame(A = 0, X))[[1]]
+    }
     
-    # density estimation for mediator, conditioning on diease status and baseline covariates p(m|0,x,Delta_M=1)
-    pMXD_fit <- haldensify::haldensify(
-      A = M[Delta_M == 1],
-      W = data.frame(A, X)[Delta_M == 1,],  
-      max_degree = HAL_options$max_degree,
-      lambda_seq = HAL_options$lambda_seq,
-      num_knots = HAL_options$num_knots
-    ) 
-    pMXDn_A0 <- rep(NA, n)
-    pMXDn_A0[index_nomissingM] <- stats::predict(pMXD_fit, new_A = M[index_nomissingM], new_W = data.frame(A = 0, X)[index_nomissingM,], trim_min = 0)
-  }else{
-    pMX_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMX), family = gaussian(), data = data.frame(log_M = log(M), A, X)[Delta_Y == 1,])
-    pMXn_A <- rep(NA, n)
-    pMXn_A[Delta_Y == 1] <- (1/M)[Delta_Y == 1] * dnorm(log(M)[Delta_Y == 1], mean = stats::predict(pMX_fit, newdata = data.frame(A, X)[Delta_Y == 1,]), sd = sd(pMX_fit$residuals)) 
+    if(sum(Delta_Y) == n){
+      gDYn_1_AX <- rep(1, n)
+    }else{
+      # probability of non-missing conditioning on disease status A, baseline covariates X and diagnosis-related covariates Z
+      if(!is.null(glm_formula$gDY_AX)){
+        gDY_AX_fit <- stats::glm(paste0("Delta_Y ~ ", glm_formula$gDY_AX), family = binomial(), 
+                                 data = data.frame(Delta_Y = Delta_Y, A, X))
+        gDYn_1_AX <- stats::predict(gDY_AX_fit, type = "response", newdata = data.frame(A, X))
+      }else{
+        set.seed(seed)
+        gDY_AX_fit <- SuperLearner::SuperLearner(Y = Delta_Y, X = data.frame(A, X),
+                                                 family = binomial(), 
+                                                 SL.library = SL_gDY_AX,
+                                                 method = tmp_method.CC_nloglik(),
+                                                 control = list(saveCVFitLibrary = TRUE))
+        gDYn_1_AX <- stats::predict(gDY_AX_fit, type = "response", newdata = data.frame(A, X))[[1]]
+      }
+    }
     
-    pMXD_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMX), family = gaussian(), data = data.frame(log_M = log(M), A, X)[Delta_M == 1,])
-    pMXDn_A0 <- rep(NA, n)
-    pMXDn_A0[Delta_M==0] <- 0
-    pMXDn_A0[Delta_M==1] <- (1/M)[Delta_M == 1] * dnorm(log(M)[Delta_M == 1], mean = stats::predict(pMXD_fit, newdata = data.frame(A=0,X)[Delta_M == 1,]), sd = sd(pMXD_fit$residuals)) 
-  }
-  
-  if(HAL_pMXZ){
-    # density estimation for mediator, conditioning on disease status, binary mediator, 
-    # baseline covariates, and mediator-outcome confounder p(m|0,x,z)
-    # use default n_bins range, use cv to choose number of bins
-    pMXZ_fit <- haldensify::haldensify(
-      A = M[Delta_Y == 1],
-      W = data.frame(A, X, Z)[Delta_Y == 1,], 
-      max_degree = HAL_options$max_degree,
-      lambda_seq = HAL_options$lambda_seq,
-      num_knots = HAL_options$num_knots
-    )
-    pMXZn_A0 <- pMXZn_A1 <- pMXZn_A <- rep(NA, n)
-    pMXZn_A[Delta_Y == 1] <- stats::predict(pMXZ_fit, new_A = M[Delta_Y == 1], new_W = data.frame(A, X, Z)[Delta_Y == 1,])
-    pMXZn_A0[Delta_Y == 1] <- stats::predict(pMXZ_fit, new_A = M[Delta_Y == 1], new_W = data.frame(A = 0, X, Z)[Delta_Y == 1,])
-    pMXZn_A1[Delta_Y == 1] <- stats::predict(pMXZ_fit, new_A = M[Delta_Y == 1], new_W = data.frame(A = 1, X, Z)[Delta_Y == 1,])
+    if(HAL_pMX){
+      # density estimation for mediator, conditioning on disease status and baseline covariates p(m|a,x)
+      # estimate p(m|a,x) use highly adaptive lasso conditional density estimation method
+      # use default n_bins range, use cv to choose number of bins
+      pMX_fit <- haldensify::haldensify(
+        A = M[Delta_Y == 1],
+        W = data.frame(A, X)[Delta_Y == 1,],
+        max_degree = HAL_options$max_degree,
+        lambda_seq = HAL_options$lambda_seq,
+        num_knots = HAL_options$num_knots
+      ) 
+      pMXn_A <- rep(NA, n)
+      pMXn_A[Delta_Y == 1] <- stats::predict(pMX_fit, new_A = M[Delta_Y == 1], new_W = data.frame(A, X)[Delta_Y == 1,])
+      
+      # density estimation for mediator, conditioning on diease status and baseline covariates p(m|0,x,Delta_M=1)
+      pMXD_fit <- haldensify::haldensify(
+        A = M[Delta_M == 1],
+        W = data.frame(A, X)[Delta_M == 1,],  
+        max_degree = HAL_options$max_degree,
+        lambda_seq = HAL_options$lambda_seq,
+        num_knots = HAL_options$num_knots
+      ) 
+      pMXDn_A0 <- rep(NA, n)
+      pMXDn_A0[index_nomissingM] <- stats::predict(pMXD_fit, new_A = M[index_nomissingM], new_W = data.frame(A = 0, X)[index_nomissingM,], trim_min = 0)
+    }else{
+      pMX_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMX), family = gaussian(), data = data.frame(log_M = log(M), A, X)[Delta_Y == 1,])
+      pMXn_A <- rep(NA, n)
+      pMXn_A[Delta_Y == 1] <- (1/M)[Delta_Y == 1] * dnorm(log(M)[Delta_Y == 1], mean = stats::predict(pMX_fit, newdata = data.frame(A, X)[Delta_Y == 1,]), sd = sd(pMX_fit$residuals)) 
+      
+      pMXD_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMX), family = gaussian(), data = data.frame(log_M = log(M), A, X)[Delta_M == 1,])
+      pMXDn_A0 <- rep(NA, n)
+      pMXDn_A0[Delta_M==0] <- 0
+      pMXDn_A0[Delta_M==1] <- (1/M)[Delta_M == 1] * dnorm(log(M)[Delta_M == 1], mean = stats::predict(pMXD_fit, newdata = data.frame(A=0,X)[Delta_M == 1,]), sd = sd(pMXD_fit$residuals)) 
+    }
     
-    # density estimation for mediator, conditioning on disease status, binary mediator, 
-    # baseline covariates, and mediator-outcome confounder p(m|0,x,z,Delta_M=1)
-    pMXZD_fit <- haldensify::haldensify(
-      A = M[Delta_M == 1],
-      W = data.frame(A, X, Z)[Delta_M == 1,], 
-      max_degree = HAL_options$max_degree,
-      lambda_seq = HAL_options$lambda_seq,
-      num_knots = HAL_options$num_knots
-    ) 
-    # predict and set probability for M value out of the support to be 0
-    pMXZDn_A <- rep(NA, n)
-    pMXZDn_A[index_nomissingM] <- stats::predict(pMXZD_fit, new_A = M[index_nomissingM], new_W = data.frame(A, X, Z)[index_nomissingM,], trim_min = 0)
-  }else{
-    pMXZ_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMXZ), family = gaussian(), data = data.frame(log_M = log(M), A, X, Z)[Delta_Y == 1,])
-    pMXZn_A0 <- pMXZn_A1 <- pMXZn_A <- rep(NA, n)
-    pMXZn_A[Delta_Y == 1] <- (1/M)[Delta_Y == 1] * dnorm(log(M)[Delta_Y == 1], mean = stats::predict(pMXZ_fit, newdata = data.frame(A, X, Z)[Delta_Y == 1,]), sd = sd(pMXZ_fit$residuals))    
-    pMXZn_A0[Delta_Y == 1] <- (1/M)[Delta_Y == 1] * dnorm(log(M)[Delta_Y == 1], mean = stats::predict(pMXZ_fit, newdata = data.frame(A = 0, X, Z)[Delta_Y == 1,]), sd = sd(pMXZ_fit$residuals))
-    pMXZn_A1[Delta_Y == 1] <- (1/M)[Delta_Y == 1] * dnorm(log(M)[Delta_Y == 1], mean = stats::predict(pMXZ_fit, newdata = data.frame(A = 1, X, Z)[Delta_Y == 1,]), sd = sd(pMXZ_fit$residuals))
-    
-    pMXZD_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMXZ), family = gaussian(), data = data.frame(log_M = log(M), A, X, Z)[Delta_M == 1,])
-    pMXZDn_A <- rep(NA, n)
-    pMXZDn_A[Delta_M==0] <- 0
-    pMXZDn_A[Delta_M==1] <- (1/M)[Delta_M==1] * dnorm(log(M)[Delta_M==1], mean = stats::predict(pMXZD_fit, newdata = data.frame(A, X, Z)[Delta_M==1,]), sd = sd(pMXZD_fit$residuals))
+    if(HAL_pMXZ){
+      # density estimation for mediator, conditioning on disease status, binary mediator, 
+      # baseline covariates, and mediator-outcome confounder p(m|0,x,z)
+      # use default n_bins range, use cv to choose number of bins
+      pMXZ_fit <- haldensify::haldensify(
+        A = M[Delta_Y == 1],
+        W = data.frame(A, X, Z)[Delta_Y == 1,], 
+        max_degree = HAL_options$max_degree,
+        lambda_seq = HAL_options$lambda_seq,
+        num_knots = HAL_options$num_knots
+      )
+      pMXZn_A0 <- pMXZn_A1 <- pMXZn_A <- rep(NA, n)
+      pMXZn_A[Delta_Y == 1] <- stats::predict(pMXZ_fit, new_A = M[Delta_Y == 1], new_W = data.frame(A, X, Z)[Delta_Y == 1,])
+      pMXZn_A0[Delta_Y == 1] <- stats::predict(pMXZ_fit, new_A = M[Delta_Y == 1], new_W = data.frame(A = 0, X, Z)[Delta_Y == 1,])
+      pMXZn_A1[Delta_Y == 1] <- stats::predict(pMXZ_fit, new_A = M[Delta_Y == 1], new_W = data.frame(A = 1, X, Z)[Delta_Y == 1,])
+      
+      # density estimation for mediator, conditioning on disease status, binary mediator, 
+      # baseline covariates, and mediator-outcome confounder p(m|0,x,z,Delta_M=1)
+      pMXZD_fit <- haldensify::haldensify(
+        A = M[Delta_M == 1],
+        W = data.frame(A, X, Z)[Delta_M == 1,], 
+        max_degree = HAL_options$max_degree,
+        lambda_seq = HAL_options$lambda_seq,
+        num_knots = HAL_options$num_knots
+      ) 
+      # predict and set probability for M value out of the support to be 0
+      pMXZDn_A <- rep(NA, n)
+      pMXZDn_A[index_nomissingM] <- stats::predict(pMXZD_fit, new_A = M[index_nomissingM], new_W = data.frame(A, X, Z)[index_nomissingM,], trim_min = 0)
+    }else{
+      pMXZ_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMXZ), family = gaussian(), data = data.frame(log_M = log(M), A, X, Z)[Delta_Y == 1,])
+      pMXZn_A0 <- pMXZn_A1 <- pMXZn_A <- rep(NA, n)
+      pMXZn_A[Delta_Y == 1] <- (1/M)[Delta_Y == 1] * dnorm(log(M)[Delta_Y == 1], mean = stats::predict(pMXZ_fit, newdata = data.frame(A, X, Z)[Delta_Y == 1,]), sd = sd(pMXZ_fit$residuals))    
+      pMXZn_A0[Delta_Y == 1] <- (1/M)[Delta_Y == 1] * dnorm(log(M)[Delta_Y == 1], mean = stats::predict(pMXZ_fit, newdata = data.frame(A = 0, X, Z)[Delta_Y == 1,]), sd = sd(pMXZ_fit$residuals))
+      pMXZn_A1[Delta_Y == 1] <- (1/M)[Delta_Y == 1] * dnorm(log(M)[Delta_Y == 1], mean = stats::predict(pMXZ_fit, newdata = data.frame(A = 1, X, Z)[Delta_Y == 1,]), sd = sd(pMXZ_fit$residuals))
+      
+      pMXZD_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMXZ), family = gaussian(), data = data.frame(log_M = log(M), A, X, Z)[Delta_M == 1,])
+      pMXZDn_A <- rep(NA, n)
+      pMXZDn_A[Delta_M==0] <- 0
+      pMXZDn_A[Delta_M==1] <- (1/M)[Delta_M==1] * dnorm(log(M)[Delta_M==1], mean = stats::predict(pMXZD_fit, newdata = data.frame(A, X, Z)[Delta_M==1,]), sd = sd(pMXZD_fit$residuals))
+    }
   }
   
   # define parameters for storing results
@@ -315,51 +328,55 @@ one_step <- function(
       mu_MXZn_A[index_nomissingM] <- stats::predict(mu_AMXZ_fit, newdata = data.frame(A, M, X, Z)[index_nomissingM,])[[1]]
     }
     
-    # fit additional pseudo-outcome regression for mu_MXZ*pMXD/pMXZD, conditioning on disease status, binary mediator and baseline covariates
-    mu_pseudo_A <- mu_MXZn_A*pMXDn_A0/pMXZDn_A
-    if(!is.null(glm_formula$eta_AXZ)){
-      eta_AXZ_fit <- stats::glm(paste0("mu_pseudo_A ~ ", glm_formula$eta_AXZ), family = gaussian(), 
-                                data = data.frame(mu_pseudo_A = mu_pseudo_A, A, X, Z)[Delta_M==1,])
-      eta_AXZn_A <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A, X, Z))
-      eta_AXZn_A0 <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A = 0, X, Z))
-      eta_AXZn_A1 <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A = 1, X, Z))
+    if(M_indicator){
+      # fit additional pseudo-outcome regression for mu_MXZ*pMXD/pMXZD, conditioning on disease status, binary mediator and baseline covariates
+      mu_pseudo_A <- mu_MXZn_A*pMXDn_A0/pMXZDn_A
+      if(!is.null(glm_formula$eta_AXZ)){
+        eta_AXZ_fit <- stats::glm(paste0("mu_pseudo_A ~ ", glm_formula$eta_AXZ), family = gaussian(), 
+                                  data = data.frame(mu_pseudo_A = mu_pseudo_A, A, X, Z)[Delta_M==1,])
+        eta_AXZn_A <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A, X, Z))
+        eta_AXZn_A0 <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A = 0, X, Z))
+        eta_AXZn_A1 <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A = 1, X, Z))
+      }else{
+        set.seed(seed)
+        eta_AXZ_fit <- SuperLearner::SuperLearner(Y = mu_pseudo_A[Delta_M==1], X = data.frame(A, X, Z)[Delta_M==1,],
+                                                  family = gaussian(),
+                                                  SL.library = SL_eta_AXZ,
+                                                  method = tmp_method.CC_LS(),
+                                                  control = list(saveCVFitLibrary = TRUE))
+        eta_AXZn_A <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A, X, Z))[[1]]
+        eta_AXZn_A0 <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A = 0, X, Z))[[1]]
+        eta_AXZn_A1 <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A = 1, X, Z))[[1]]
+      }
+      
+      # fit pseudo-outcome regression for Qd, conditioning on disease status, mediator and baseline covariates
+      mu_pseudo_A_star <- mu_MXZn_A*pMXn_A/pMXZn_A*gDYn_1_AX/gDYn_1_AXZ
+      # fit the regression
+      if(!is.null(glm_formula$eta_AXM)){
+        eta_AXM_fit <- stats::glm(paste0("mu_pseudo_A_star ~ ", glm_formula$eta_AXM), family = gaussian(),
+                                  data = data.frame(mu_pseudo_A_star = mu_pseudo_A_star, A, M, X)[Delta_Y == 1,])
+        eta_AXMn_A0 <- stats::predict(eta_AXM_fit, newdata = data.frame(A = 0, M, X))
+        eta_AXMn_A1 <- stats::predict(eta_AXM_fit, newdata = data.frame(A = 1, M, X))
+      }else if(!is.null(SL_eta_AXM)){
+        set.seed(seed)
+        eta_AXMn_A0 <- eta_AXMn_A1 <- rep(NA, n)
+        # since observations with Delta_M=0 will not be considered in the next step
+        # so add restrictions here to better depict data with Delta_M=1 # [Delta_M==1]
+        eta_AXM_fit <- SuperLearner::SuperLearner(Y = mu_pseudo_A_star[Delta_Y == 1], X = data.frame(A, M, X)[Delta_Y == 1,],
+                                                  family = gaussian(), 
+                                                  SL.library = SL_eta_AXM,
+                                                  method = tmp_method.CC_LS(),
+                                                  control = list(saveCVFitLibrary = TRUE))
+        eta_AXMn_A0[index_nomissingM] <- stats::predict(eta_AXM_fit, type = "response", newdata = data.frame(A = 0, M, X)[index_nomissingM,])[[1]]
+        eta_AXMn_A1[index_nomissingM] <- stats::predict(eta_AXM_fit, type = "response", newdata = data.frame(A = 1, M, X)[index_nomissingM,])[[1]]
+      }else{
+        set.seed(seed)
+        eta_AXM_fit <- hal9001::fit_hal(X = data.frame(A, M, X)[Delta_Y == 1,], Y = mu_pseudo_A_star[Delta_Y == 1]) 
+        eta_AXMn_A0 <- stats::predict(eta_AXM_fit, new_data = data.frame(A = 0, M, X))
+        eta_AXMn_A1 <- stats::predict(eta_AXM_fit, new_data = data.frame(A = 1, M, X))
+      }
     }else{
-      set.seed(seed)
-      eta_AXZ_fit <- SuperLearner::SuperLearner(Y = mu_pseudo_A[Delta_M==1], X = data.frame(A, X, Z)[Delta_M==1,],
-                                                family = gaussian(),
-                                                SL.library = SL_eta_AXZ,
-                                                method = tmp_method.CC_LS(),
-                                                control = list(saveCVFitLibrary = TRUE))
-      eta_AXZn_A <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A, X, Z))[[1]]
-      eta_AXZn_A0 <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A = 0, X, Z))[[1]]
-      eta_AXZn_A1 <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A = 1, X, Z))[[1]]
-    }
-    
-    # fit pseudo-outcome regression for Qd, conditioning on disease status, mediator and baseline covariates
-    mu_pseudo_A_star <- mu_MXZn_A*pMXn_A/pMXZn_A*gDYn_1_AX/gDYn_1_AXZ
-    # fit the regression
-    if(!is.null(glm_formula$eta_AXM)){
-      eta_AXM_fit <- stats::glm(paste0("mu_pseudo_A_star ~ ", glm_formula$eta_AXM), family = gaussian(),
-                                data = data.frame(mu_pseudo_A_star = mu_pseudo_A_star, A, M, X)[Delta_Y == 1,])
-      eta_AXMn_A0 <- stats::predict(eta_AXM_fit, newdata = data.frame(A = 0, M, X))
-      eta_AXMn_A1 <- stats::predict(eta_AXM_fit, newdata = data.frame(A = 1, M, X))
-    }else if(!is.null(SL_eta_AXM)){
-      set.seed(seed)
-      eta_AXMn_A0 <- eta_AXMn_A1 <- rep(NA, n)
-      # since observations with Delta_M=0 will not be considered in the next step
-      # so add restrictions here to better depict data with Delta_M=1 # [Delta_M==1]
-      eta_AXM_fit <- SuperLearner::SuperLearner(Y = mu_pseudo_A_star[Delta_Y == 1], X = data.frame(A, M, X)[Delta_Y == 1,],
-                                                family = gaussian(), 
-                                                SL.library = SL_eta_AXM,
-                                                method = tmp_method.CC_LS(),
-                                                control = list(saveCVFitLibrary = TRUE))
-      eta_AXMn_A0[index_nomissingM] <- stats::predict(eta_AXM_fit, type = "response", newdata = data.frame(A = 0, M, X)[index_nomissingM,])[[1]]
-      eta_AXMn_A1[index_nomissingM] <- stats::predict(eta_AXM_fit, type = "response", newdata = data.frame(A = 1, M, X)[index_nomissingM,])[[1]]
-    }else{
-      set.seed(seed)
-      eta_AXM_fit <- hal9001::fit_hal(X = data.frame(A, M, X)[Delta_Y == 1,], Y = mu_pseudo_A_star[Delta_Y == 1]) 
-      eta_AXMn_A0 <- stats::predict(eta_AXM_fit, new_data = data.frame(A = 0, M, X))
-      eta_AXMn_A1 <- stats::predict(eta_AXM_fit, new_data = data.frame(A = 1, M, X))
+      eta_AXZn_A = mu_MXZn_A
     }
     
     # fit pseudo-outcome regression for eta_AXZ, conditioning on disease status and baseline covariates
@@ -379,17 +396,28 @@ one_step <- function(
       xi_AXn_A1 <- stats::predict(xi_fit, newdata = data.frame(A = 1, X))[[1]]
     }
     
-    eif_A0 <- make_full_data_eif(a = 0, A = A, Delta_Y = Delta_Y, Delta_M = Delta_M, Y = Y[,j], 
-                                 gA = 1 - gAn_1, gDM = gDMn_1_A0, gDY_AXZ = gDYn_1_A0XZ,
-                                 eta_AXZ = eta_AXZn_A0, eta_AXM = eta_AXMn_A0, 
-                                 xi_AX = xi_AXn_A0, 
-                                 mu = mu_MXZn_A0, pMXD = pMXDn_A0, pMXZ = pMXZn_A0)
-    
-    eif_A1 <- make_full_data_eif(a = 1, A = A, Delta_Y = Delta_Y, Delta_M = Delta_M, Y = Y[,j], 
-                                 gA = gAn_1, gDM = gDMn_1_A0, gDY_AXZ = gDYn_1_A1XZ,
-                                 eta_AXZ = eta_AXZn_A1, eta_AXM = eta_AXMn_A1, 
-                                 xi_AX = xi_AXn_A1, 
-                                 mu = mu_MXZn_A1, pMXD = pMXDn_A0, pMXZ = pMXZn_A1)
+    # calculate efficient influence function
+    if(M_indicator){
+      eif_A0 <- make_full_data_eif(a = 0, A = A, Delta_Y = Delta_Y, Delta_M = Delta_M, Y = Y[,j], 
+                                   gA = 1 - gAn_1, gDM = gDMn_1_A0, gDY_AXZ = gDYn_1_A0XZ,
+                                   eta_AXZ = eta_AXZn_A0, eta_AXM = eta_AXMn_A0, 
+                                   xi_AX = xi_AXn_A0, 
+                                   mu = mu_MXZn_A0, pMXD = pMXDn_A0, pMXZ = pMXZn_A0)
+      
+      eif_A1 <- make_full_data_eif(a = 1, A = A, Delta_Y = Delta_Y, Delta_M = Delta_M, Y = Y[,j], 
+                                   gA = gAn_1, gDM = gDMn_1_A0, gDY_AXZ = gDYn_1_A1XZ,
+                                   eta_AXZ = eta_AXZn_A1, eta_AXM = eta_AXMn_A1, 
+                                   xi_AX = xi_AXn_A1, 
+                                   mu = mu_MXZn_A1, pMXD = pMXDn_A0, pMXZ = pMXZn_A1)
+    }else{
+      eif_A0 = make_full_data_eif_easy(a = 0, A = A, Delta_Y = Delta_Y, Y = Y[,j], 
+                                       gA = 1 - gAn_1, gDY_AXZ = gDYn_1_A0XZ,
+                                       xi_AX = xi_AXn_A0, mu = mu_MXZn_A0)
+      
+      eif_A1 = make_full_data_eif_easy(a = 1, A = A, Delta_Y = Delta_Y, Y = Y[,j], 
+                                       gA = gAn_1, gDY_AXZ = gDYn_1_A1XZ,
+                                       xi_AX = xi_AXn_A1, mu = mu_MXZn_A1)
+    }
     
     # one-step estimator
     est[,j] <- c(mean(xi_AXn_A0) + mean(eif_A0), mean(xi_AXn_A1) + mean(eif_A1))

@@ -33,6 +33,19 @@ make_full_data_eif <- function(a, A, Delta_Y, Delta_M, Y, gA, gDM, gDY_AXZ, eta_
   return(p1 + p2 + p3 + p4)
 }
 
+make_full_data_eif_easy <- function(a, A, Delta_Y, Y, gA, gDY_AXZ, xi_AX, mu) {
+  ipw_a <- as.numeric(A == a) / gA
+  ipw_a_prime <- as.numeric(Delta_Y == 1 & A == a) / (gDY_AXZ * gA)
+  
+  p1 <- ipw_a_prime * (Y - mu)
+  p2 <- ipw_a * (mu - xi_AX)
+  p3 <- xi_AX - mean(xi_AX)
+  
+  p1[is.na(p1)] <- 0
+  
+  return(p1 + p2 + p3)
+}
+
 #' Add NA value back indicating seed position
 #'
 #' @param vec A vector indicating the MoCo estimates, adjusted association, z-scores, or significant regions.

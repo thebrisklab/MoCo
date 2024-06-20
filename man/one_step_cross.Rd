@@ -2,7 +2,7 @@
 % Please edit documentation in R/one_step_cross.R
 \name{one_step_cross}
 \alias{one_step_cross}
-\title{Non-parametric efficient motion-adjusted functional connectivity estimators}
+\title{Non-parametric efficient motion-controlled brain phenotype estimators}
 \usage{
 one_step_cross(
   X,
@@ -22,7 +22,7 @@ one_step_cross(
     NULL),
   HAL_pMX = TRUE,
   HAL_pMXZ = TRUE,
-  HAL_options = list(max_degree = 6, lambda_seq = exp(seq(-1, -10, length = 100)),
+  HAL_options = list(max_degree = 3, lambda_seq = exp(seq(-1, -10, length = 100)),
     num_knots = c(1000, 500, 250)),
   seed = 1,
   cv_folds = 5,
@@ -30,23 +30,29 @@ one_step_cross(
 )
 }
 \arguments{
-\item{X}{Dataframe or matrix of baseline covariates, typically demographic covariates that would be balanced in a randomized control trial}
+\item{X}{A dataframe or matrix containing demographic confounders that would ideally be balanced in a randomized controlled trial.}
 
-\item{Z}{Dataframe or matrix of diagnosis-related covariates}
+\item{Z}{A dataframe or matrix of covariates representing brain phenotypes.}
 
-\item{A}{Binary vector of length n \code{number of participants}, denoting diagnosis status}
+\item{A}{A binary vector of length n (number of participants), serving as a group indicator, such as diagnosis group or control group.}
 
-\item{M}{Numeric vector of length n representing the motion values.}
+\item{M}{A numeric vector of length n representing continuous motion values for each participant.}
 
-\item{Y}{Matrix of dimension n \times (p-1), where p is the number of functional connectivity of interest.
-Each (i, j) element denotes participant i's functional connectivity between the seed node and node j.}
+\item{Y}{A matrix of dimension n x p, where n is the number of participants, and p is the number of regions of interest.
+If it represents seed-based association measures:
+Each (i, j) element denotes participant i's association measure between the seed region and region j.
+The column representing the association measure of the seed region with itself should be filled with NA values to indicate its position.
+If it represents other types of association measures:
+Each (i, j) element denotes participant i's association measure between two brain regions of interest, such as the upper diagonal part of the functional connectivity matrix.
+No NA values are allowed in \code{Y} in this case.}
 
-\item{Delta_M}{Binary vector of length n indicating data usability, based on the motion value.
-It corresponds to a binary variable indicating whether motion is available and meets inclusion criteria for conventional analyses.}
+\item{Delta_M}{A binary vector of length n indicating whether motion is available and meets inclusion criteria.
+If motion meets inclusion criteria for analysis, set \code{Delta_M} = 1; otherwise, set \code{Delta_M} = 0.}
 
-\item{thresh}{Value used to threshold M to produce Delta_M. One can specify either Delta_M or thresh.}
+\item{thresh}{A numeric value used to threshold M to produce \code{Delta_M}. One can specify either \code{Delta_M} or thresh.}
 
-\item{Delta_Y}{Binary vector indicating the quality of T1-weighted image or missingness of rs-fMRI data.}
+\item{Delta_Y}{A binary vector indicating the non-missingness and whether the brain image data \code{Y} passes quality control after preprocessing.
+Set \code{Delta_Y = 1} if \code{Y} is usable; otherwise, set \code{Delta_Y = 0}.}
 
 \item{SL_library}{SuperLearner library for estimating nuisance regressions.
 Defaults to c("SL.earth","SL.glmnet","SL.gam","SL.glm", "SL.glm.interaction", "SL.step","SL.step.interaction","SL.xgboost","SL.ranger","SL.mean") if not specified.}
@@ -70,9 +76,11 @@ Defaults to c("SL.earth","SL.glmnet","SL.gam","SL.glm", "SL.glm.interaction", "S
 - \code{pMX}: GLM formula for estimating p(m | a, x) and p(m | a, x, Delta_M = 1), assuming M follows a normal distribution.
 - \code{pMXZ}: GLM formula for estimating p(m | a, x, z) and p(m | a, x, z, Delta_M = 1), assuming M follows a normal distribution.}
 
-\item{HAL_pMX}{Specifies whether to estimate p(m | a, x) and p(m | a, x, Delta_M=1) using the highly adaptive lasso conditional density estimation method. Defaults to \code{TRUE}.}
+\item{HAL_pMX}{Specifies whether to estimate p(m | a, x, Delta_Y = 1) and p(m | a, x, Delta_M=1) using the highly adaptive lasso conditional density estimation method.
+Defaults to \code{TRUE}. If set to \code{FALSE}, please specify the \code{pMX} option in \code{glm_formula}, such as \code{pMX = "."}.}
 
-\item{HAL_pMXZ}{Specifies whether to estimate p(m | a, x, z) and p(m | a, x, z, Delta_M=1) using the highly adaptive lasso conditional density estimation method. Defaults to \code{TRUE}.}
+\item{HAL_pMXZ}{Specifies whether to estimate p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M=1) using the highly adaptive lasso conditional density estimation method.
+Defaults to \code{TRUE}. If set to \code{FALSE}, please specify the \code{pMXZ} option in \code{glm_formula}, such as \code{pMXZ = "."}.}
 
 \item{HAL_options}{Additional options for highly adaptive lasso (HAL) method.
 - \code{max_degree}: The highest order of interaction terms for generating basis functions (passed to \code{haldensify}).
@@ -91,8 +99,8 @@ A list with named entries
 }
 }
 \description{
-Non-parametric efficient motion-adjusted functional connectivity estimators
+Non-parametric efficient motion-controlled brain phenotype estimators
 }
 \details{
-Compute non-parametric efficient motion-adjusted functional connectivity estimators based on the proposed method.
+Compute non-parametric efficient motion-controlled brain phenotype estimators (MoCo) using one-step cross-fitting
 }
