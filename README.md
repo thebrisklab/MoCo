@@ -1,147 +1,61 @@
-MoCo: **Mo**tion-**Co**ntrolled Brain Phenotype Differences Between Groups <img src="fig/MoCo.png" width="120" align="right"/>
-===================================================
+# MoCo: **Mo**tion-**Co**ntrolled Brain-Phenotype Differences Between Groups
 
-MoCo is an R package designed to remove motion artifacts in brain phenotype analysis. Please note that MoCo is still under development.
+<img src="fig/MoCo.png" width="120" align="right" alt="MoCo logo"/>
+
+> Nonparametric estimation of group-specific brain-phenotype means and group
+> differences while accounting for motion-related selection.
+
+MoCo is an R package for brain-imaging analyses in which motion affects both
+data quality and inclusion in the analyzed sample. The package combines
+one-step estimation, flexible nuisance-function learning, optional
+cross-fitting, and efficient-influence-function (EIF) inference. Outcomes may
+be functional-connectivity edges, regional imaging measures, or other
+continuous brain phenotypes.
+
+MoCo is under active development.
+
+## Highlights
+
+- A single high-level function, `moco()`, supports HAL, log-normal GLM, and
+  generalized-gamma GAMLSS models for conditional motion densities.
+- Nuisance regressions can be estimated with Super Learner or user-specified
+  GLMs.
+- Cross-fitting and repeated cross-fitting are supported.
+- A vector, one-column matrix, or multi-column outcome matrix can be analyzed.
+- EIF-based simultaneous confidence bands control the family-wise error rate
+  (FWER) across multiple outcomes.
+- Structurally missing outcome columns, such as seed-to-self correlations, are
+  removed during estimation and restored as `NA` in the output.
 
 ## Installation
 
-Ensure you have the following R packages installed:
+Install the development version from GitHub:
 
--   SuperLearner
--   haldensify
--   MASS
--   devtools
-
-You can install them by running the following code:
-
-``` r
-if(!require(c("SuperLearner","haldensify", "MASS", "devtools"))){
-    install.packages(c("SuperLearner","haldensify", "MASS", "devtools"))
-}
+```r
+# install.packages("remotes")
+remotes::install_github("thebrisklab/MoCo")
 ```
 
-Then, you can install MoCo from GitHub using the following code:
+Then load the package:
 
-```{r}
-library(devtools)
-install_github("thebrisklab/MoCo")
-
+```r
 library(MoCo)
 ```
 
-## Description of the main function
+Core dependencies are installed with MoCo. Packages corresponding to optional
+Super Learner wrappers—such as `glmnet`, `ranger`, and `xgboost`—are needed
+only when those learners are requested. Surface plotting additionally requires
+`ciftiTools` and Connectome Workbench.
 
-The `moco()` function serves as the main function of MoCo. The input and output of the function are illustrated in the figure below.
+## Quick start
 
-<img src="fig/input_output.png" width="750" align="center"/>
+The bundled example data can be used for a lightweight GLM-based analysis:
 
-```
-moco(
-  X, Z, A, M, Y, 
-  Delta_M, 
-  thresh = NULL,
-  Delta_Y,
-  SL_library = c("SL.earth","SL.glmnet","SL.gam","SL.glm", "SL.glm.interaction", "SL.step","SL.step.interaction","SL.xgboost","SL.ranger","SL.mean"),
-  SL_library_customize = list(
-    gA = NULL, 
-    gDM = NULL,
-    gDY_AX = NULL,
-    gDY_AXZ = NULL,
-    mu_AMXZ = NULL,
-    eta_AXZ = NULL,
-    eta_AXM = NULL,
-    xi_AX = NULL
-  ), 
-  glm_formula = list(gA = NULL, 
-                     gDM = NULL,
-                     gDY_AX = NULL,
-                     gDY_AXZ = NULL,
-                     mu_AMXZ = NULL,
-                     eta_AXZ = NULL,
-                     eta_AXM = NULL,
-                     xi_AX = NULL,
-                     pMX = NULL,
-                     pMXZ = NULL),
-  HAL_pMX = TRUE,
-  HAL_pMXZ = TRUE,
-  HAL_options = list(max_degree = 3, lambda_seq = exp(seq(-1, -10, length = 100)), num_knots = c(1000, 500, 250)),
-  cross_fit = TRUE,
-  cv_folds = 5,
-  test = TRUE,
-  fwer = 0.05, 
-  seed_rgn = 1, 
-  ...
-)
-```
-
-- `X`: A dataframe or matrix containing demographic confounders that would ideally be balanced in a randomized controlled trial.
-- `Z`: A dataframe or matrix of covariates representing brain phenotypes.
-- `A`: A binary vector of length n (number of participants), serving as a group indicator, such as diagnosis group or control group.
-- `M`: A numeric vector of length n representing continuous motion values for each participant.
-- `Y`: A matrix of dimension n $\times$ p, where n is the number of participants, and p is the number of regions of interest.
-    - If it represents seed-based association measures: Each (i, j) element denotes participant i's association measure between the seed region and region j. The column representing the association measure of the seed region with itself should be filled with NA values to indicate its position.
-    - If it represents other types of association measures: Each (i, j) element denotes participant i's association measure between two brain regions of interest, such as the upper diagonal part of the functional connectivity matrix. No NA values are allowed in Y in this case.
-- `Delta_M`: A binary vector of length n indicating whether motion is available and meets inclusion criteria. If motion meets inclusion criteria for analysis, set Delta\_M = 1; otherwise, set Delta\_M = 0.                
-- `thresh`: A numeric value used to threshold M to produce Delta_M. One can specify either Delta\_M or thresh.
-- `Delta_Y`: A binary vector indicating the non-missingness and whether the brain image data `Y` passes quality control after preprocessing. Set `Delta_Y = 1` if `Y` is usable; otherwise, set `Delta_Y = 0`.
-- `SL_library`: SuperLearner library for estimating nuisance regressions. Defaults to c("SL.earth","SL.glmnet","SL.gam","SL.glm", "SL.glm.interaction", "SL.step","SL.step.interaction","SL.xgboost","SL.ranger","SL.mean") if not specified.
-- `SL_library_customize`: Customize SuperLearner library for estimating each nuisance regression.
-  - `gA`: SuperLearner library for estimating the propensity score.
-  - `gDM`: SuperLearner library for estimating the probability P(Delta_M = 1 | A, X).
-  - `gDY_AX`: SuperLearner library for estimating the probability P(Delta_Y = 1 | A, X).
-  - `gDY_AXZ`: SuperLearner library for estimating the probability P(Delta_Y = 1 | A, X, Z).
-  - `mu_AMXZ`: SuperLearner library for estimating the outcome regression E(Y | Delta_Y = 1, A, M, X, Z).
-  - `eta_AXZ`: SuperLearner library for estimating E(mu_AMXZ pMXD / pMXZD | A, X, Z, Delta_M = 1).
-  - `eta_AXM`: SuperLearner library for estimating E(mu_AMXZ pMX/pMXZ gDY_AX/gDY_AXZ | A, M, X, Delta_Y = 1).
-  - `xi_AX`: SuperLearner library for estimating E(eta_AXZ | A, X).
-- `glm_formula`: All glm formulas default to NULL, indicating SuperLearner will be used for nuisance regressions.
-  - `gA`: GLM formula for estimating the propensity score.
-  - `gDM`: GLM formula for estimating the probability P(Delta_M = 1 | A, X).
-  - `gDY_AX`: GLM formula for estimating the probability P(Delta_Y = 1 | A, X).
-  - `gDY_AXZ`: GLM formula for estimating the probability P(Delta_Y = 1 | A, X, Z).
-  - `mu_AMXZ`: GLM formula for estimating the outcome regression E(Y | Delta_Y = 1, A, M, X, Z).
-  - `eta_AXZ`: GLM formula for estimating E(mu_AMXZ pMXD / pMXZD | A, X, Z, Delta_M = 1).
-  - `eta_AXM`: GLM formula for estimating E(mu_AMXZ pMX/pMXZ gDY_AX/gDY_AXZ | A, M, X, Delta_Y = 1).
-  - `xi_AX`: GLM formula for estimating E(eta_AXZ | A, X).
-  - `pMX`: GLM formula for estimating p(m | a, x, Delta_Y = 1) and p(m | a, x, Delta_M = 1), assuming M follows a log normal distribution.
-  - `pMXZ`: GLM formula for estimating p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M = 1), assuming M follows a log normal distribution.
-- `HAL_pMX`: Specifies whether to estimate p(m | a, x, Delta_Y = 1) and p(m | a, x, Delta_M=1) using the highly adaptive lasso conditional density estimation method. Defaults to TRUE. If set to FALSE, please specify the pMX option in glm_formula, such as pMX = ".".
-- `HAL_pMXZ`: Specifies whether to estimate p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M=1) using the highly adaptive lasso conditional density estimation method. Defaults to TRUE. If set to FALSE, please specify the pMXZ option in glm_formula, such as pMXZ = ".".
-- `HAL_options`: Additional options for the highly adaptive lasso (HAL) method. These will be passed to the haldensify function in the haldensify package.
-  - `max_degree`: The highest order of interaction terms for generating basis functions.
-  - `lambda_seq`: A numeric sequence of values for the regularization parameter of Lasso regression.
-  - `num_knots`: The maximum number of knot points (i.e., bins) for any covariate for generating basis functions.
-- `cross_fit`: Logical indicating whether to develop the estimator based on cross-fitting. Defaults to TRUE.
-- `test`: Logical indicating whether to conduct hypothesis testing based on simultaneous confidence band. Defaults to TRUE.
-- `fwer`: A vector of family-wise error rates (FWER) to control for multiple hypothesis testing. Defaults to c(0.05). Set to NULL if `test` is FALSE.
-- `seed_rgn`: Specifies the value of seed(s) for nuisance regression calculation using super learner. Can be a vector. Defaults to value 1. 
-
-## Tutorial
-
-In this tutorial, we demonstrate the application of the MoCo package with a straightforward example analysis. We generate a simulated dataset based on the Autism Brain Imaging Data Exchange [(ABIDE)](https://www.nature.com/articles/mp201378). Our seed region of interest is the default mode network (DMN). We are interested in studying the functional connectivity between DMN and the other six regions defined using the [Yeo 7 parcellation](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3174820/). We use MoCo to compute the motion-controlled mean functional connectivity and associations. 
-
-```
-# library
+```r
 library(MoCo)
-
-# load data
 data(data)
 
-# inspect the data
-str(data)
-```
-
-The dataset includes a total of $n = 400$ participants. A, M, Delta\_M, Delta\_Y are vectors of length $n$: Each element of A denotes a participant's diagnostic status, with 1 representing ASD and 0 representing non-ASD. M represents continuous motion values corresponding to mean FD. Participants are classified as having high motion if M exceeds 0.2 (Delta\_M = 0), consistent with the threshold used in the analysis of real data. The binary indicator Delta\_Y is a binary indicator equal to 0 for participants with poor-quality preprocessed images and 1 otherwise. The proportion of participants with Delta\_Y=0 is 7\%. 
-
-Demographic confounders X and behavioral phenotypes Z are represented as data frames, each containing multiple variables. Data frame X is of size $n \times 3$, containing three demographic dimensions: sex (X1), age (X2), and handedness (X3). In X1, females are coded as 0 and males as 1. X2 represents age as a continuous numeric value. X3 indicates handedness, with left-handed individuals coded as 0 and right-handed individuals as 1. Data frame Z is of size $n \times 4$, containing four behavior phenotypes. Z1 represents scores from the Autism Diagnostic Observation Schedule (ADOS), which measures social disability. Z2 contains the FIQ scores. Medication status is captured in two dimensions: Z3 indicates stimulant medication use, and Z4 indicates non-stimulant medication use. For both Z3 and Z4, a value of 0 denotes that the individual is not currently taking the respective medication.
-
-The functional connectivity matrix Y has dimensions $n \times 7$. Each row represents the z-transformed functional connectivity derived from rs-fMRI between the seed region and the other regions for a given participant. The 7th column, representing the functional connectivity of the seed region with itself, is filled with NA values to indicate its position. For participants with Delta\_Y = 0, the corresponding rows in Y contain all NAs, as their functional connectivity data is not available. The true differences in functional connectivity between each region and region 7 are as follows: for regions 1-4, the association is 0; for region 5, it is -0.0485; and for region 6, it is -0.0682. Region 5 and 6 are set to have significant associations.
-
-Then, we apply the `moco()` function is utilized to compute motion-controlled functional connectivity and associations. For illustrative purposes, we choose a simple setting. Here we select a basic SL\_Library, employ cross-fitting with cv\_folds = 5, and utilize glm for motion density estimation. In the end, we provide a suggested setting for conducting a more comprehensive analysis based on more accurate density estimation using highly adaptive lasso density estimation.
-
-```
-# computing motion-controlled functional connectivity and associations
-result = moco(
+fit_glm <- moco(
   X = data$X,
   Z = data$Z,
   A = data$A,
@@ -149,53 +63,263 @@ result = moco(
   Y = data$Y,
   Delta_M = data$Delta_M,
   Delta_Y = data$Delta_Y,
-  SL_library = c("SL.mean", "SL.glm","SL.glm.interaction"),
-  glm_formula = list(pMX = ".",
-                     pMXZ = "."),
-  HAL_pMX = FALSE,
-  HAL_pMXZ = FALSE,
+  pMX_method = "GLM",
+  pMXZ_method = "GLM",
+  glm_formula = list(pMX = ".", pMXZ = "."),
+  SL_library = c("SL.mean", "SL.glm", "SL.glm.interaction"),
   cross_fit = TRUE,
-  cv_folds = 5,  
-  seed_rgn = 1, 
+  cv_folds = 5,
+  seed_rgn = 1,
+  test = TRUE,
+  fwer = 0.05
+)
+
+fit_glm$est
+fit_glm$adj_association
+fit_glm$z_score
+fit_glm$significant_regions
+```
+
+The main outputs are:
+
+| Output | Description |
+|---|---|
+| `est` | Adjusted outcome means for `A = 0` and `A = 1` |
+| `adj_association` | Adjusted difference, `A = 1` minus `A = 0` |
+| `density_method` | Motion-density methods used for `pMX` and `pMXZ` |
+| `z_score` | EIF-based standardized statistic for each outcome |
+| `conf_band` | Simultaneous critical value for each requested FWER |
+| `significant_regions` | Simultaneous-test decisions |
+| `gamlss_selection_runs` | GAMLSS fitting information, when applicable |
+
+## Data interface
+
+<img src="fig/input_output.png" width="750" align="center" alt="MoCo inputs and outputs"/>
+
+`moco()` uses the following data objects:
+
+| Object | Role |
+|---|---|
+| `A` | Binary exposure or group indicator |
+| `X` | Baseline covariates |
+| `Z` | Post-exposure covariates used in the selection-bias adjustment |
+| `M` | Continuous motion measure |
+| `Y` | Continuous outcome vector or an `n` by `p` outcome matrix |
+| `Delta_M` | Indicator that motion satisfies the analysis inclusion rule |
+| `Delta_Y` | Indicator that the imaging outcome is observed and usable |
+
+`A`, `X`, and `Z` must be complete. `Y` may contain missing values in rows for
+which `Delta_Y = 0`. For a seed-based analysis, a seed-to-self outcome column
+may be entirely missing; MoCo restores that position as `NA` in its outputs.
+
+`Delta_M` can be supplied directly or constructed inside `moco()` by supplying
+`thresh`. The definitions of `Delta_M` and `Delta_Y` should be prespecified and
+reported with the analysis.
+
+## Choosing a motion-density model
+
+MoCo estimates two conditional motion densities:
+
+- `pMX`: a density conditional on `A` and `X`;
+- `pMXZ`: a density conditional on `A`, `X`, and `Z`.
+
+Choose their estimators with `pMX_method` and `pMXZ_method`. If
+`pMXZ_method = NULL`, it uses the method selected by `pMX_method`.
+
+| Method | Configuration | Use case |
+|---|---|---|
+| HAL | `pMX_method = "HAL"` | Flexible conditional-density estimation with minimal distributional structure |
+| GLM | `pMX_method = "GLM"` and `glm_formula$pMX`/`pMXZ` | Parsimonious log-normal motion-density model |
+| GAMLSS | `pMX_method = "GAMLSS"` | Flexible distributional regression for positive motion values |
+
+The methods for `pMX` and `pMXZ` may differ, although using the same method for
+both is generally easier to interpret and diagnose.
+
+### Highly adaptive lasso
+
+HAL is the default motion-density method. Its basis-function construction and
+regularization path can be controlled with `HAL_options`:
+
+```r
+fit_hal <- moco(
+  X = data$X,
+  Z = data$Z,
+  A = data$A,
+  M = data$M,
+  Y = data$Y,
+  Delta_M = data$Delta_M,
+  Delta_Y = data$Delta_Y,
+  pMX_method = "HAL",
+  pMXZ_method = "HAL"
+)
+```
+
+### Log-normal GLM
+
+For GLM motion densities, specify the right-hand side of the `pMX` and `pMXZ`
+models. A value of `"."` uses all available predictors for the corresponding
+density:
+
+```r
+fit_glm <- moco(
+  X = data$X,
+  Z = data$Z,
+  A = data$A,
+  M = data$M,
+  Y = data$Y,
+  Delta_M = data$Delta_M,
+  Delta_Y = data$Delta_Y,
+  pMX_method = "GLM",
+  pMXZ_method = "GLM",
+  glm_formula = list(pMX = ".", pMXZ = ".")
+)
+```
+
+### Generalized-gamma GAMLSS
+
+GAMLSS is useful when a log-normal motion model is too restrictive. The
+current implementation uses the generalized gamma (`GG`) family. Continuous
+covariates named in `gamlss_continuous_X` and `gamlss_continuous_Z` enter the
+location and scale models through `gamlss::pb()`; other covariates enter
+linearly, `A` enters the location model, and the shape parameter is constant.
+
+Motion observations used in GAMLSS density fitting must be finite and strictly
+positive. Convergence depends on the empirical motion distribution, sample
+size, covariate design, and optimizer. The optimizer changes the numerical
+fitting algorithm, not the statistical model.
+
+```r
+fit_gamlss <- moco(
+  X = data$X,
+  Z = data$Z,
+  A = data$A,
+  M = data$M,
+  Y = data$Y,
+  Delta_M = data$Delta_M,
+  Delta_Y = data$Delta_Y,
+  pMX_method = "GAMLSS",
+  pMXZ_method = "GAMLSS",
+  gamlss_continuous_X = names(data$X)[
+    vapply(data$X, is.numeric, logical(1))
+  ],
+  gamlss_continuous_Z = names(data$Z)[
+    vapply(data$Z, is.numeric, logical(1))
+  ],
+  gamlss_optimizer = "RS",
+  n.cyc = 300,
+  cross_fit = TRUE,
+  cv_folds = 5,
+  test = TRUE,
+  fwer = c(0.05, 0.20)
+)
+```
+
+The bundled simulated data demonstrate the API but are not intended as a
+GAMLSS convergence benchmark.
+
+#### GAMLSS arguments
+
+| Argument | Description |
+|---|---|
+| `gamlss_family` | Density family; currently restricted to `"GG"` |
+| `gamlss_optimizer` | `"RS"`, `"CG"`, or `"mixed"`; `"mixed"` uses `gamlss::mixed(1, 50)` |
+| `gamlss_continuous_X` | Continuous columns of `X` modeled with penalized splines |
+| `gamlss_continuous_Z` | Continuous columns of `Z` modeled with penalized splines |
+| `n.cyc` | Maximum number of GAMLSS fitting cycles |
+| `gamlss_bic_trace` | Whether to display GAMLSS fitting progress |
+| `gamlss_formula` | Reserved for interface compatibility |
+| `GAMLSS_BIC_select` | Reserved; model-structure selection is not currently performed |
+| `gamlss_bic_candidates` | Reserved for interface compatibility |
+
+## Tutorial: an ABIDE-like seed-based analysis
+
+The bundled data contain 400 simulated participants and reproduce the layout
+of a seed-based analysis motivated by the Autism Brain Imaging Data Exchange
+(ABIDE). The seed is the default mode network (DMN), and the outcomes represent
+its Fisher-z-transformed functional connectivity with networks from the Yeo
+seven-network parcellation.
+
+```r
+library(MoCo)
+data(data)
+str(data)
+```
+
+The simulated objects are:
+
+- `A`: diagnostic group, coded 1 for ASD and 0 for non-ASD;
+- `M`: mean framewise displacement;
+- `Delta_M`: motion inclusion, with high motion defined in the simulation as
+  mean FD greater than 0.2;
+- `Delta_Y`: imaging-data availability and quality;
+- `X`: sex, age, and handedness;
+- `Z`: ADOS, full-scale IQ, stimulant medication, and nonstimulant medication;
+- `Y`: an `n` by 7 functional-connectivity matrix.
+
+The seventh column of `Y` is the seed-to-self position and is therefore
+entirely `NA`. Rows with `Delta_Y = 0` are also missing because their imaging
+outcomes are unavailable. The simulated group differences are zero for the
+first four outcomes, -0.0485 for the fifth, and -0.0682 for the sixth.
+
+For a fast illustration, fit log-normal GLM motion densities and a compact
+Super Learner library:
+
+```r
+fit_abide <- moco(
+  X = data$X,
+  Z = data$Z,
+  A = data$A,
+  M = data$M,
+  Y = data$Y,
+  Delta_M = data$Delta_M,
+  Delta_Y = data$Delta_Y,
+  SL_library = c("SL.mean", "SL.glm", "SL.glm.interaction"),
+  glm_formula = list(pMX = ".", pMXZ = "."),
+  pMX_method = "GLM",
+  pMXZ_method = "GLM",
+  cross_fit = TRUE,
+  cv_folds = 5,
+  seed_rgn = 1,
   test = TRUE,
   fwer = 0.05
 )
 ```
 
-The result will be a list of 4 elements. The motion-controlled mean functional connectivity is stored in the `est` element. The first row corresponds to the adjusted mean functional connectivity for the non-ASD group ($A = 0$), and the second row corresponds to the ASD group ($A = 1$).  The first six columns represent the results for six regions with the seed region, respectively, and the last column is NA, as the seed region is at the 7th position. 
+The adjusted means are stored in `est`. The first row represents `A = 0`, the
+second represents `A = 1`, and the structural seventh column is restored as
+`NA`:
 
-```
-# motion-controlled mean functional connectivity
-round(result$est, 4)
-# est_A0 -0.2180 -0.1632 -0.1823 0.0535  0.0388 0.0828 NA
-# est_A1 -0.2194 -0.1654 -0.1813 0.0513 -0.0084 0.0141 NA
-```
-
-The motion-controlled association is stored in the `adj_association` vector of length seven, where the first six elements represent the adjusted association for the corresponding region. MoCo achieves satisfactory accuracy when comparing the estimated motion-controlled association with the ground truth. 
-
-```
-# motion-controlled association
-round(result$adj_association, 4)
-# -0.0014 -0.0023  0.0010 -0.0022 -0.0472 -0.0687      NA
+```r
+round(fit_abide$est, 4)
+# est_A0 -0.2180 -0.1632 -0.1823  0.0535  0.0388  0.0828 NA
+# est_A1 -0.2194 -0.1654 -0.1813  0.0513 -0.0084  0.0141 NA
 ```
 
-In addition to the motion-controlled functional connectivity and association, it contains 2 other elements: z-scores and a binary indicator indicating significance for each of the regions.
+The adjusted group differences are:
 
-```
-# z-scores
-round(result$z_score, 4)
-# -0.0586 -0.0853  0.0413 -0.0933 -1.9196 -3.3033      NA
-
-# significant regions
-result$significant_regions
-# FALSE FALSE FALSE FALSE FALSE  TRUE    NA
+```r
+round(fit_abide$adj_association, 4)
+# -0.0014 -0.0023  0.0010 -0.0022 -0.0472 -0.0687 NA
 ```
 
-Below is the code for a comprehensive setting recommended for running MoCo. This setting uses highly adaptive lasso for conditional density motion estimation, offering more flexible modeling of the conditional motion distribution. It utilizes all default parameters provided by the function, which uses the default Super Learner library for flexible nuisance regression estimation. Users only need to specify the definition of each variable to obtain results.
+The EIF-based test results are:
 
+```r
+round(fit_abide$z_score, 4)
+# -0.0586 -0.0853  0.0413 -0.0933 -1.9196 -3.3033 NA
+
+fit_abide$significant_regions
+# FALSE FALSE FALSE FALSE FALSE TRUE NA
 ```
-# computing motion-controlled functional connectivity and associations (recommended)
-result = moco(
+
+The numerical output above is illustrative; results may vary slightly with R,
+dependency, and numerical-optimization versions.
+
+For a flexible HAL analysis, the same example can be fitted using the default
+motion-density method:
+
+```r
+fit_abide_hal <- moco(
   X = data$X,
   Z = data$Z,
   A = data$A,
@@ -205,3 +329,174 @@ result = moco(
   Delta_Y = data$Delta_Y
 )
 ```
+
+## Multiple outcomes and repeated cross-fitting
+
+For simultaneous inference, pass all outcomes in the same `Y` matrix. MoCo
+uses their joint participant-level EIF correlation structure to obtain one
+simultaneous critical value at each requested FWER.
+
+Multiple values in `seed_rgn` request repeated cross-fitting partitions; they
+are not multiple GAMLSS optimizer initializations. MoCo performs repeated-seed
+aggregation in the following order:
+
+1. Average group-specific estimates across seeds.
+2. Average participant-level EIFs across seeds.
+3. Recompute covariance from the averaged EIFs.
+4. Calculate z-statistics and simultaneous critical values.
+
+Seed-specific z-statistics, p-values, covariance matrices, or critical values
+should not be averaged directly.
+
+```r
+fit_repeated <- moco(
+  X = data$X,
+  Z = data$Z,
+  A = data$A,
+  M = data$M,
+  Y = data$Y,
+  Delta_M = data$Delta_M,
+  Delta_Y = data$Delta_Y,
+  pMX_method = "GLM",
+  pMXZ_method = "GLM",
+  glm_formula = list(pMX = ".", pMXZ = "."),
+  seed_rgn = 1:10,
+  test_seed = 123,
+  test_n_sim = 500000,
+  test_chunk_size = 25000,
+  fwer = c(0.05, 0.10, 0.20)
+)
+```
+
+For one outcome, the procedure reduces to a one-dimensional EIF test. For
+multiple outcomes, `hypo_test()` simulates the maximum absolute statistic from
+their joint EIF correlation matrix. Use `hypo_test()` directly only when the
+estimates and participant-level EIFs have already been aggregated across
+repeated seeds and covariance has been recomputed.
+
+## Function reference
+
+The complete function documentation is available from R:
+
+```r
+?moco
+?hypo_test
+?plot_moco
+```
+
+<details>
+<summary><strong>Complete <code>moco()</code> interface</strong></summary>
+
+```r
+moco(
+  X, Z, A, M, Y,
+  Delta_M = NULL,
+  thresh = NULL,
+  Delta_Y,
+  SL_library = c(
+    "SL.earth", "SL.glmnet", "SL.gam", "SL.glm",
+    "SL.glm.interaction", "SL.step", "SL.step.interaction",
+    "SL.xgboost", "SL.ranger", "SL.mean"
+  ),
+  SL_library_customize = list(
+    gA = NULL, gDM = NULL, gDY_AX = NULL, gDY_AXZ = NULL,
+    mu_AMXZ = NULL, eta_AXZ = NULL, eta_AXM = NULL, xi_AX = NULL
+  ),
+  glm_formula = list(
+    gA = NULL, gDM = NULL, gDY_AX = NULL, gDY_AXZ = NULL,
+    mu_AMXZ = NULL, eta_AXZ = NULL, eta_AXM = NULL, xi_AX = NULL,
+    pMX = NULL, pMXZ = NULL
+  ),
+  pMX_method = c("HAL", "GLM", "GAMLSS"),
+  pMXZ_method = NULL,
+  gamlss_formula = list(
+    pMX_mu = NULL, pMX_sigma = ~ 1, pMX_nu = ~ 1,
+    pMXZ_mu = NULL, pMXZ_sigma = ~ 1, pMXZ_nu = ~ 1
+  ),
+  gamlss_family = "GG",
+  gamlss_optimizer = "RS",
+  GAMLSS_BIC_select = FALSE,
+  gamlss_continuous_X = character(0),
+  gamlss_continuous_Z = character(0),
+  gamlss_bic_candidates = c("linear", "pb_mu", "pb_mu_sigma"),
+  gamlss_bic_trace = FALSE,
+  n.cyc = 300,
+  HAL_options = list(
+    max_degree = 3,
+    lambda_seq = exp(seq(-1, -10, length = 100)),
+    num_knots = c(1000, 500, 250)
+  ),
+  cross_fit = TRUE,
+  cv_folds = 5,
+  test = TRUE,
+  fwer = 0.05,
+  seed_rgn = 1,
+  test_seed = 1,
+  test_n_sim = 100000L,
+  test_chunk_size = 25000L,
+  ...
+)
+```
+
+### Nuisance-model components
+
+`SL_library_customize` and `glm_formula` may configure the following nuisance
+functions separately:
+
+| Component | Target |
+|---|---|
+| `gA` | Propensity score, `P(A = 1 | X)` |
+| `gDM` | Motion inclusion, `P(Delta_M = 1 | A, X)` |
+| `gDY_AX` | Outcome observation, `P(Delta_Y = 1 | A, X)` |
+| `gDY_AXZ` | Outcome observation, `P(Delta_Y = 1 | A, X, Z)` |
+| `mu_AMXZ` | Outcome regression, `E(Y | Delta_Y = 1, A, M, X, Z)` |
+| `eta_AXZ` | Pseudo-outcome regression conditional on `A`, `X`, and `Z` |
+| `eta_AXM` | Pseudo-outcome regression conditional on `A`, `M`, and `X` |
+| `xi_AX` | Regression of `eta_AXZ` conditional on `A` and `X` |
+| `pMX` | Motion density conditional on `A` and `X` |
+| `pMXZ` | Motion density conditional on `A`, `X`, and `Z` |
+
+### Other controls
+
+| Argument | Description |
+|---|---|
+| `SL_library` | Common Super Learner library for nuisance regressions |
+| `SL_library_customize` | Separate libraries for `gA`, `gDM`, `gDY_AX`, `gDY_AXZ`, `mu_AMXZ`, `eta_AXZ`, `eta_AXM`, and `xi_AX` |
+| `glm_formula` | Right-hand-side formulas for nuisance GLMs and GLM motion densities |
+| `HAL_options` | HAL basis and regularization controls |
+| `cross_fit` | Whether to use cross-fitting |
+| `cv_folds` | Number of cross-fitting folds |
+| `seed_rgn` | Nuisance-fitting and cross-fitting seed or seeds |
+| `test` | Whether to run simultaneous EIF inference |
+| `fwer` | Requested family-wise error rates |
+| `test_seed` | Monte Carlo seed for simultaneous testing |
+| `test_n_sim` | Number of multivariate-normal simulation draws |
+| `test_chunk_size` | Maximum draws generated at once to limit memory use |
+
+</details>
+
+## Reproducibility and diagnostics
+
+- Use named columns in `X` and `Z`, especially for GAMLSS.
+- Save analysis-cohort IDs and preserve their order across outcomes and seeds.
+- Define `Delta_M` and `Delta_Y` explicitly in the analysis script.
+- Use the same outcome family when comparing simultaneous tests across methods.
+- Save the R version, package versions, learner library, fold count, and seeds.
+- Examine GAMLSS convergence and distributional diagnostics before interpreting
+  GAMLSS-based results.
+- In distributed analyses, save estimates and participant-level EIFs for every
+  outcome and seed, then aggregate them before calculating covariance and test
+  statistics.
+
+## Related software and resources
+
+- [SuperLearner](https://github.com/ecpolley/SuperLearner): ensemble learning
+  for nuisance-function estimation.
+- [haldensify](https://github.com/nhejazi/haldensify): highly adaptive lasso
+  conditional-density estimation.
+- [gamlss](https://github.com/gamlss-dev/gamlss): generalized additive models
+  for location, scale, and shape.
+- [ABIDE](https://www.nature.com/articles/mp201378): motivating neuroimaging
+  data resource for the bundled simulation.
+- [Yeo seven-network parcellation](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3174820/):
+  network definition used in the tutorial.
