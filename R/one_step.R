@@ -1,23 +1,21 @@
-#' Non-parametric efficient motion-controlled brain phenotype estimators
+#' One-step MoCo estimation without cross-fitting
 #' 
-#' @details Compute non-parametric efficient motion-controlled brain phenotype estimators (MoCo) using one-step estimation
+#' @details Computes group-specific outcome means and their contrast using the
+#'   MoCo one-step estimator without sample splitting. Most users should call
+#'   [moco()], which provides method selection, validation, repeated-seed
+#'   aggregation, and simultaneous inference.
 #' 
-#' @param X A dataframe or matrix containing demographic confounders that would ideally be balanced in a randomized controlled trial.
-#' @param Z A dataframe or matrix of covariates representing brain phenotypes.
-#' @param A A binary vector of length n (number of participants), serving as a group indicator, such as diagnosis group or control group.
+#' @param X A data frame or matrix of baseline covariates.
+#' @param Z A data frame or matrix of post-exposure covariates used by the selection-bias adjustment.
+#' @param A A binary exposure or group indicator of length `n`.
 #' @param M A numeric vector of length n representing continuous motion values for each participant.
-#' @param Y A matrix of dimension n x p, where n is the number of participants, and p is the number of regions of interest.
-#'          If it represents seed-based association measures:
-#'            Each (i, j) element denotes participant i's association measure between the seed region and region j.
-#'            The column representing the association measure of the seed region with itself should be filled with NA values to indicate its position.
-#'          If it represents other types of association measures:
-#'            Each (i, j) element denotes participant i's association measure between two brain regions of interest, such as the upper diagonal part of the functional connectivity matrix.
-#'            No NA values are allowed in \code{Y} in this case.
+#' @param Y An `n` by `p` numeric matrix of continuous outcomes. Rows with
+#'   `Delta_Y = 0` may contain missing outcomes.
 #' @param Delta_M A binary vector of length n indicating whether motion is available and meets inclusion criteria. 
 #'          If motion meets inclusion criteria for analysis, set \code{Delta_M} = 1; otherwise, set \code{Delta_M} = 0.             
 #' @param thresh A numeric value used to threshold M to produce \code{Delta_M}. One can specify either \code{Delta_M} or thresh.
-#' @param Delta_Y A binary vector indicating the non-missingness and whether the brain image data \code{Y} passes quality control after preprocessing. 
-#'          Set \code{Delta_Y = 1} if \code{Y} is usable; otherwise, set \code{Delta_Y = 0}.
+#' @param Delta_Y A binary vector indicating whether `Y` is observed and meets
+#'   the analysis quality criteria.
 #' 
 #' @param SL_library SuperLearner library for estimating nuisance regressions. 
 #'                   Defaults to c("SL.earth","SL.glmnet","SL.gam","SL.glm", "SL.glm.interaction", "SL.step","SL.step.interaction","SL.xgboost","SL.ranger","SL.mean") if not specified.
@@ -52,15 +50,17 @@
 #'                   - \code{max_degree}: The highest order of interaction terms for generating basis functions (passed to \code{haldensify}).
 #'                   - \code{lambda_seq}: A numeric sequence of values for the regularization parameter of Lasso regression (passed to \code{haldensify}).
 #'                   - \code{num_knots}: The maximum number of knot points (i.e., bins) for any covariate for generating basis functions (passed to \code{haldensify}).
+#' @param seed Integer seed used for nuisance-model fitting.
+#' @param ... Additional arguments reserved for future extensions.
 #' 
 #' @import SuperLearner 
 #' @import haldensify 
 #' 
 #' @return A list with named entries 
 #' \describe{
-#'   \item{est}{A two times p matrix showing the one-step estimators of the control group and the disease group for each functional connectivity of interest, respectively.}
-#'   \item{adj_association}{A p-length vector showing the motion-controlled association for each functional connectivity of interest, respectively.}
-#'   \item{eif_mat}{A p-length list of the estimated EIF evaluated on the observations of the control and disease group, respectively.}
+#'   \item{est}{A 2 by `p` matrix of one-step estimates for `A = 0` and `A = 1`.}
+#'   \item{adj_association}{A length-`p` vector of adjusted `A = 1` minus `A = 0` contrasts.}
+#'   \item{eif_mat}{A p-length list of the estimated EIF evaluated on the observations of the A = 0 and A = 1 groups, respectively.}
 #'   \item{cov_mat}{A p-length list of the estimated covariance matrix of the one-step estimators.}
 #' }
 
@@ -104,7 +104,7 @@ one_step <- function(
 ){
   # number of participants
   n <- nrow(Y)
-  # number of edges
+  # number of outcomes
   p <- ncol(Y)
   # whether motion is available
   M_indicator <- (!is.null(M))
@@ -149,7 +149,7 @@ one_step <- function(
   }
 
   # fit regression for propensity score 
-  # disease status, conditional on baseline covariates
+  # exposure or group indicator, conditional on baseline covariates
   if(!is.null(glm_formula$gA)){
     gA_fit <- stats::glm(paste0("A ~ ", glm_formula$gA), family = binomial(), 
                          data = data.frame(A = A, X))
@@ -171,7 +171,7 @@ one_step <- function(
   if(sum(Delta_Y) == n){
     gDYn_1_AXZ <- gDYn_1_A0XZ <- gDYn_1_A1XZ <- rep(1, n)
   }else{
-    # probability of non-missing conditioning on disease status A, baseline covariates X and diagnosis-related covariates Z
+    # probability of non-missing conditioning on exposure or group indicator A, baseline covariates X and post-exposure covariates Z
     if(!is.null(glm_formula$gDY_AXZ)){
       gDY_AXZ_fit <- stats::glm(paste0("Delta_Y ~ ", glm_formula$gDY_AXZ), family = binomial(), 
                                 data = data.frame(Delta_Y = Delta_Y, A, X, Z))
@@ -210,7 +210,7 @@ one_step <- function(
     if(sum(Delta_Y) == n){
       gDYn_1_AX <- rep(1, n)
     }else{
-      # probability of non-missing conditioning on disease status A, baseline covariates X and diagnosis-related covariates Z
+      # probability of non-missing conditioning on exposure or group indicator A, baseline covariates X and post-exposure covariates Z
       if(!is.null(glm_formula$gDY_AX)){
         gDY_AX_fit <- stats::glm(paste0("Delta_Y ~ ", glm_formula$gDY_AX), family = binomial(), 
                                  data = data.frame(Delta_Y = Delta_Y, A, X))
@@ -227,7 +227,7 @@ one_step <- function(
     }
     
     if(HAL_pMX){
-      # density estimation for mediator, conditioning on disease status and baseline covariates p(m|a,x)
+      # density estimation for mediator, conditioning on exposure or group indicator and baseline covariates p(m|a,x)
       # estimate p(m|a,x) use highly adaptive lasso conditional density estimation method
       # use default n_bins range, use cv to choose number of bins
       pMX_fit <- haldensify::haldensify(
@@ -240,7 +240,7 @@ one_step <- function(
       pMXn_A <- rep(NA, n)
       pMXn_A[Delta_Y == 1] <- stats::predict(pMX_fit, new_A = M[Delta_Y == 1], new_W = data.frame(A, X)[Delta_Y == 1,])
       
-      # density estimation for mediator, conditioning on diease status and baseline covariates p(m|0,x,Delta_M=1)
+      # density estimation for mediator, conditioning on exposure or group indicator and baseline covariates p(m|0,x,Delta_M=1)
       pMXD_fit <- haldensify::haldensify(
         A = M[Delta_M == 1],
         W = data.frame(A, X)[Delta_M == 1,],  
@@ -262,7 +262,7 @@ one_step <- function(
     }
     
     if(HAL_pMXZ){
-      # density estimation for mediator, conditioning on disease status, binary mediator, 
+      # density estimation for mediator, conditioning on exposure or group indicator, binary mediator, 
       # baseline covariates, and mediator-outcome confounder p(m|0,x,z)
       # use default n_bins range, use cv to choose number of bins
       pMXZ_fit <- haldensify::haldensify(
@@ -277,7 +277,7 @@ one_step <- function(
       pMXZn_A0[Delta_Y == 1] <- stats::predict(pMXZ_fit, new_A = M[Delta_Y == 1], new_W = data.frame(A = 0, X, Z)[Delta_Y == 1,])
       pMXZn_A1[Delta_Y == 1] <- stats::predict(pMXZ_fit, new_A = M[Delta_Y == 1], new_W = data.frame(A = 1, X, Z)[Delta_Y == 1,])
       
-      # density estimation for mediator, conditioning on disease status, binary mediator, 
+      # density estimation for mediator, conditioning on exposure or group indicator, binary mediator, 
       # baseline covariates, and mediator-outcome confounder p(m|0,x,z,Delta_M=1)
       pMXZD_fit <- haldensify::haldensify(
         A = M[Delta_M == 1],
@@ -329,7 +329,7 @@ one_step <- function(
     }
     
     if(M_indicator){
-      # fit additional pseudo-outcome regression for mu_MXZ*pMXD/pMXZD, conditioning on disease status, binary mediator and baseline covariates
+      # fit additional pseudo-outcome regression for mu_MXZ*pMXD/pMXZD, conditioning on exposure or group indicator, binary mediator and baseline covariates
       mu_pseudo_A <- mu_MXZn_A*pMXDn_A0/pMXZDn_A
       if(!is.null(glm_formula$eta_AXZ)){
         eta_AXZ_fit <- stats::glm(paste0("mu_pseudo_A ~ ", glm_formula$eta_AXZ), family = gaussian(), 
@@ -349,7 +349,7 @@ one_step <- function(
         eta_AXZn_A1 <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A = 1, X, Z))[[1]]
       }
       
-      # fit pseudo-outcome regression for Qd, conditioning on disease status, mediator and baseline covariates
+      # fit pseudo-outcome regression for Qd, conditioning on exposure or group indicator, mediator and baseline covariates
       mu_pseudo_A_star <- mu_MXZn_A*pMXn_A/pMXZn_A*gDYn_1_AX/gDYn_1_AXZ
       # fit the regression
       if(!is.null(glm_formula$eta_AXM)){
@@ -379,7 +379,7 @@ one_step <- function(
       eta_AXZn_A = mu_MXZn_A
     }
     
-    # fit pseudo-outcome regression for eta_AXZ, conditioning on disease status and baseline covariates
+    # fit pseudo-outcome regression for eta_AXZ, conditioning on exposure or group indicator and baseline covariates
     if(!is.null(glm_formula$xi_AX)){
       xi_fit <- stats::glm(paste0("eta_AXZn_A ~ ", glm_formula$xi_AX), family = gaussian(), 
                           data = data.frame(eta_AXZn_A = eta_AXZn_A, A, X))
@@ -440,4 +440,3 @@ one_step <- function(
   
   return(out)
 }
-

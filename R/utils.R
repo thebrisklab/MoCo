@@ -1,16 +1,18 @@
 #' Evaluate EIF for stochastic interventional (in)direct effects
 #'
 #' @param a Either 0 or 1.
-#' @param A A binary vector of length n \code{number of participants} representing the diagnosis status.
-#' @param Delta A binary vector indicating data usability, such as whether data pass a motion criteria.
+#' @param A A binary exposure or group-indicator vector of length `n`.
+#' @param Delta_Y Binary indicator that the outcome is observed and usable.
+#' @param Delta_M Binary indicator that motion meets the inclusion criterion.
 #' @param Y A vector of continuous outcome of interest.
 #' @param gA Estimate of P(A = 1 | X_i), i = 1,...,n.
-#' @param gD Estimate of P(Delta = 1 | A_i, X_i), i = 1,...,n.
+#' @param gDM Estimate of P(Delta_M = 1 | A_i, X_i), i = 1,...,n.
+#' @param gDY_AXZ Estimate of P(Delta_Y = 1 | A_i, X_i, Z_i).
 #' @param eta_AXZ Estimate of E(mu_pseudo_A | A_i, Delta_i, X_i).
 #' @param eta_AXM Estimate of E(mu_pseudo_A_star | A_i, M_i, X_i).
 #' @param xi_AX Estimate of E(eta_AXZ | A_i, Delta_i, X_i).
 #' @param mu Estimate of E(Y| A_i, M_i, X_i, Z_i).
-#' @param pMX Estimate of p(M | 0, Delta_i = 1, X_i).
+#' @param pMXD Estimate of p(M | A = 0, Delta_M = 1, X_i).
 #' @param pMXZ Estimate of p(M | A_i, X_i, Z_i).
 #'
 #' @return An n-length vector of the estimated EIF evaluated on the observations.
@@ -46,20 +48,113 @@ make_full_data_eif_easy <- function(a, A, Delta_Y, Y, gA, gDY_AXZ, xi_AX, mu) {
   return(p1 + p2 + p3)
 }
 
-#' Add NA value back indicating seed position
+#' Restore structurally missing outcome positions
 #'
-#' @param vec A vector indicating the MoCo estimates, adjusted association, z-scores, or significant regions.
-#' @param seed_position Position indicator of where the seed region is.
-#' @return A vector with NA values inserted to indicate the position of the seed region.
+#' @param vec A vector or list of MoCo results after structurally missing
+#'   outcome columns were removed.
+#' @param seed_position Integer positions at which missing values should be
+#'   restored.
+#' @return An object of the same basic type as `vec`, with missing entries
+#'   inserted at `seed_position`.
 
 add_NA <- function(vec, seed_position){
-  if(seed_position == (length(vec) + 1)){
-    vec <- c(vec[1:(seed_position-1)], NA)
-  }else{
-    vec <- c(vec[1:(seed_position-1)], NA, vec[seed_position:length(vec)])
+  seed_position <- sort(unique(as.integer(seed_position)))
+  if (length(seed_position) == 0L) return(vec)
+
+  output_length <- length(vec) + length(seed_position)
+  if (anyNA(seed_position) || any(seed_position < 1L) ||
+      any(seed_position > output_length)) {
+    stop("seed_position contains an invalid output position.")
   }
-  
-  return(vec)
+
+  keep <- setdiff(seq_len(output_length), seed_position)
+  if (is.list(vec)) {
+    out <- vector("list", output_length)
+    out[keep] <- vec
+  } else {
+    out <- rep(NA, output_length)
+    out[keep] <- vec
+  }
+  out
+}
+
+# SuperLearner screening rule that retains every supplied covariate. Some
+# SuperLearner configurations request a screening function named `All`.
+All <- function(Y, X, family, id = NULL, obsWeights = NULL, ...) {
+  rep(TRUE, ncol(X))
+}
+
+# Average repeated one-step fits at the estimator and participant-level EIF
+# stages, then recompute covariance. Averaging z statistics or critical values
+# directly does not represent the variance of the averaged estimator.
+.moco_combine_one_step <- function(results) {
+  if (!is.list(results) || length(results) == 0L) {
+    stop("results must be a non-empty list of one-step fit objects.")
+  }
+
+  required <- c("est", "eif_mat")
+  for (i in seq_along(results)) {
+    missing_components <- setdiff(required, names(results[[i]]))
+    if (length(missing_components) > 0L) {
+      stop(
+        "Seed fit ", i, " is missing: ",
+        paste(missing_components, collapse = ", "), "."
+      )
+    }
+  }
+
+  reference_est <- as.matrix(results[[1L]]$est)
+  if (nrow(reference_est) != 2L || ncol(reference_est) < 1L ||
+      any(!is.finite(reference_est))) {
+    stop("Each seed fit must contain a finite 2 by p est matrix.")
+  }
+  n_features <- ncol(reference_est)
+  if (!is.list(results[[1L]]$eif_mat) ||
+      length(results[[1L]]$eif_mat) != n_features) {
+    stop("Each seed fit must contain one EIF matrix per outcome.")
+  }
+  reference_eif <- as.matrix(results[[1L]]$eif_mat[[1L]])
+  if (ncol(reference_eif) != 2L || nrow(reference_eif) < 2L) {
+    stop("Each EIF must be an n by 2 matrix.")
+  }
+  n_obs <- nrow(reference_eif)
+
+  normalized <- lapply(seq_along(results), function(i) {
+    est_i <- as.matrix(results[[i]]$est)
+    if (!identical(dim(est_i), c(2L, n_features)) ||
+        any(!is.finite(est_i))) {
+      stop("All seed fits must have finite est matrices with identical dimensions.")
+    }
+    if (!is.list(results[[i]]$eif_mat) ||
+        length(results[[i]]$eif_mat) != n_features) {
+      stop("All seed fits must contain the same number of EIF matrices.")
+    }
+    eif_i <- lapply(results[[i]]$eif_mat, function(x) {
+      x <- as.matrix(x)
+      if (!identical(dim(x), c(n_obs, 2L)) || any(!is.finite(x))) {
+        stop(
+          "All seed EIF matrices must be finite, have dimension n by 2, ",
+          "and retain the same participant order."
+        )
+      }
+      x
+    })
+    list(est = est_i, eif_mat = eif_i)
+  })
+
+  est <- Reduce(`+`, lapply(normalized, `[[`, "est")) / length(normalized)
+  eif_mat <- lapply(seq_len(n_features), function(j) {
+    Reduce(`+`, lapply(normalized, function(x) x$eif_mat[[j]])) /
+      length(normalized)
+  })
+  cov_mat <- lapply(eif_mat, function(x) stats::cov(x) / n_obs)
+
+  list(
+    est = est,
+    adj_association = est[2L, ] - est[1L, ],
+    eif_mat = eif_mat,
+    cov_mat = cov_mat
+  )
 }
 
 #' Temporary fix for convex combination method mean squared error
@@ -260,4 +355,3 @@ tmp_method.CC_nloglik <- function() {
   }
   list(require = "nloptr", computeCoef = computeCoef, computePred = computePred)
 }
-
