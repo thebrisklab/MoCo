@@ -2,7 +2,7 @@
 % Please edit documentation in R/one_step_cross.R
 \name{one_step_cross}
 \alias{one_step_cross}
-\title{Non-parametric efficient motion-controlled brain phenotype estimators}
+\title{Cross-fitted one-step MoCo estimation}
 \usage{
 one_step_cross(
   X,
@@ -30,51 +30,50 @@ one_step_cross(
 )
 }
 \arguments{
-\item{X}{A dataframe or matrix containing demographic confounders that would ideally be balanced in a randomized controlled trial.}
+\item{X}{A data frame or matrix of baseline covariates.}
 
-\item{Z}{A dataframe or matrix of covariates representing brain phenotypes.}
+\item{Z}{A data frame or matrix of post-exposure covariates used by the selection-bias adjustment.}
 
-\item{A}{A binary vector of length n (number of participants), serving as a group indicator, such as diagnosis group or control group.}
+\item{A}{A binary exposure or group indicator of length \code{n}.}
 
 \item{M}{A numeric vector of length n representing continuous motion values for each participant.}
 
-\item{Y}{A matrix of dimension n x p, where n is the number of participants, and p is the number of regions of interest.
-If it represents seed-based association measures:
-Each (i, j) element denotes participant i's association measure between the seed region and region j.
-The column representing the association measure of the seed region with itself should be filled with NA values to indicate its position.
-If it represents other types of association measures:
-Each (i, j) element denotes participant i's association measure between two brain regions of interest, such as the upper diagonal part of the functional connectivity matrix.
-No NA values are allowed in \code{Y} in this case.}
+\item{Y}{An \code{n} by \code{p} numeric matrix of continuous outcomes. Rows with
+\code{Delta_Y = 0} may contain missing outcomes.}
 
 \item{Delta_M}{A binary vector of length n indicating whether motion is available and meets inclusion criteria.
 If motion meets inclusion criteria for analysis, set \code{Delta_M} = 1; otherwise, set \code{Delta_M} = 0.}
 
 \item{thresh}{A numeric value used to threshold M to produce \code{Delta_M}. One can specify either \code{Delta_M} or thresh.}
 
-\item{Delta_Y}{A binary vector indicating the non-missingness and whether the brain image data \code{Y} passes quality control after preprocessing.
-Set \code{Delta_Y = 1} if \code{Y} is usable; otherwise, set \code{Delta_Y = 0}.}
+\item{Delta_Y}{A binary vector indicating whether \code{Y} is observed and meets
+the analysis quality criteria.}
 
 \item{SL_library}{SuperLearner library for estimating nuisance regressions.
 Defaults to c("SL.earth","SL.glmnet","SL.gam","SL.glm", "SL.glm.interaction", "SL.step","SL.step.interaction","SL.xgboost","SL.ranger","SL.mean") if not specified.}
 
 \item{SL_library_customize}{Customize SuperLearner library for estimating each nuisance regression.
-- \code{gA}: SuperLearner library for estimating the propensity score.
-- \code{gDM}: SuperLearner library for estimating the probability P(Delta_M = 1 | A, X).
-- \code{gDY_AX}: SuperLearner library for estimating the probability P(Delta_Y = 1 | A, X).
-- \code{gDY_AXZ}: SuperLearner library for estimating the probability P(Delta_Y = 1 | A, X, Z).
-- \code{mu_AMXZ}: SuperLearner library for estimating the outcome regression E(Y | Delta_Y = 1, A, M, X, Z).
-- \code{eta_AXZ}: SuperLearner library for estimating E(mu_AMXZ pMXD / pMXZD | A, X, Z, Delta_M = 1).
-- \code{eta_AXM}: SuperLearner library for estimating E(mu_AMXZ pMX/pMXZ gDY_AX/gDY_AXZ | A, M, X, Delta_Y = 1).
-- \code{xi_AX}: SuperLearner library for estimating E(eta_AXZ | A, X).}
+\itemize{
+\item \code{gA}: SuperLearner library for estimating the propensity score.
+\item \code{gDM}: SuperLearner library for estimating the probability P(Delta_M = 1 | A, X).
+\item \code{gDY_AX}: SuperLearner library for estimating the probability P(Delta_Y = 1 | A, X).
+\item \code{gDY_AXZ}: SuperLearner library for estimating the probability P(Delta_Y = 1 | A, X, Z).
+\item \code{mu_AMXZ}: SuperLearner library for estimating the outcome regression E(Y | Delta_Y = 1, A, M, X, Z).
+\item \code{eta_AXZ}: SuperLearner library for estimating E(mu_AMXZ pMXD / pMXZD | A, X, Z, Delta_M = 1).
+\item \code{eta_AXM}: SuperLearner library for estimating E(mu_AMXZ pMX/pMXZ gDY_AX/gDY_AXZ | A, M, X, Delta_Y = 1).
+\item \code{xi_AX}: SuperLearner library for estimating E(eta_AXZ | A, X).
+}}
 
 \item{glm_formula}{All glm formulas default to NULL, indicating SuperLearner will be used for nuisance regressions.
-- \code{gA}: GLM formula for estimating the propensity score.
-- \code{gD}: GLM formula for estimating the probability P(Delta_M = 1 | A, X).
-- \code{mu_AMXZ}: GLM formula for estimating the outcome regression E(Y | A, M, X, Z).
-- \code{xi_AX}: GLM formula for estimating E(eta_AXZ | A=a, X).
-- \code{eta_AXM}: GLM formula for estimating E(Q * p / r | A=a, M, X).
-- \code{pMX}: GLM formula for estimating p(m | a, x) and p(m | a, x, Delta_M = 1), assuming M follows a normal distribution.
-- \code{pMXZ}: GLM formula for estimating p(m | a, x, z) and p(m | a, x, z, Delta_M = 1), assuming M follows a normal distribution.}
+\itemize{
+\item \code{gA}: GLM formula for estimating the propensity score.
+\item \code{gD}: GLM formula for estimating the probability P(Delta_M = 1 | A, X).
+\item \code{mu_AMXZ}: GLM formula for estimating the outcome regression E(Y | A, M, X, Z).
+\item \code{xi_AX}: GLM formula for estimating E(eta_AXZ | A=a, X).
+\item \code{eta_AXM}: GLM formula for estimating E(Q * p / r | A=a, M, X).
+\item \code{pMX}: GLM formula for estimating p(m | a, x) and p(m | a, x, Delta_M = 1), using a log-normal motion model.
+\item \code{pMXZ}: GLM formula for estimating p(m | a, x, z) and p(m | a, x, z, Delta_M = 1), using a log-normal motion model.
+}}
 
 \item{HAL_pMX}{Specifies whether to estimate p(m | a, x, Delta_Y = 1) and p(m | a, x, Delta_M=1) using the highly adaptive lasso conditional density estimation method.
 Defaults to \code{TRUE}. If set to \code{FALSE}, please specify the \code{pMX} option in \code{glm_formula}, such as \code{pMX = "."}.}
@@ -83,24 +82,31 @@ Defaults to \code{TRUE}. If set to \code{FALSE}, please specify the \code{pMX} o
 Defaults to \code{TRUE}. If set to \code{FALSE}, please specify the \code{pMXZ} option in \code{glm_formula}, such as \code{pMXZ = "."}.}
 
 \item{HAL_options}{Additional options for highly adaptive lasso (HAL) method.
-- \code{max_degree}: The highest order of interaction terms for generating basis functions (passed to \code{haldensify}).
-- \code{lambda_seq}: A numeric sequence of values for the regularization parameter of Lasso regression (passed to \code{haldensify}).
-- \code{num_knots}: The maximum number of knot points (i.e., bins) for any covariate for generating basis functions (passed to \code{haldensify}).}
+\itemize{
+\item \code{max_degree}: The highest order of interaction terms for generating basis functions (passed to \code{haldensify}).
+\item \code{lambda_seq}: A numeric sequence of values for the regularization parameter of Lasso regression (passed to \code{haldensify}).
+\item \code{num_knots}: The maximum number of knot points (i.e., bins) for any covariate for generating basis functions (passed to \code{haldensify}).
+}}
 
-\item{cv_folds}{a numeric value indicates the number(s) of partitions in cross-fitting. Defaults to 5.}
+\item{seed}{Integer seed used to create folds and fit nuisance models.}
+
+\item{cv_folds}{Number of cross-fitting folds. Defaults to 5.}
+
+\item{...}{Additional arguments reserved for future extensions.}
 }
 \value{
 A list with named entries
 \describe{
-\item{est}{A two times p matrix showing the one-step estimators of the control group and the disease group for each functional connectivity of interest, respectively.}
-\item{adj_association}{A p-length vector showing the motion-adjusted association for each functional connectivity of interest, respectively.}
-\item{eif_mat}{A p-length list of the estimated EIF evaluated on the observations of the control and disease group, respectively.}
+\item{est}{A 2 by \code{p} matrix of one-step estimates for \code{A = 0} and \code{A = 1}.}
+\item{adj_association}{A length-\code{p} vector of adjusted \code{A = 1} minus \code{A = 0} contrasts.}
+\item{eif_mat}{A p-length list of the estimated EIF evaluated on the observations of the A = 0 and A = 1 groups, respectively.}
 \item{cov_mat}{A p-length list of the estimated covariance matrix of the one-step estimators.}
 }
 }
 \description{
-Non-parametric efficient motion-controlled brain phenotype estimators
+Cross-fitted one-step MoCo estimation
 }
 \details{
-Compute non-parametric efficient motion-controlled brain phenotype estimators (MoCo) using one-step cross-fitting
+Computes group-specific outcome means and their contrast using
+cross-fitted nuisance estimates. Most users should call \code{\link[=moco]{moco()}}.
 }

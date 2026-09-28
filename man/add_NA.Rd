@@ -2,18 +2,21 @@
 % Please edit documentation in R/utils.R
 \name{add_NA}
 \alias{add_NA}
-\title{Add NA value back indicating seed position}
+\title{Restore structurally missing outcome positions}
 \usage{
 add_NA(vec, seed_position)
 }
 \arguments{
-\item{vec}{A vector indicating the MoCo estimates, adjusted association, z-scores, or significant regions.}
+\item{vec}{A vector or list of MoCo results after structurally missing
+outcome columns were removed.}
 
-\item{seed_position}{Position indicator of where the seed region is.}
+\item{seed_position}{Integer positions at which missing values should be
+restored.}
 }
 \value{
-A vector with NA values inserted to indicate the position of the seed region.
+An object of the same basic type as \code{vec}, with missing entries
+inserted at \code{seed_position}.
 }
 \description{
-Add NA value back indicating seed position
+Restore structurally missing outcome positions
 }

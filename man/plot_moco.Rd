@@ -2,7 +2,7 @@
 % Please edit documentation in R/plot_moco.R
 \name{plot_moco}
 \alias{plot_moco}
-\title{Plot Motion-Controlled Mean Functional Connectivity and Associations}
+\title{Plot parcel-wise MoCo estimates on a cortical surface}
 \usage{
 plot_moco(
   result,
@@ -11,27 +11,35 @@ plot_moco(
   parcellation = "Yeo_7",
   plots_path,
   zlim_est = c(-0.3, 0.3),
-  zlim_association = c(-0.1, 0.1)
+  zlim_association = c(-0.1, 0.1),
+  fwer_index = 1L
 )
 }
 \arguments{
-\item{result}{A list containing the results of motion-controlled functional connectivity analysis.}
+\item{result}{A result returned by \code{\link[=moco]{moco()}}.}
 
-\item{wb_path}{The path to the workbench binary for ciftiTools.}
+\item{wb_path}{Path to the Connectome Workbench executable.}
 
-\item{template_path}{The path to the template file for the visualization.}
+\item{template_path}{Path to a template CIFTI file.}
 
-\item{parcellation}{The parcellation used in the analysis.}
+\item{parcellation}{A parcellation recognized by
+\code{\link[ciftiTools:load_parc]{ciftiTools::load_parc()}}. The network-collapsing logic currently supports
+\code{"Yeo_7"}.}
 
-\item{plots_path}{The path where the plots will be saved.}
+\item{plots_path}{Directory in which PNG files are written.}
 
-\item{zlim_est}{The z-axis limits for functional connectivity plots.}
+\item{zlim_est}{Numeric length-two color limits for group-specific means.}
 
-\item{zlim_association}{The z-axis limits for association plots.}
+\item{zlim_association}{Numeric length-two color limits for contrasts.}
+
+\item{fwer_index}{Row of \code{result$significant_regions} to plot when several
+FWER levels were requested.}
 }
 \value{
-This function does not return any value. It generates and saves plots based on the provided parameters.
+Invisibly returns the three output file paths.
 }
 \description{
-This function plots motion-controlled mean functional connectivity example results using the provided data and parameters.
+Maps group-specific estimates and significant adjusted contrasts to a CIFTI
+surface parcellation. This optional helper requires the \code{ciftiTools} package
+and Connectome Workbench.
 }

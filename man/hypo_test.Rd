@@ -2,26 +2,43 @@
 % Please edit documentation in R/hypo_test.R
 \name{hypo_test}
 \alias{hypo_test}
-\title{Simultaneous Confidence Interval Hypothesis Testing}
+\title{Simultaneous confidence-band hypothesis tests}
 \usage{
-hypo_test(result, fwer = 0.05, seed = 1)
+hypo_test(result, fwer = 0.05, seed = 1, n_sim = 100000L, chunk_size = 25000L)
 }
 \arguments{
-\item{result}{The result of fitting based on the one-step function or one-step cross function.}
+\item{result}{An aggregated one-step result containing
+\code{adj_association}, \code{eif_mat}, and \code{cov_mat}. For repeated cross-fitting
+seeds, estimates and participant-level EIFs must be averaged and covariance
+recomputed before calling this function. \code{\link[=moco]{moco()}} performs that aggregation
+automatically.}
 
-\item{fwer}{Family-wise error rates (FWER) for control.}
+\item{fwer}{Numeric vector of target family-wise error rates in \verb{(0, 1)}.}
 
-\item{seed}{A numeric value to control the randomness of the random variable sampling.}
+\item{seed}{Integer seed for the multivariate-normal simulation.}
+
+\item{n_sim}{Positive integer number of simulation draws. Larger values
+reduce Monte Carlo error at greater computational cost.}
+
+\item{chunk_size}{Positive integer maximum number of draws generated at one
+time. Chunking limits memory use when testing many outcomes or using a
+large \code{n_sim}.}
 }
 \value{
-A list with named entries:
-\item{conf_band}{Simultaneous confidence band based on specified FWER.}
-\item{z_score}{A p-length vector of z-scores for each functional connectivity.}
-\item{significant_regions}{A p-length vector of TRUE or FALSE, indicating significance for each functional connectivity.}
+A list with \code{z_score}, \code{conf_band}, \code{significant_regions}, and
+\code{correlation_matrix}. \code{significant_regions} has one row per requested FWER
+and one column per tested outcome.
 }
 \description{
-Simultaneous Confidence Interval Hypothesis Testing
+Computes outcome-specific standardized statistics and simulation-based
+simultaneous critical values from the correlation of efficient influence-
+function (EIF) contrasts. The procedure controls the family-wise error rate
+over all outcomes supplied in \code{result}.
 }
 \details{
-Conducts hypothesis testing for significant associations using simultaneous confidence intervals.
+A one-column outcome is handled as a one-dimensional simultaneous test.
+With multiple columns, a single joint critical value is calculated from the
+correlation of their participant-level EIF contrasts. Do not run this
+function separately for each outcome when family-wise inference across all
+outcomes is desired.
 }
