@@ -1,15 +1,45 @@
 Package: MoCo
-Title: What the Package Does (One Line, Title Case)
-Version: 0.0.0.9000
-Authors@R: 
-    person("First", "Last", , "first.last@example.com", role = c("aut", "cre"),
-           comment = c(ORCID = "YOUR-ORCID-ID"))
-Description: What the package does (one paragraph).
-License: `use_mit_license()`, `use_gpl3_license()` or friends to pick a
-    license
+Title: Motion-Controlled Estimation of Group Differences in Brain Phenotypes
+Version: 0.2.0
+Authors@R:
+    person(
+        "Brain Research in Imaging Statistics Kit",
+        email = "thebrisklab@users.noreply.github.com",
+        role = c("aut", "cre")
+    )
+Description: Implements nonparametric one-step estimators for group-specific
+    brain-phenotype means and contrasts while accounting for motion-related
+    selection. Nuisance functions can be estimated with Super Learner, and
+    conditional motion densities can be modeled with highly adaptive lasso,
+    log-normal generalized linear models, or generalized additive models for
+    location, scale, and shape. Simultaneous confidence bands provide
+    family-wise error-rate control across multiple outcomes.
+License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.2.3
-Depends: 
-    R (>= 2.10)
+Depends:
+    R (>= 3.6.0)
+Imports:
+    caret,
+    gamlss,
+    gamlss.dist,
+    hal9001,
+    haldensify,
+    MASS,
+    nloptr,
+    quadprog,
+    stats,
+    SuperLearner
+Suggests:
+    ciftiTools,
+    earth,
+    gam,
+    glmnet,
+    ranger,
+    testthat (>= 3.0.0),
+    xgboost
+Config/testthat/edition: 3
 LazyData: true
+URL: https://github.com/thebrisklab/MoCo
+BugReports: https://github.com/thebrisklab/MoCo/issues
+Config/roxygen2/version: 8.1.0
