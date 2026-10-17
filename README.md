@@ -12,8 +12,6 @@ cross-fitting, and efficient-influence-function (EIF) inference. Outcomes may
 be functional-connectivity edges, regional imaging measures, or other
 continuous brain phenotypes.
 
-MoCo is under active development.
-
 ## Highlights
 
 - A single high-level function, `moco()`, supports HAL, log-normal GLM, and
