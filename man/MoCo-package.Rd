@@ -28,11 +28,19 @@ Useful links:
 
 }
 \author{
-\strong{Maintainer}: Brain Research in Imaging Statistics Kit \email{thebrisklab@users.noreply.github.com}
+\strong{Maintainer}: Xiyan Tan \email{xxx@emory.edu}
 
 Authors:
 \itemize{
-  \item Brain Research in Imaging Statistics Kit \email{thebrisklab@users.noreply.github.com}
+  \item Xiyan Tan \email{xxx@emory.edu}
+  \item Jialu Ran
+  \item Benjamin B. Risk
+  \item David Benkeser
+}
+
+Other contributors:
+\itemize{
+  \item Brain Research in Imaging Statistics Kit [copyright holder]
 }
 
 }

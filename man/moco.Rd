@@ -31,8 +31,12 @@ moco(
   gamlss_bic_candidates = c("linear", "pb_mu", "pb_mu_sigma"),
   gamlss_bic_trace = FALSE,
   n.cyc = 300,
+  gamlss_c_crit = 0.001,
   HAL_options = list(max_degree = 3, lambda_seq = exp(seq(-1, -10, length = 100)),
     num_knots = c(1000, 500, 250)),
+  density_floor = sqrt(.Machine$double.eps),
+  density_ratio_cap = Inf,
+  support_rule = c("delta_m", "observed_range"),
   cross_fit = TRUE,
   cv_folds = 5,
   test = TRUE,
@@ -40,19 +44,24 @@ moco(
   seed_rgn = 1,
   test_seed = 1,
   test_n_sim = 100000L,
-  test_chunk_size = 25000L,
+  test_chunk_size = test_n_sim,
   ...
 )
 }
 \arguments{
-\item{X}{A data frame or matrix of baseline covariates.}
+\item{X}{A data frame or matrix of baseline covariates, or \code{NULL} for no
+baseline covariates.}
 
 \item{Z}{A data frame or matrix of post-exposure covariates used by the
-selection-bias adjustment.}
+selection-bias adjustment, or \code{NULL}.}
 
 \item{A}{A binary exposure or group indicator of length \code{n}.}
 
-\item{M}{A numeric motion measure of length \code{n}.}
+\item{M}{A numeric motion measure of length \code{n}. It must be observed
+whenever \code{Delta_Y = 1} or \code{Delta_M = 1}, and strictly positive for GLM and
+GAMLSS motion densities. Use \code{M = NULL} when motion is unavailable; the
+estimator then treats participants with \code{Delta_M = 0} as missing (as in
+Nebel et al., 2022) and no motion density is estimated.}
 
 \item{Y}{A numeric outcome vector or an \code{n} by \code{p} numeric matrix. Rows with
 \code{Delta_Y = 0} may contain missing values. An entirely missing column is
@@ -62,11 +71,15 @@ treated as a structural seed/self-correlation position and restored as
 \item{Delta_M}{A binary motion-inclusion vector. Supply \code{Delta_M} or
 \code{thresh}.}
 
-\item{thresh}{Optional threshold used to define \code{Delta_M} from \code{M}.}
+\item{thresh}{Optional threshold used to define \code{Delta_M} as
+\code{M < thresh} (missing \code{M} gives \code{Delta_M = 0}). If supplied, it overrides
+\code{Delta_M}.}
 
 \item{Delta_Y}{A binary outcome-observation and quality indicator.}
 
-\item{SL_library}{Super Learner library used for nuisance regressions.}
+\item{SL_library}{Super Learner library used for nuisance regressions.
+Learners whose packages are not installed (for example \code{SL.xgboost}
+without \pkg{xgboost}) are dropped with a message.}
 
 \item{SL_library_customize}{Named list optionally specifying separate
 libraries for \code{gA}, \code{gDM}, \code{gDY_AX}, \code{gDY_AXZ}, \code{mu_AMXZ}, \code{eta_AXZ},
@@ -105,7 +118,34 @@ location and scale models through \code{\link[gamlss:pb]{gamlss::pb()}}.}
 
 \item{n.cyc}{Maximum number of GAMLSS fitting cycles.}
 
+\item{gamlss_c_crit}{Convergence criterion for the GAMLSS global deviance,
+passed to \code{\link[gamlss:gamlss.control]{gamlss::gamlss.control()}}. The default, \code{0.001}, is the
+\code{gamlss} default.}
+
 \item{HAL_options}{Options passed to \code{haldensify} for HAL densities.}
+
+\item{density_floor}{Strictly positive absolute lower bound used for motion
+densities appearing in denominators. The default,
+\code{sqrt(.Machine$double.eps)}, is a numerical safeguard against division by
+zero and matches the original MoCo implementation.}
+
+\item{density_ratio_cap}{Optional positive upper bound for finite motion
+density ratios. The default, \code{Inf}, applies no cap and therefore leaves the
+paper estimand unchanged. A finite value truncates the density-ratio
+weights and therefore changes the estimand; use it only for sensitivity
+analyses of unstable density ratios.}
+
+\item{support_rule}{Rule for where the target motion density
+\verb{p(m | Delta_M = 1, A = 0, X)} is zero when it is evaluated at each
+participant's observed motion. \code{"delta_m"} (default) is the original MoCo
+rule: GLM and GAMLSS set it to zero for every participant with
+\code{Delta_M = 0}, and HAL uses the \code{haldensify} prediction, which is zero
+outside the training range. It is appropriate when \code{Delta_M} is a cutoff on
+\code{M} itself (for example \code{Delta_M = 1} if mean FD is below \code{thresh}).
+\code{"observed_range"} sets the density to zero only above the largest \code{M}
+among \code{Delta_M = 1} participants in the full sample; use it when \code{Delta_M}
+is defined by scrubbing or a retained-frame count, so that participants
+with \code{Delta_M = 0} can have tolerable motion.}
 
 \item{cross_fit}{Logical indicating whether to use cross-fitting.}
 
@@ -116,21 +156,39 @@ location and scale models through \code{\link[gamlss:pb]{gamlss::pb()}}.}
 \item{fwer}{Numeric vector of family-wise error rates.}
 
 \item{seed_rgn}{Integer vector defining repeated nuisance-model and
-cross-fitting splits, not optimizer initializations.}
+cross-fitting splits, not optimizer initializations. Seeds are used
+internally and the caller's random-number state is restored on exit.}
 
 \item{test_seed}{Seed used by \code{\link[=hypo_test]{hypo_test()}}.}
 
 \item{test_n_sim}{Number of multivariate-normal draws used by \code{\link[=hypo_test]{hypo_test()}}.}
 
 \item{test_chunk_size}{Maximum number of simultaneous-test draws generated
-at once. Smaller values reduce peak memory use.}
+at once. The default, \code{test_n_sim}, reproduces the original MoCo critical
+values; smaller values reduce peak memory use.}
 
 \item{...}{Additional named arguments passed to the selected fitting engine.}
 }
 \value{
-A list with \code{est}, \code{adj_association}, and \code{density_method}. GAMLSS
-fits also return \code{gamlss_selection_runs}. When \code{test = TRUE}, the list
-additionally contains \code{z_score}, \code{conf_band}, and \code{significant_regions}.
+A list with components:
+\describe{
+\item{est}{Data frame with two rows (\code{est_A0}, \code{est_A1}) and one column
+per outcome: motion-controlled group means.}
+\item{adj_association}{Named numeric vector of \code{A = 1} minus \code{A = 0}
+contrasts.}
+\item{density_method}{Character vector naming the \code{pMX} and \code{pMXZ}
+density methods.}
+\item{density_controls}{List recording the absolute denominator floor and
+optional density-ratio cap used in the fit.}
+\item{gamlss_selection_runs}{(GAMLSS only) List of fitted GAMLSS
+specifications for each seed.}
+\item{z_score}{(\code{test = TRUE}) Named vector of EIF-based z-statistics.}
+\item{conf_band}{(\code{test = TRUE}) Simultaneous critical value for each
+requested FWER.}
+\item{significant_regions}{(\code{test = TRUE}) Logical vector (one FWER) or
+matrix (one row per FWER) of simultaneous-test decisions.}
+}
+Structurally missing outcome columns are returned as \code{NA}.
 }
 \description{
 \code{moco()} is the single high-level interface for MoCo. It estimates
@@ -147,8 +205,33 @@ location and scale models through penalized splines, other covariates
 entering linearly, and a constant shape parameter.
 
 For repeated \code{seed_rgn} values, estimates and participant-level efficient
-influence functions are averaged before covariance, z-statistics, and
-simultaneous critical values are recomputed.
+influence functions are averaged across seeds, and the covariance,
+z-statistics, and simultaneous critical values are then recomputed from the
+averaged influence functions. This replaces the averaging of z-statistics
+and critical values across runs used in earlier versions of MoCo; the point
+estimates are the same under both approaches, and a single seed gives
+identical results.
+}
+\examples{
+data(data)
+
+\donttest{
+# A fast illustration: log-normal GLM motion densities, a small learner
+# library, two outcomes and two cross-fitting folds.
+fit <- moco(
+  X = data$X, Z = data$Z, A = data$A, M = data$M,
+  Y = data$Y[, 1:2],
+  Delta_M = data$Delta_M, Delta_Y = data$Delta_Y,
+  SL_library = c("SL.mean", "SL.glm"),
+  pMX_method = "GLM",
+  glm_formula = list(pMX = ".", pMXZ = "."),
+  cv_folds = 2,
+  test_n_sim = 2000
+)
+fit$est
+fit$adj_association
+fit$significant_regions
+}
 }
 \seealso{
 \code{\link[=hypo_test]{hypo_test()}}

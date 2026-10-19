@@ -4,7 +4,7 @@
 \alias{hypo_test}
 \title{Simultaneous confidence-band hypothesis tests}
 \usage{
-hypo_test(result, fwer = 0.05, seed = 1, n_sim = 100000L, chunk_size = 25000L)
+hypo_test(result, fwer = 0.05, seed = 1, n_sim = 100000L, chunk_size = n_sim)
 }
 \arguments{
 \item{result}{An aggregated one-step result containing
@@ -15,14 +15,17 @@ automatically.}
 
 \item{fwer}{Numeric vector of target family-wise error rates in \verb{(0, 1)}.}
 
-\item{seed}{Integer seed for the multivariate-normal simulation.}
+\item{seed}{Integer seed for the multivariate-normal simulation. The
+caller's random-number state is restored on exit.}
 
 \item{n_sim}{Positive integer number of simulation draws. Larger values
 reduce Monte Carlo error at greater computational cost.}
 
 \item{chunk_size}{Positive integer maximum number of draws generated at one
-time. Chunking limits memory use when testing many outcomes or using a
-large \code{n_sim}.}
+time. The default, \code{n_sim}, draws all samples at once and reproduces the
+critical values of the original MoCo implementation; smaller values limit
+memory use when testing many outcomes, at the cost of a different Monte
+Carlo stream.}
 }
 \value{
 A list with \code{z_score}, \code{conf_band}, \code{significant_regions}, and
@@ -41,4 +44,16 @@ With multiple columns, a single joint critical value is calculated from the
 correlation of their participant-level EIF contrasts. Do not run this
 function separately for each outcome when family-wise inference across all
 outcomes is desired.
+}
+\examples{
+# A toy aggregated result with three outcomes and simulated EIF values.
+set.seed(1)
+n <- 200
+eif <- lapply(1:3, function(j) cbind(eif_A0 = rnorm(n), eif_A1 = rnorm(n)))
+toy <- list(
+  adj_association = c(Y1 = 0.30, Y2 = 0.02, Y3 = -0.01),
+  eif_mat = eif,
+  cov_mat = lapply(eif, function(x) stats::cov(x) / n)
+)
+hypo_test(toy, fwer = c(0.05, 0.10), n_sim = 2000)
 }

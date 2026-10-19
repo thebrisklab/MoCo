@@ -43,3 +43,15 @@ Maps group-specific estimates and significant adjusted contrasts to a CIFTI
 surface parcellation. This optional helper requires the \code{ciftiTools} package
 and Connectome Workbench.
 }
+\examples{
+\dontrun{
+# Requires the ciftiTools package, Connectome Workbench and a CIFTI template.
+fit <- moco(...)
+plot_moco(
+  fit,
+  wb_path = "path/to/workbench",
+  template_path = "path/to/template.dscalar.nii",
+  plots_path = tempdir()
+)
+}
+}
