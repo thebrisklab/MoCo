@@ -22,12 +22,9 @@ MoCo is under active development.
   GLMs.
 - Cross-fitting and repeated cross-fitting are supported; repeated seeds are
   combined by averaging estimates and participant-level EIFs.
-- If motion `M = NULL`, a missing data method is implemented using the data availability `Delta\_Y = 1`, similar to Nebel et al. (2022).
-- A vector, one-column matrix, or multi-column outcome matrix can be analyzed.
+- If motion `M = NULL`, a missing data method is implemented using the data availability `Delta_Y = 1`, similar to Nebel et al. (2022).
 - EIF-based simultaneous confidence bands control the family-wise error rate
   (FWER) across multiple outcomes.
-- Structurally missing outcome columns, such as seed-to-self correlations, are
-  removed during estimation and restored as `NA` in the output.
 
 ## Installation
 
