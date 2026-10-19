@@ -85,7 +85,7 @@ The main outputs are:
 | `adj_association` | Adjusted difference, `A = 1` minus `A = 0` |
 | `density_method` | Motion-density methods used for `pMX` and `pMXZ` |
 | `z_score` | EIF-based standardized statistic for each outcome |
-| `conf_band` | Simultaneous critical value for each requested FWER |
+| `fwer_critical_value` | Simultaneous critical value for each requested FWER |
 | `significant_regions` | Simultaneous-test decisions |
 | `gamlss_selection_runs` | GAMLSS fitting information, when applicable |
 
