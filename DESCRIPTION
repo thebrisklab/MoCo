@@ -1,19 +1,23 @@
 Package: MoCo
 Title: Motion-Controlled Estimation of Group Differences in Brain Phenotypes
-Version: 0.2.0
-Authors@R:
-    person(
-        "Brain Research in Imaging Statistics Kit",
-        email = "thebrisklab@users.noreply.github.com",
-        role = c("aut", "cre")
+Version: 0.1.0
+Authors@R: c(
+    person("Xiyan", "Tan",
+           email = "xxx@emory.edu",
+           role = c("aut", "cre")),
+    person("Jialu", "Ran", role = "aut"),
+    person("Benjamin B.", "Risk", role = "aut"),
+    person("David", "Benkeser", role = "aut"),
+    person("Brain Research in Imaging Statistics Kit", role = "cph")
     )
 Description: Implements nonparametric one-step estimators for group-specific
     brain-phenotype means and contrasts while accounting for motion-related
-    selection. Nuisance functions can be estimated with Super Learner, and
-    conditional motion densities can be modeled with highly adaptive lasso,
-    log-normal generalized linear models, or generalized additive models for
-    location, scale, and shape. Simultaneous confidence bands provide
-    family-wise error-rate control across multiple outcomes.
+    selection, following Ran, Shultz, Risk and Benkeser (2026)
+    <doi:10.1093/biomtc/ujag099>. Nuisance functions can be estimated with
+    'SuperLearner', and conditional motion densities can be modeled with the
+    highly adaptive lasso, log-normal generalized linear models, or generalized
+    additive models for location, scale, and shape. Simultaneous confidence
+    bands provide family-wise error-rate control across multiple outcomes.
 License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
@@ -29,7 +33,8 @@ Imports:
     nloptr,
     quadprog,
     stats,
-    SuperLearner
+    SuperLearner,
+    withr
 Suggests:
     ciftiTools,
     earth,
