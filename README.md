@@ -66,7 +66,7 @@ fit_glm <- moco(
   SL_library = c("SL.mean", "SL.glm", "SL.glm.interaction"),
   cross_fit = TRUE,
   cv_folds = 5,
-  seed_rgn = 1,
+  seed_rng = 1,
   test = TRUE,
   fwer = 0.05
 )
@@ -131,34 +131,12 @@ Choose their estimators with `pMX_method` and `pMXZ_method`. If
 
 | Method | Configuration | Use case |
 |---|---|---|
-| HAL | `pMX_method = "HAL"` | Flexible conditional-density estimation with minimal distributional structure |
-| GLM | `pMX_method = "GLM"` and `glm_formula$pMX`/`pMXZ` | Parsimonious log-normal motion-density model |
-| GAMLSS | `pMX_method = "GAMLSS"` | Flexible distributional regression for positive motion values |
+| HAL | `pMX_method = "HAL"` | Flexible conditional-density estimation with minimal distributional structure (slower, nonparametric) |
+| GLM | `pMX_method = "GLM"` and `glm_formula$pMX`/`pMXZ` | Parsimonious log-normal motion-density model (faster, but most restrictive parametric assumptions)|
+| GAMLSS | `pMX_method = "GAMLSS"` | Flexible distributional regression for positive motion values (faster than HAL, semiparametric)|
 
 The methods for `pMX` and `pMXZ` may differ, although using the same method for
 both is generally easier to interpret and diagnose.
-
-Densities conditional on `A` and `X` (and `Z`) are fitted on `Delta_Y = 1`
-participants; the corresponding `Delta_M = 1` densities are fitted on
-`Delta_M = 1` participants. The tolerable-motion density
-`p(m | Delta_M = 1, A = 0, X)` is evaluated at each participant's observed
-motion and set to zero according to `support_rule`:
-
-| `support_rule` | Target density is zero for | Use when |
-|---|---|---|
-| `"delta_m"` (default) | every `Delta_M = 0` participant (GLM, GAMLSS); HAL predictions are zero outside their training range | `Delta_M` is a cutoff on `M` (for example `thresh`) |
-| `"observed_range"` | motion above the largest `M` among `Delta_M = 1` participants (full sample, all methods) | `Delta_M` is not a function of `M` alone (scrubbing, retained-frame counts, other QC) |
-
-The two rules give identical results when `Delta_M = 1` exactly when `M` is
-below a cutoff. Otherwise `"observed_range"` keeps participants with
-`Delta_M = 0` but tolerable motion in the efficient influence function, as
-required by the MoCo estimand.
-
-Motion densities used as denominators are bounded below by the absolute
-`density_floor` (default `sqrt(.Machine$double.eps)`). The optional
-`density_ratio_cap` can be set to a finite value for sensitivity analyses; a
-finite cap truncates the density-ratio weights and therefore changes the
-estimand. Its default, `Inf`, applies no truncation.
 
 ### Highly adaptive lasso
 
@@ -208,11 +186,6 @@ covariates named in `gamlss_continuous_X` and `gamlss_continuous_Z` enter the
 location and scale models through `gamlss::pb()`; other covariates enter
 linearly, `A` enters the location model, and the shape parameter is constant.
 
-Motion observations used in GAMLSS density fitting must be finite and strictly
-positive. Convergence depends on the empirical motion distribution, sample
-size, covariate design, and optimizer. The optimizer changes the numerical
-fitting algorithm, not the statistical model.
-
 ```r
 fit_gamlss <- moco(
   X = data$X,
@@ -238,9 +211,6 @@ fit_gamlss <- moco(
   fwer = c(0.05, 0.20)
 )
 ```
-
-The bundled simulated data demonstrate the API but are not intended as a
-GAMLSS convergence benchmark.
 
 #### GAMLSS arguments
 
@@ -304,13 +274,13 @@ fit_abide <- moco(
   Y = data$Y,
   Delta_M = data$Delta_M,
   Delta_Y = data$Delta_Y,
-  SL_library = c("SL.mean", "SL.glm", "SL.glm.interaction"),
+  SL_library = c("SL.mean", "SL.glm", "SL.glm.interaction"), 
   glm_formula = list(pMX = ".", pMXZ = "."),
   pMX_method = "GLM",
   pMXZ_method = "GLM",
   cross_fit = TRUE,
   cv_folds = 5,
-  seed_rgn = 1,
+  seed_rng = 1,
   test = TRUE,
   fwer = 0.05
 )
@@ -367,17 +337,13 @@ For simultaneous inference, pass all outcomes in the same `Y` matrix. MoCo
 uses their joint participant-level EIF correlation structure to obtain one
 simultaneous critical value at each requested FWER.
 
-Multiple values in `seed_rgn` request repeated cross-fitting partitions; they
-are not multiple GAMLSS optimizer initializations. MoCo performs repeated-seed
-aggregation in the following order:
+MoCo aggregates results from random seeds in the following order:
 
 1. Average group-specific estimates across seeds.
 2. Average participant-level EIFs across seeds.
 3. Recompute covariance from the averaged EIFs.
 4. Calculate z-statistics and simultaneous critical values.
 
-Seed-specific z-statistics, p-values, covariance matrices, or critical values
-should not be averaged directly.
 
 ```r
 fit_repeated <- moco(
@@ -391,7 +357,7 @@ fit_repeated <- moco(
   pMX_method = "GLM",
   pMXZ_method = "GLM",
   glm_formula = list(pMX = ".", pMXZ = "."),
-  seed_rgn = 1:10,
+  seed_rng = 1:10,
   test_seed = 123,
   test_n_sim = 500000,
   test_chunk_size = 25000,
