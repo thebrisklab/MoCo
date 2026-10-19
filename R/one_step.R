@@ -54,7 +54,6 @@
 #' @param ... Additional arguments reserved for future extensions.
 #' 
 #' @import SuperLearner 
-#' @import haldensify 
 #' 
 #' @return A list with named entries 
 #' \describe{
@@ -63,6 +62,7 @@
 #'   \item{eif_mat}{A p-length list of the estimated EIF evaluated on the observations of the A = 0 and A = 1 groups, respectively.}
 #'   \item{cov_mat}{A p-length list of the estimated covariance matrix of the one-step estimators.}
 #' }
+#' @noRd
 
 one_step <- function(
     X, Z, A, M, Y, 
@@ -99,6 +99,10 @@ one_step <- function(
       lambda_seq = exp(seq(-1, -10, length = 100)), 
       num_knots = c(1000, 500, 250)
     ),
+    density_floor = sqrt(.Machine$double.eps),
+    density_ratio_cap = Inf,
+    support_rule = "delta_m",
+    support_upper = NULL,
     seed = 1, 
     ...
 ){
@@ -257,9 +261,11 @@ one_step <- function(
       
       pMXD_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMX), family = gaussian(), data = data.frame(log_M = log(M), A, X)[Delta_M == 1,])
       pMXDn_A0 <- rep(NA, n)
-      pMXDn_A0[Delta_M==0] <- 0
-      pMXDn_A0[Delta_M==1] <- (1/M)[Delta_M == 1] * dnorm(log(M)[Delta_M == 1], mean = stats::predict(pMXD_fit, newdata = data.frame(A=0,X)[Delta_M == 1,]), sd = sd(pMXD_fit$residuals)) 
+      pMXDn_A0[index_nomissingM] <- (1/M)[index_nomissingM] * dnorm(log(M)[index_nomissingM], mean = stats::predict(pMXD_fit, newdata = data.frame(A=0,X)[index_nomissingM,]), sd = sd(pMXD_fit$residuals))
     }
+    
+    # target-density support rule (see moco(), argument support_rule)
+    pMXDn_A0 <- .moco_apply_support_rule(pMXDn_A0, M, Delta_M, support_rule, support_upper, HAL_pMX)
     
     if(HAL_pMXZ){
       # density estimation for mediator, conditioning on exposure or group indicator, binary mediator, 
@@ -303,10 +309,19 @@ one_step <- function(
     }
   }
   
+  if(M_indicator){
+    # Bound the denominator densities away from zero so that density ratios in
+    # the pseudo-outcomes and the EIF stay finite.
+    pMXZDn_A <- .moco_floor_density(pMXZDn_A, density_floor)
+    pMXZn_A <- .moco_floor_density(pMXZn_A, density_floor)
+    pMXZn_A0 <- .moco_floor_density(pMXZn_A0, density_floor)
+    pMXZn_A1 <- .moco_floor_density(pMXZn_A1, density_floor)
+  }
+
   # define parameters for storing results
   est <- matrix(nrow = 2, ncol = p)
-  eif_mat <- list(p)
-  cov_mat <- list(p)
+  eif_mat <- vector("list", p)
+  cov_mat <- vector("list", p)
   for(j in 1:p){
     # fit outcome regression
     mu_MXZn_A0 <- mu_MXZn_A1 <- mu_MXZn_A <- rep(NA, n)
@@ -330,7 +345,9 @@ one_step <- function(
     
     if(M_indicator){
       # fit additional pseudo-outcome regression for mu_MXZ*pMXD/pMXZD, conditioning on exposure or group indicator, binary mediator and baseline covariates
-      mu_pseudo_A <- mu_MXZn_A*pMXDn_A0/pMXZDn_A
+      mu_pseudo_A <- mu_MXZn_A * .moco_cap_density_ratio(
+        pMXDn_A0/pMXZDn_A, density_ratio_cap
+      )
       if(!is.null(glm_formula$eta_AXZ)){
         eta_AXZ_fit <- stats::glm(paste0("mu_pseudo_A ~ ", glm_formula$eta_AXZ), family = gaussian(), 
                                   data = data.frame(mu_pseudo_A = mu_pseudo_A, A, X, Z)[Delta_M==1,])
@@ -350,7 +367,9 @@ one_step <- function(
       }
       
       # fit pseudo-outcome regression for Qd, conditioning on exposure or group indicator, mediator and baseline covariates
-      mu_pseudo_A_star <- mu_MXZn_A*pMXn_A/pMXZn_A*gDYn_1_AX/gDYn_1_AXZ
+      mu_pseudo_A_star <- mu_MXZn_A * .moco_cap_density_ratio(
+        pMXn_A/pMXZn_A, density_ratio_cap
+      ) * gDYn_1_AX/gDYn_1_AXZ
       # fit the regression
       if(!is.null(glm_formula$eta_AXM)){
         eta_AXM_fit <- stats::glm(paste0("mu_pseudo_A_star ~ ", glm_formula$eta_AXM), family = gaussian(),
@@ -402,13 +421,15 @@ one_step <- function(
                                    gA = 1 - gAn_1, gDM = gDMn_1_A0, gDY_AXZ = gDYn_1_A0XZ,
                                    eta_AXZ = eta_AXZn_A0, eta_AXM = eta_AXMn_A0, 
                                    xi_AX = xi_AXn_A0, 
-                                   mu = mu_MXZn_A0, pMXD = pMXDn_A0, pMXZ = pMXZn_A0)
+                                   mu = mu_MXZn_A0, pMXD = pMXDn_A0, pMXZ = pMXZn_A0,
+                                   density_ratio_cap = density_ratio_cap)
       
       eif_A1 <- make_full_data_eif(a = 1, A = A, Delta_Y = Delta_Y, Delta_M = Delta_M, Y = Y[,j], 
                                    gA = gAn_1, gDM = gDMn_1_A0, gDY_AXZ = gDYn_1_A1XZ,
                                    eta_AXZ = eta_AXZn_A1, eta_AXM = eta_AXMn_A1, 
                                    xi_AX = xi_AXn_A1, 
-                                   mu = mu_MXZn_A1, pMXD = pMXDn_A0, pMXZ = pMXZn_A1)
+                                   mu = mu_MXZn_A1, pMXD = pMXDn_A0, pMXZ = pMXZn_A1,
+                                   density_ratio_cap = density_ratio_cap)
     }else{
       eif_A0 = make_full_data_eif_easy(a = 0, A = A, Delta_Y = Delta_Y, Y = Y[,j], 
                                        gA = 1 - gAn_1, gDY_AXZ = gDYn_1_A0XZ,

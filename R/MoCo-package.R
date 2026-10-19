@@ -11,6 +11,9 @@
 #'
 #' @keywords internal
 #' @importFrom stats binomial cov dnorm gaussian sd
+#' @importFrom gamlss pb
 "_PACKAGE"
 
+# gamlss evaluates method = RS()/CG()/mixed() internally; these are not
+# exported by gamlss >= 5.5.0, so declare them to silence R CMD check.
 utils::globalVariables(c("RS", "CG", "mixed"))

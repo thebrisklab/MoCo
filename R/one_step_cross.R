@@ -47,7 +47,6 @@
 #' @param ... Additional arguments reserved for future extensions.
 #' 
 #' @import SuperLearner 
-#' @import haldensify 
 #' 
 #' @return A list with named entries 
 #' \describe{
@@ -57,7 +56,7 @@
 #'   \item{cov_mat}{A length-`p` list of estimated 2 by 2 covariance matrices.}
 #' }
 #' 
-#' @export
+#' @noRd
 
 fit_mechanism <- function(
     train_dat, 
@@ -93,6 +92,10 @@ fit_mechanism <- function(
       lambda_seq = exp(seq(-1, -10, length = 100)), 
       num_knots = c(1000, 500, 250)
     ),
+    density_floor = sqrt(.Machine$double.eps),
+    density_ratio_cap = Inf,
+    support_rule = "delta_m",
+    support_upper = NULL,
     seed = 1, 
     ...
 ){
@@ -257,12 +260,14 @@ fit_mechanism <- function(
       
       pMXD_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMX), family = gaussian(), data = data.frame(log_M = log(M_train), train_dat$A, train_dat$X)[Delta_M_train == 1,])
       pMXDn_A0_train <- rep(NA, n_train)
-      pMXDn_A0_train[Delta_M_train==0] <- 0
-      pMXDn_A0_train[Delta_M_train==1] <- (1/M_train)[Delta_M_train == 1] * dnorm(log(M_train)[Delta_M_train == 1], mean = stats::predict(pMXD_fit, newdata = data.frame(A=0, train_dat$X)[Delta_M_train == 1,]), sd = sd(pMXD_fit$residuals))
+      pMXDn_A0_train[index_nomissingM_train] <- (1/M_train)[index_nomissingM_train] * dnorm(log(M_train)[index_nomissingM_train], mean = stats::predict(pMXD_fit, newdata = data.frame(A=0, train_dat$X)[index_nomissingM_train,]), sd = sd(pMXD_fit$residuals))
       pMXDn_A0_valid <- rep(NA, n_valid)
-      pMXDn_A0_valid[Delta_M_valid==0] <- 0
-      pMXDn_A0_valid[Delta_M_valid==1] <- (1/M_valid)[Delta_M_valid == 1] * dnorm(log(M_valid)[Delta_M_valid == 1], mean = stats::predict(pMXD_fit, newdata = data.frame(A=0, valid_dat$X)[Delta_M_valid == 1,]), sd = sd(pMXD_fit$residuals))
+      pMXDn_A0_valid[index_nomissingM_valid] <- (1/M_valid)[index_nomissingM_valid] * dnorm(log(M_valid)[index_nomissingM_valid], mean = stats::predict(pMXD_fit, newdata = data.frame(A=0, valid_dat$X)[index_nomissingM_valid,]), sd = sd(pMXD_fit$residuals))
     }
+    
+    # target-density support rule (see moco(), argument support_rule)
+    pMXDn_A0_train <- .moco_apply_support_rule(pMXDn_A0_train, M_train, Delta_M_train, support_rule, support_upper, HAL_pMX)
+    pMXDn_A0_valid <- .moco_apply_support_rule(pMXDn_A0_valid, M_valid, Delta_M_valid, support_rule, support_upper, HAL_pMX)
     
     if(HAL_pMXZ){
       # density estimation for mediator, conditioning on exposure or group indicator, binary mediator, 
@@ -320,10 +325,23 @@ fit_mechanism <- function(
     }
   }
   
+  if(M_indicator){
+    # Bound the denominator densities away from zero so that density ratios in
+    # the pseudo-outcomes and the EIF stay finite. Bounds come from the training fold.
+    pMXZDn_A_train <- .moco_floor_density(pMXZDn_A_train, density_floor)
+    pMXZDn_A_valid <- .moco_floor_density(pMXZDn_A_valid, density_floor)
+    pMXZn_A_train <- .moco_floor_density(pMXZn_A_train, density_floor)
+    pMXZn_A0_train <- .moco_floor_density(pMXZn_A0_train, density_floor)
+    pMXZn_A1_train <- .moco_floor_density(pMXZn_A1_train, density_floor)
+    pMXZn_A_valid <- .moco_floor_density(pMXZn_A_valid, density_floor)
+    pMXZn_A0_valid <- .moco_floor_density(pMXZn_A0_valid, density_floor)
+    pMXZn_A1_valid <- .moco_floor_density(pMXZn_A1_valid, density_floor)
+  }
+
   # define parameters for storing results
   est <- matrix(nrow = 2, ncol = p)
-  eif_mat <- list(p)
-  cov_mat <- list(p)
+  eif_mat <- vector("list", p)
+  cov_mat <- vector("list", p)
   for(j in 1:p){
     # fit outcome regression
     mu_MXZn_A0_train <- mu_MXZn_A1_train <- mu_MXZn_A_train <- rep(NA, n_train)
@@ -353,7 +371,9 @@ fit_mechanism <- function(
     
     if(M_indicator){
       # fit additional pseudo-outcome regression for QY*qM/qMZ, conditioning on exposure or group indicator, binary mediator and baseline covariates
-      mu_pseudo_A_train <- mu_MXZn_A_train*pMXDn_A0_train/pMXZDn_A_train
+      mu_pseudo_A_train <- mu_MXZn_A_train * .moco_cap_density_ratio(
+        pMXDn_A0_train/pMXZDn_A_train, density_ratio_cap
+      )
       if(!is.null(glm_formula$eta_AXZ)){
         eta_AXZ_fit <- stats::glm(paste0("mu_pseudo_A ~ ", glm_formula$eta_AXZ), family = gaussian(),
                                   data = data.frame(mu_pseudo_A = mu_pseudo_A_train, train_dat$A, train_dat$X, train_dat$Z)[Delta_M_train==1,])
@@ -382,7 +402,9 @@ fit_mechanism <- function(
       }
       
       # fit pseudo-outcome regression for Qd, conditioning on exposure or group indicator, mediator and baseline covariates
-      mu_pseudo_A_star_train <- mu_MXZn_A_train*pMXn_A_train/pMXZn_A_train*gDYn_1_AX_train/gDYn_1_AXZ_train
+      mu_pseudo_A_star_train <- mu_MXZn_A_train * .moco_cap_density_ratio(
+        pMXn_A_train/pMXZn_A_train, density_ratio_cap
+      ) * gDYn_1_AX_train/gDYn_1_AXZ_train
       # fit the regression
       if(!is.null(glm_formula$eta_AXM)){
         eta_AXM_fit <- stats::glm(paste0("mu_pseudo_A_star ~ ", glm_formula$eta_AXM), family = gaussian(),
@@ -446,13 +468,15 @@ fit_mechanism <- function(
                                    gA = 1 - gAn_1, gDM = gDMn_1_A0_valid, gDY_AXZ = gDYn_1_A0XZ_valid,
                                    eta_AXZ = eta_AXZn_A0_valid, eta_AXM = eta_AXMn_A0_valid, 
                                    xi_AX = xi_AXn_A0, 
-                                   mu = mu_MXZn_A0_valid, pMXD = pMXDn_A0_valid, pMXZ = pMXZn_A0_valid)
+                                   mu = mu_MXZn_A0_valid, pMXD = pMXDn_A0_valid, pMXZ = pMXZn_A0_valid,
+                                   density_ratio_cap = density_ratio_cap)
       
       eif_A1 <- make_full_data_eif(a = 1, A = valid_dat$A$A, Delta_Y = Delta_Y_valid, Delta_M = Delta_M_valid, Y = valid_dat$Y[,j], 
                                    gA = gAn_1, gDM = gDMn_1_A0_valid, gDY_AXZ = gDYn_1_A1XZ_valid,
                                    eta_AXZ = eta_AXZn_A1_valid, eta_AXM = eta_AXMn_A1_valid, 
                                    xi_AX = xi_AXn_A1, 
-                                   mu = mu_MXZn_A1_valid, pMXD = pMXDn_A0_valid, pMXZ = pMXZn_A1_valid)
+                                   mu = mu_MXZn_A1_valid, pMXD = pMXDn_A0_valid, pMXZ = pMXZn_A1_valid,
+                                   density_ratio_cap = density_ratio_cap)
     }else{
       eif_A0 <- make_full_data_eif_easy(a = 0, A = valid_dat$A$A, Delta_Y = Delta_Y_valid, Y = valid_dat$Y[,j], 
                                         gA = 1 - gAn_1, gDY_AXZ = gDYn_1_A0XZ_valid,
@@ -532,7 +556,6 @@ fit_mechanism <- function(
 #' @param ... Additional arguments reserved for future extensions.
 #' 
 #' @import SuperLearner 
-#' @import haldensify 
 #' 
 #' @return A list with named entries 
 #' \describe{
@@ -541,6 +564,7 @@ fit_mechanism <- function(
 #'   \item{eif_mat}{A p-length list of the estimated EIF evaluated on the observations of the A = 0 and A = 1 groups, respectively.}
 #'   \item{cov_mat}{A p-length list of the estimated covariance matrix of the one-step estimators.}
 #' }
+#' @noRd
 
 one_step_cross <- function(
     X, Z, A, M, Y, 
@@ -574,6 +598,10 @@ one_step_cross <- function(
     HAL_pMX = TRUE,
     HAL_pMXZ = TRUE,
     HAL_options = list(max_degree = 3, lambda_seq = exp(seq(-1, -10, length = 100)), num_knots = c(1000, 500, 250)),
+    density_floor = sqrt(.Machine$double.eps),
+    density_ratio_cap = Inf,
+    support_rule = "delta_m",
+    support_upper = NULL,
     seed = 1, 
     cv_folds = 5,
     ...
@@ -606,6 +634,10 @@ one_step_cross <- function(
               M = data.frame(M), Delta_M = data.frame(Delta_M), 
               Delta_Y = data.frame(Delta_Y), Y = data.frame(Y))
   
+  # full-sample support of acceptable motion, used when
+  # support_rule = "observed_range"
+  if (is.null(support_upper)) support_upper <- .moco_support_upper(M, Delta_M)
+
   # divide the dataset into train_dat and valid_dat
   set.seed(seed)
   folds <- caret::createFolds(1:n, k = cv_folds, list = TRUE, returnTrain = FALSE)
@@ -613,7 +645,7 @@ one_step_cross <- function(
   # create empty matrix to store results
   est <- matrix(0, nrow = 2, ncol = p)
   # create empty vector to store eifs
-  eif_mat <- list(p)
+  eif_mat <- vector("list", p)
   for(j in 1:p){
     eif_mat[[j]] <- matrix(nrow = n, ncol = 2)
   }
@@ -630,6 +662,10 @@ one_step_cross <- function(
       HAL_pMX = HAL_pMX,
       HAL_pMXZ = HAL_pMXZ,
       HAL_options = HAL_options,
+      density_floor = density_floor,
+      density_ratio_cap = density_ratio_cap,
+      support_rule = support_rule,
+      support_upper = support_upper,
       seed = seed
     )
 
@@ -647,7 +683,7 @@ one_step_cross <- function(
   adj_association <- est[2, ] - est[1, ]
   
   # calculate covariance matrix
-  cov_mat <- list(p)
+  cov_mat <- vector("list", p)
   for(j in 1:p){
     colnames(eif_mat[[j]]) <- c('est_A0', 'est_A1')
     cov_mat[[j]] <- cov(eif_mat[[j]])/n
@@ -659,4 +695,6 @@ one_step_cross <- function(
               eif_mat = eif_mat,
               cov_mat = cov_mat
   )
+
+  out
 }

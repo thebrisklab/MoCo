@@ -11,12 +11,15 @@
 #'   recomputed before calling this function. [moco()] performs that aggregation
 #'   automatically.
 #' @param fwer Numeric vector of target family-wise error rates in `(0, 1)`.
-#' @param seed Integer seed for the multivariate-normal simulation.
+#' @param seed Integer seed for the multivariate-normal simulation. The
+#'   caller's random-number state is restored on exit.
 #' @param n_sim Positive integer number of simulation draws. Larger values
 #'   reduce Monte Carlo error at greater computational cost.
 #' @param chunk_size Positive integer maximum number of draws generated at one
-#'   time. Chunking limits memory use when testing many outcomes or using a
-#'   large `n_sim`.
+#'   time. The default, `n_sim`, draws all samples at once and reproduces the
+#'   critical values of the original MoCo implementation; smaller values limit
+#'   memory use when testing many outcomes, at the cost of a different Monte
+#'   Carlo stream.
 #'
 #' @details
 #' A one-column outcome is handled as a one-dimensional simultaneous test.
@@ -28,13 +31,24 @@
 #' @return A list with `z_score`, `conf_band`, `significant_regions`, and
 #'   `correlation_matrix`. `significant_regions` has one row per requested FWER
 #'   and one column per tested outcome.
+#' @examples
+#' # A toy aggregated result with three outcomes and simulated EIF values.
+#' set.seed(1)
+#' n <- 200
+#' eif <- lapply(1:3, function(j) cbind(eif_A0 = rnorm(n), eif_A1 = rnorm(n)))
+#' toy <- list(
+#'   adj_association = c(Y1 = 0.30, Y2 = 0.02, Y3 = -0.01),
+#'   eif_mat = eif,
+#'   cov_mat = lapply(eif, function(x) stats::cov(x) / n)
+#' )
+#' hypo_test(toy, fwer = c(0.05, 0.10), n_sim = 2000)
 #' @export
 hypo_test <- function(
     result,
     fwer = 0.05,
     seed = 1,
     n_sim = 100000L,
-    chunk_size = 25000L
+    chunk_size = n_sim
 ) {
   required <- c("adj_association", "eif_mat", "cov_mat")
   missing_components <- setdiff(required, names(result))
@@ -112,6 +126,7 @@ hypo_test <- function(
     dimnames(correlation) <- list(outcome_names, outcome_names)
   }
 
+  withr::local_preserve_seed()
   set.seed(seed)
   simulated_max <- numeric(n_sim)
   first <- 1L

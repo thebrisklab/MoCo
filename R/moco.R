@@ -7,20 +7,29 @@
 #' lasso (HAL), log-normal generalized linear models (GLM), or generalized
 #' additive models for location, scale, and shape (GAMLSS).
 #'
-#' @param X A data frame or matrix of baseline covariates.
+#' @param X A data frame or matrix of baseline covariates, or `NULL` for no
+#'   baseline covariates.
 #' @param Z A data frame or matrix of post-exposure covariates used by the
-#'   selection-bias adjustment.
+#'   selection-bias adjustment, or `NULL`.
 #' @param A A binary exposure or group indicator of length `n`.
-#' @param M A numeric motion measure of length `n`.
+#' @param M A numeric motion measure of length `n`. It must be observed
+#'   whenever `Delta_Y = 1` or `Delta_M = 1`, and strictly positive for GLM and
+#'   GAMLSS motion densities. Use `M = NULL` when motion is unavailable; the
+#'   estimator then treats participants with `Delta_M = 0` as missing (as in
+#'   Nebel et al., 2022) and no motion density is estimated.
 #' @param Y A numeric outcome vector or an `n` by `p` numeric matrix. Rows with
 #'   `Delta_Y = 0` may contain missing values. An entirely missing column is
 #'   treated as a structural seed/self-correlation position and restored as
 #'   `NA` in the output.
 #' @param Delta_M A binary motion-inclusion vector. Supply `Delta_M` or
 #'   `thresh`.
-#' @param thresh Optional threshold used to define `Delta_M` from `M`.
+#' @param thresh Optional threshold used to define `Delta_M` as
+#'   `M < thresh` (missing `M` gives `Delta_M = 0`). If supplied, it overrides
+#'   `Delta_M`.
 #' @param Delta_Y A binary outcome-observation and quality indicator.
 #' @param SL_library Super Learner library used for nuisance regressions.
+#'   Learners whose packages are not installed (for example `SL.xgboost`
+#'   without \pkg{xgboost}) are dropped with a message.
 #' @param SL_library_customize Named list optionally specifying separate
 #'   libraries for `gA`, `gDM`, `gDY_AX`, `gDY_AXZ`, `mu_AMXZ`, `eta_AXZ`,
 #'   `eta_AXM`, and `xi_AX`.
@@ -45,17 +54,42 @@
 #' @param gamlss_bic_candidates Reserved for compatibility.
 #' @param gamlss_bic_trace Logical controlling GAMLSS fitting output.
 #' @param n.cyc Maximum number of GAMLSS fitting cycles.
+#' @param gamlss_c_crit Convergence criterion for the GAMLSS global deviance,
+#'   passed to [gamlss::gamlss.control()]. The default, `0.001`, is the
+#'   `gamlss` default.
 #' @param HAL_options Options passed to `haldensify` for HAL densities.
+#' @param density_floor Strictly positive absolute lower bound used for motion
+#'   densities appearing in denominators. The default,
+#'   `sqrt(.Machine$double.eps)`, is a numerical safeguard against division by
+#'   zero and matches the original MoCo implementation.
+#' @param density_ratio_cap Optional positive upper bound for finite motion
+#'   density ratios. The default, `Inf`, applies no cap and therefore leaves the
+#'   paper estimand unchanged. A finite value truncates the density-ratio
+#'   weights and therefore changes the estimand; use it only for sensitivity
+#'   analyses of unstable density ratios.
+#' @param support_rule Rule for where the target motion density
+#'   `p(m | Delta_M = 1, A = 0, X)` is zero when it is evaluated at each
+#'   participant's observed motion. `"delta_m"` (default) is the original MoCo
+#'   rule: GLM and GAMLSS set it to zero for every participant with
+#'   `Delta_M = 0`, and HAL uses the `haldensify` prediction, which is zero
+#'   outside the training range. It is appropriate when `Delta_M` is a cutoff on
+#'   `M` itself (for example `Delta_M = 1` if mean FD is below `thresh`).
+#'   `"observed_range"` sets the density to zero only above the largest `M`
+#'   among `Delta_M = 1` participants in the full sample; use it when `Delta_M`
+#'   is defined by scrubbing or a retained-frame count, so that participants
+#'   with `Delta_M = 0` can have tolerable motion.
 #' @param cross_fit Logical indicating whether to use cross-fitting.
 #' @param cv_folds Number of cross-fitting folds.
 #' @param test Logical indicating whether to run simultaneous EIF tests.
 #' @param fwer Numeric vector of family-wise error rates.
 #' @param seed_rgn Integer vector defining repeated nuisance-model and
-#'   cross-fitting splits, not optimizer initializations.
+#'   cross-fitting splits, not optimizer initializations. Seeds are used
+#'   internally and the caller's random-number state is restored on exit.
 #' @param test_seed Seed used by [hypo_test()].
 #' @param test_n_sim Number of multivariate-normal draws used by [hypo_test()].
 #' @param test_chunk_size Maximum number of simultaneous-test draws generated
-#'   at once. Smaller values reduce peak memory use.
+#'   at once. The default, `test_n_sim`, reproduces the original MoCo critical
+#'   values; smaller values reduce peak memory use.
 #' @param ... Additional named arguments passed to the selected fitting engine.
 #'
 #' @details
@@ -66,16 +100,54 @@
 #' entering linearly, and a constant shape parameter.
 #'
 #' For repeated `seed_rgn` values, estimates and participant-level efficient
-#' influence functions are averaged before covariance, z-statistics, and
-#' simultaneous critical values are recomputed.
+#' influence functions are averaged across seeds, and the covariance,
+#' z-statistics, and simultaneous critical values are then recomputed from the
+#' averaged influence functions. This replaces the averaging of z-statistics
+#' and critical values across runs used in earlier versions of MoCo; the point
+#' estimates are the same under both approaches, and a single seed gives
+#' identical results.
 #'
-#' @return A list with `est`, `adj_association`, and `density_method`. GAMLSS
-#'   fits also return `gamlss_selection_runs`. When `test = TRUE`, the list
-#'   additionally contains `z_score`, `conf_band`, and `significant_regions`.
+#' @return A list with components:
+#' \describe{
+#'   \item{est}{Data frame with two rows (`est_A0`, `est_A1`) and one column
+#'     per outcome: motion-controlled group means.}
+#'   \item{adj_association}{Named numeric vector of `A = 1` minus `A = 0`
+#'     contrasts.}
+#'   \item{density_method}{Character vector naming the `pMX` and `pMXZ`
+#'     density methods.}
+#'   \item{density_controls}{List recording the absolute denominator floor and
+#'     optional density-ratio cap used in the fit.}
+#'   \item{gamlss_selection_runs}{(GAMLSS only) List of fitted GAMLSS
+#'     specifications for each seed.}
+#'   \item{z_score}{(`test = TRUE`) Named vector of EIF-based z-statistics.}
+#'   \item{conf_band}{(`test = TRUE`) Simultaneous critical value for each
+#'     requested FWER.}
+#'   \item{significant_regions}{(`test = TRUE`) Logical vector (one FWER) or
+#'     matrix (one row per FWER) of simultaneous-test decisions.}
+#' }
+#' Structurally missing outcome columns are returned as `NA`.
 #' @seealso [hypo_test()]
+#' @examples
+#' data(data)
+#'
+#' \donttest{
+#' # A fast illustration: log-normal GLM motion densities, a small learner
+#' # library, two outcomes and two cross-fitting folds.
+#' fit <- moco(
+#'   X = data$X, Z = data$Z, A = data$A, M = data$M,
+#'   Y = data$Y[, 1:2],
+#'   Delta_M = data$Delta_M, Delta_Y = data$Delta_Y,
+#'   SL_library = c("SL.mean", "SL.glm"),
+#'   pMX_method = "GLM",
+#'   glm_formula = list(pMX = ".", pMXZ = "."),
+#'   cv_folds = 2,
+#'   test_n_sim = 2000
+#' )
+#' fit$est
+#' fit$adj_association
+#' fit$significant_regions
+#' }
 #' @import SuperLearner
-#' @import haldensify
-#' @import MASS
 #' @export
 moco <- function(
     X,
@@ -114,11 +186,15 @@ moco <- function(
     gamlss_bic_candidates = c("linear", "pb_mu", "pb_mu_sigma"),
     gamlss_bic_trace = FALSE,
     n.cyc = 300,
+    gamlss_c_crit = 0.001,
     HAL_options = list(
       max_degree = 3,
       lambda_seq = exp(seq(-1, -10, length = 100)),
       num_knots = c(1000, 500, 250)
     ),
+    density_floor = sqrt(.Machine$double.eps),
+    density_ratio_cap = Inf,
+    support_rule = c("delta_m", "observed_range"),
     cross_fit = TRUE,
     cv_folds = 5,
     test = TRUE,
@@ -126,9 +202,27 @@ moco <- function(
     seed_rgn = 1,
     test_seed = 1,
     test_n_sim = 100000L,
-    test_chunk_size = 25000L,
+    test_chunk_size = test_n_sim,
     ...
 ) {
+  # Seeds are set internally for reproducible nuisance fits; restore the
+  # caller's random-number state on exit.
+  withr::local_preserve_seed()
+
+  SL_library <- .moco_available_learners(SL_library)
+  SL_library_customize <- lapply(
+    stats::setNames(names(SL_library_customize), names(SL_library_customize)),
+    function(component) {
+      .moco_available_learners(
+        SL_library_customize[[component]],
+        paste0("SL_library_customize$", component)
+      )
+    }
+  )
+
+  support_rule <- match.arg(support_rule)
+  M_available <- !is.null(M)
+
   pMX_method <- .moco_match_density_method(pMX_method, "pMX_method")
   if (is.null(pMXZ_method)) {
     pMXZ_method <- pMX_method
@@ -146,9 +240,18 @@ moco <- function(
   if (is.null(Delta_M) && is.null(thresh)) {
     stop("Supply either Delta_M or thresh.")
   }
+  if (!M_available && !is.null(thresh)) {
+    stop("thresh requires M; supply Delta_M when M = NULL.")
+  }
+  if (!is.null(Delta_M) && !is.null(thresh)) {
+    warning("Both Delta_M and thresh were supplied; Delta_M is recomputed as M < thresh.")
+  }
+  density_controls <- .moco_validate_density_controls(
+    density_floor, density_ratio_cap
+  )
 
-  X <- as.data.frame(X)
-  Z <- as.data.frame(Z)
+  if (!is.null(X)) X <- as.data.frame(X)
+  if (!is.null(Z)) Z <- as.data.frame(Z)
   if (anyNA(A) || anyNA(X) || anyNA(Z)) {
     stop("A, X, and Z must not contain missing values.")
   }
@@ -159,13 +262,20 @@ moco <- function(
   }
   n <- nrow(Y)
   if (
-    length(A) != n || length(M) != n || nrow(X) != n || nrow(Z) != n ||
+    length(A) != n || (M_available && length(M) != n) ||
+      (!is.null(X) && nrow(X) != n) || (!is.null(Z) && nrow(Z) != n) ||
       length(Delta_Y) != n
   ) {
     stop("A, M, X, Z, Delta_Y, and Y must have the same number of observations.")
   }
   if (anyNA(Delta_Y) || any(!Delta_Y %in% c(0, 1))) {
     stop("Delta_Y must contain only 0 and 1 with no missing values.")
+  }
+  if (M_available && !is.numeric(M)) {
+    stop("M must be numeric.")
+  }
+  if (M_available && any(Delta_Y == 1 & is.na(M))) {
+    stop("M must be observed for every row with Delta_Y = 1.")
   }
   if (is.null(thresh)) {
     if (length(Delta_M) != n || anyNA(Delta_M) || any(!Delta_M %in% c(0, 1))) {
@@ -187,7 +297,20 @@ moco <- function(
     stop("Y must be finite for every row with Delta_Y = 1.")
   }
 
-  density_methods <- c(pMX = pMX_method, pMXZ = pMXZ_method)
+  if (M_available && !is.null(Delta_M) && is.null(thresh) &&
+      any(Delta_M == 1 & is.na(M))) {
+    stop("M must be observed for every row with Delta_M = 1.")
+  }
+
+  density_methods <- if (M_available) {
+    c(pMX = pMX_method, pMXZ = pMXZ_method)
+  } else {
+    c(pMX = "none", pMXZ = "none")
+  }
+  if (any(density_methods %in% c("GLM", "GAMLSS")) &&
+      any(!is.na(M) & M <= 0)) {
+    stop("GLM and GAMLSS motion densities require strictly positive M.")
+  }
   glm_components <- names(density_methods)[density_methods == "GLM"]
   missing_glm_formula <- glm_components[vapply(
     glm_components,
@@ -242,6 +365,9 @@ moco <- function(
       glm_formula = glm_formula,
       HAL_pMX = HAL_pMX, HAL_pMXZ = HAL_pMXZ,
       HAL_options = HAL_options,
+      density_floor = density_controls$density_floor,
+      density_ratio_cap = density_controls$density_ratio_cap,
+      support_rule = support_rule,
       seed = seed_rgn[i]
     )
 
@@ -260,7 +386,8 @@ moco <- function(
           gamlss_continuous_Z = gamlss_continuous_Z,
           gamlss_bic_candidates = gamlss_bic_candidates,
           gamlss_bic_trace = gamlss_bic_trace,
-          n.cyc = n.cyc
+          n.cyc = n.cyc,
+          gamlss_c_crit = gamlss_c_crit
         )
       )
     } else {
@@ -297,7 +424,9 @@ moco <- function(
   output <- list(
     est = as.data.frame(est_full),
     adj_association = adj_full,
-    density_method = density_methods
+    density_method = density_methods,
+    density_controls = density_controls,
+    support_rule = support_rule
   )
   if (use_gamlss) output$gamlss_selection_runs <- gamlss_selection_runs
 

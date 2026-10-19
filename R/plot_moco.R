@@ -16,7 +16,17 @@
 #' @param fwer_index Row of `result$significant_regions` to plot when several
 #'   FWER levels were requested.
 #' @return Invisibly returns the three output file paths.
-#' 
+#' @examples
+#' \dontrun{
+#' # Requires the ciftiTools package, Connectome Workbench and a CIFTI template.
+#' fit <- moco(...)
+#' plot_moco(
+#'   fit,
+#'   wb_path = "path/to/workbench",
+#'   template_path = "path/to/template.dscalar.nii",
+#'   plots_path = tempdir()
+#' )
+#' }
 #' @export
 
 plot_moco <- function(result, wb_path, template_path, 
@@ -41,13 +51,15 @@ plot_moco <- function(result, wb_path, template_path,
   parcel_label <- rownames(parc$meta$cifti$labels$parcels)[-1]
   
   if(parcellation == "Yeo_7"){
-    parc_vec[parc_vec %in% which(grepl("Vis", parcel_label))] <- 1
-    parc_vec[parc_vec %in% which(grepl("SomMot", parcel_label))] <- 2
-    parc_vec[parc_vec %in% which(grepl("DorsAttn", parcel_label))] <- 3
-    parc_vec[parc_vec %in% which(grepl("Limbic", parcel_label))] <- 4
-    parc_vec[parc_vec %in% which(grepl("SalVentAttn", parcel_label))] <- 5
-    parc_vec[parc_vec %in% which(grepl("Cont", parcel_label))] <- 6
-    parc_vec[parc_vec %in% which(grepl("Default", parcel_label))] <- 7
+    # Map each parcel to its Yeo-7 network with a lookup table, so that
+    # already relabelled values are never matched again.
+    network_patterns <- c("Vis", "SomMot", "DorsAttn", "Limbic", "SalVentAttn", "Cont", "Default")
+    network_of_parcel <- vapply(parcel_label, function(label) {
+      hit <- which(vapply(network_patterns, grepl, logical(1), x = label, fixed = TRUE))
+      if (length(hit) == 0L) NA_integer_ else hit[1L]
+    }, integer(1), USE.NAMES = FALSE)
+    in_parcel <- !is.na(parc_vec) & parc_vec > 0
+    parc_vec[in_parcel] <- network_of_parcel[parc_vec[in_parcel]]
   }
   
   # retrive results

@@ -18,7 +18,7 @@
   if (length(vars) == 0L) return(character(0))
   vapply(
     vars,
-    function(v) paste0("gamlss::pb(", .moco_bt(v), ")"),
+    function(v) paste0("pb(", .moco_bt(v), ")"),
     character(1)
   )
 }
@@ -80,7 +80,69 @@
   )
 }
 
+# Fit a GAMLSS density. If the requested optimizer fails or does not converge,
+# the same model is refitted with fallback algorithms (RS, mixed and CG with
+# the gamlss default convergence criterion 0.001). Only the numerical
+# algorithm changes; the family and formulas do not. The algorithm used is
+# recorded in attr(fit, "moco_gamlss_optimizer").
 .moco_fit_gamlss <- function(
+    formula,
+    sigma.formula,
+    nu.formula,
+    data,
+    control,
+    gamlss_optimizer = "RS",
+    model_label = "GAMLSS"
+) {
+  gamlss_optimizer <- .moco_match_gamlss_optimizer(gamlss_optimizer)
+  attempts <- list(list(optimizer = gamlss_optimizer, control = control))
+  fallback_control <- control
+  fallback_control$c.crit <- max(control$c.crit, 0.001)
+  for (optimizer in c("RS", "mixed", "CG")) {
+    attempts[[length(attempts) + 1L]] <- list(
+      optimizer = optimizer, control = fallback_control
+    )
+  }
+
+  failures <- character(0)
+  for (attempt in attempts) {
+    fit <- tryCatch(
+      .moco_fit_gamlss_once(
+        formula = formula,
+        sigma.formula = sigma.formula,
+        nu.formula = nu.formula,
+        data = data,
+        control = attempt$control,
+        gamlss_optimizer = attempt$optimizer,
+        model_label = model_label
+      ),
+      error = function(e) e
+    )
+    if (!inherits(fit, "error")) {
+      label <- paste0(
+        .moco_gamlss_optimizer_label(attempt$optimizer),
+        ", c.crit = ", format(attempt$control$c.crit)
+      )
+      if (length(failures) > 0L) {
+        message(
+          model_label, ": fitted with fallback ", label,
+          " after: ", paste(failures, collapse = "; ")
+        )
+      }
+      attr(fit, "moco_gamlss_optimizer") <- label
+      attr(fit, "moco_gamlss_fallback") <- length(failures) > 0L
+      return(fit)
+    }
+    failures <- c(failures, conditionMessage(fit))
+  }
+  stop(
+    model_label, " could not be fitted with any optimizer: ",
+    paste(failures, collapse = "; "),
+    call. = FALSE
+  )
+}
+
+.moco_fit_gamlss_once <- function(
     formula,
     sigma.formula,
     nu.formula,
@@ -229,6 +291,7 @@ one_step_gamlss <- function(
     gamlss_bic_candidates = c("linear", "pb_mu", "pb_mu_sigma"),
     gamlss_bic_trace = FALSE,
     n.cyc = 300,
+    gamlss_c_crit = 0.001,
     HAL_pMX = FALSE,
     HAL_pMXZ = FALSE,
     HAL_options = list(
@@ -236,6 +299,10 @@ one_step_gamlss <- function(
       lambda_seq = exp(seq(-1, -10, length = 100)),
       num_knots = c(1000, 500, 250)
     ),
+    density_floor = sqrt(.Machine$double.eps),
+    density_ratio_cap = Inf,
+    support_rule = "delta_m",
+    support_upper = NULL,
     seed = 1,
     ...
 ){
@@ -274,7 +341,9 @@ one_step_gamlss <- function(
   
   # GAMLSS parameter prediction through the standard S3 predict generic.
   # This uses stats::predict() for mu, sigma, and nu.
-  predict_gamlss_parameters_nocv <- function(fit, newdata, fit_data) {
+  # Helper names must not match the regex "predict.gamlss": gamlss.pb()
+  # searches the call stack with it to find the predict.gamlss() frame.
+  moco_gamlss_params_full <- function(fit, newdata, fit_data) {
     list(
       mu = as.numeric(stats::predict(
         fit, what = "mu", type = "response",
@@ -412,18 +481,18 @@ one_step_gamlss <- function(
     pMXDn_A0 <- rep(NA, n)
     pMXDn_A0[index_nomissingM] <- stats::predict(pMXD_fit, new_A = M[index_nomissingM], new_W = data.frame(A = 0, X)[index_nomissingM,], trim_min = 0)
   }else if(GAMLSS_pMX){
-    ctrl <- gamlss::gamlss.control(n.cyc = n.cyc, c.crit = 1e-6, trace = isTRUE(gamlss_bic_trace))
+    ctrl <- gamlss::gamlss.control(n.cyc = n.cyc, c.crit = gamlss_c_crit, trace = isTRUE(gamlss_bic_trace))
     
     # --------------------------------------------------------------
     # p(M | A, X)
     #
-    # Fit on all observations with positive observed M, matching the
-    # original MoCo density definition. Density values needed by the
-    # outcome-missingness part are evaluated where Delta_Y == 1.
+    # Fit on observations with Delta_Y == 1 and positive observed M, as for
+    # the HAL and GLM densities: the EIF weight
+    # Delta_Y / {P(Delta_Y = 1 | A, X, Z) p(M | A, X, Z)} requires the density
+    # conditional on Delta_Y = 1.
     # --------------------------------------------------------------
-    idx_all_M <- which(!is.na(M) & is.finite(M) & M > 0)
     idx_Y <- which(Delta_Y == 1 & !is.na(M) & is.finite(M) & M > 0)
-    pMX_fit_data <- pMX_all_data[idx_all_M, , drop = FALSE]
+    pMX_fit_data <- pMX_all_data[idx_Y, , drop = FALSE]
     if (nrow(pMX_fit_data) == 0L) stop("No observations remain for pMX GAMLSS fitting.")
 
     pMX_spec <- .moco_make_default_gamlss_formulas(
@@ -441,12 +510,12 @@ one_step_gamlss <- function(
     )
     gamlss_selection$pMX <- list(
       method = "default_pb_mu_sigma_nu1",
-      optimizer = .moco_gamlss_optimizer_label(gamlss_optimizer),
+      optimizer = attr(pMX_fit, "moco_gamlss_optimizer"),
       formulas = pMX_spec
     )
 
     pMXn_A <- rep(NA_real_, n)
-    pMX_predict <- predict_gamlss_parameters_nocv(
+    pMX_predict <- moco_gamlss_params_full(
       pMX_fit, pMX_all_data[idx_Y, , drop = FALSE], pMX_fit_data
     )
     pMXn_A[idx_Y] <- gamlss.dist::dGG(
@@ -475,17 +544,19 @@ one_step_gamlss <- function(
     )
     gamlss_selection$pMXD <- list(
       method = "default_pb_mu_sigma_nu1",
-      optimizer = .moco_gamlss_optimizer_label(gamlss_optimizer),
+      optimizer = attr(pMXD_fit, "moco_gamlss_optimizer"),
       formulas = pMXD_spec
     )
 
+    # Evaluate p(M | A = 0, X, Delta_M = 1) at every positive observed M; the
+    # support rule below sets it to zero where required.
+    idx_eval_M <- which(!is.na(M) & is.finite(M) & M > 0)
     pMXDn_A0 <- rep(NA_real_, n)
-    pMXDn_A0[Delta_M == 0] <- 0
-    pMXD_new <- pMX_all_data[idx_M, , drop = FALSE]
+    pMXD_new <- pMX_all_data[idx_eval_M, , drop = FALSE]
     pMXD_new$A <- 0
-    pMXD_predict <- predict_gamlss_parameters_nocv(pMXD_fit, pMXD_new, pMXD_fit_data)
-    pMXDn_A0[idx_M] <- gamlss.dist::dGG(
-      M[idx_M], mu = pMXD_predict$mu, sigma = pMXD_predict$sigma, nu = pMXD_predict$nu
+    pMXD_predict <- moco_gamlss_params_full(pMXD_fit, pMXD_new, pMXD_fit_data)
+    pMXDn_A0[idx_eval_M] <- gamlss.dist::dGG(
+      M[idx_eval_M], mu = pMXD_predict$mu, sigma = pMXD_predict$sigma, nu = pMXD_predict$nu
     )
     
   }else{
@@ -495,9 +566,11 @@ one_step_gamlss <- function(
     
     pMXD_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMX), family = gaussian(), data = data.frame(log_M = log(M), A, X)[Delta_M == 1,])
     pMXDn_A0 <- rep(NA, n)
-    pMXDn_A0[Delta_M==0] <- 0
-    pMXDn_A0[Delta_M==1] <- (1/M)[Delta_M == 1] * dnorm(log(M)[Delta_M == 1], mean = stats::predict(pMXD_fit, newdata = data.frame(A=0,X)[Delta_M == 1,]), sd = sd(pMXD_fit$residuals))
+    pMXDn_A0[index_nomissingM] <- (1/M)[index_nomissingM] * dnorm(log(M)[index_nomissingM], mean = stats::predict(pMXD_fit, newdata = data.frame(A=0,X)[index_nomissingM,]), sd = sd(pMXD_fit$residuals))
   }
+  
+  # target-density support rule (see moco(), argument support_rule)
+  pMXDn_A0 <- .moco_apply_support_rule(pMXDn_A0, M, Delta_M, support_rule, support_upper, HAL_pMX)
   
   if(HAL_pMXZ){
     # density estimation for mediator, conditioning on exposure or group indicator, binary mediator,
@@ -528,16 +601,15 @@ one_step_gamlss <- function(
     pMXZDn_A <- rep(NA, n)
     pMXZDn_A[index_nomissingM] <- stats::predict(pMXZD_fit, new_A = M[index_nomissingM], new_W = data.frame(A, X, Z)[index_nomissingM,], trim_min = 0)
   } else if(GAMLSS_pMXZ){
-    ctrl <- gamlss::gamlss.control(n.cyc = n.cyc, c.crit = 1e-6, trace = isTRUE(gamlss_bic_trace))
+    ctrl <- gamlss::gamlss.control(n.cyc = n.cyc, c.crit = gamlss_c_crit, trace = isTRUE(gamlss_bic_trace))
     
     # --------------------------------------------------------------
     # p(M | A, X, Z)
     #
-    # Fit on all observations with positive observed M.
+    # Fit on observations with Delta_Y == 1 and positive observed M.
     # --------------------------------------------------------------
-    idx_all_M <- which(!is.na(M) & is.finite(M) & M > 0)
     idx_Y <- which(Delta_Y == 1 & !is.na(M) & is.finite(M) & M > 0)
-    pMXZ_fit_data <- pMXZ_all_data[idx_all_M, , drop = FALSE]
+    pMXZ_fit_data <- pMXZ_all_data[idx_Y, , drop = FALSE]
     if (nrow(pMXZ_fit_data) == 0L) stop("No observations remain for pMXZ GAMLSS fitting.")
 
     pMXZ_spec <- .moco_make_default_gamlss_formulas(
@@ -557,17 +629,17 @@ one_step_gamlss <- function(
     )
     gamlss_selection$pMXZ <- list(
       method = "default_pb_mu_sigma_nu1",
-      optimizer = .moco_gamlss_optimizer_label(gamlss_optimizer),
+      optimizer = attr(pMXZ_fit, "moco_gamlss_optimizer"),
       formulas = pMXZ_spec
     )
 
     pMXZn_A <- pMXZn_A0 <- pMXZn_A1 <- rep(NA_real_, n)
     new_obs <- pMXZ_all_data[idx_Y, , drop = FALSE]
-    pred_A <- predict_gamlss_parameters_nocv(pMXZ_fit, new_obs, pMXZ_fit_data)
+    pred_A <- moco_gamlss_params_full(pMXZ_fit, new_obs, pMXZ_fit_data)
     new_A0 <- new_obs; new_A0$A <- 0
     new_A1 <- new_obs; new_A1$A <- 1
-    pred_A0 <- predict_gamlss_parameters_nocv(pMXZ_fit, new_A0, pMXZ_fit_data)
-    pred_A1 <- predict_gamlss_parameters_nocv(pMXZ_fit, new_A1, pMXZ_fit_data)
+    pred_A0 <- moco_gamlss_params_full(pMXZ_fit, new_A0, pMXZ_fit_data)
+    pred_A1 <- moco_gamlss_params_full(pMXZ_fit, new_A1, pMXZ_fit_data)
     
     pMXZn_A[idx_Y] <- gamlss.dist::dGG(M[idx_Y], mu = pred_A$mu, sigma = pred_A$sigma, nu = pred_A$nu)
     pMXZn_A0[idx_Y] <- gamlss.dist::dGG(M[idx_Y], mu = pred_A0$mu, sigma = pred_A0$sigma, nu = pred_A0$nu)
@@ -597,13 +669,13 @@ one_step_gamlss <- function(
     )
     gamlss_selection$pMXZD <- list(
       method = "default_pb_mu_sigma_nu1",
-      optimizer = .moco_gamlss_optimizer_label(gamlss_optimizer),
+      optimizer = attr(pMXZD_fit, "moco_gamlss_optimizer"),
       formulas = pMXZD_spec
     )
 
     pMXZDn_A <- rep(NA_real_, n)
     pMXZDn_A[Delta_M == 0] <- 0
-    pred_M <- predict_gamlss_parameters_nocv(
+    pred_M <- moco_gamlss_params_full(
       pMXZD_fit, pMXZ_all_data[idx_M, , drop = FALSE], pMXZD_fit_data
     )
     pMXZDn_A[idx_M] <- gamlss.dist::dGG(
@@ -622,10 +694,17 @@ one_step_gamlss <- function(
     pMXZDn_A[Delta_M==1] <- (1/M)[Delta_M==1] * dnorm(log(M)[Delta_M==1], mean = stats::predict(pMXZD_fit, newdata = data.frame(A, X, Z)[Delta_M==1,]), sd = sd(pMXZD_fit$residuals))
   }
   
+  # Bound the denominator densities away from zero so that density ratios in
+  # the pseudo-outcomes and the EIF stay finite.
+  pMXZDn_A <- .moco_floor_density(pMXZDn_A, density_floor)
+  pMXZn_A <- .moco_floor_density(pMXZn_A, density_floor)
+  pMXZn_A0 <- .moco_floor_density(pMXZn_A0, density_floor)
+  pMXZn_A1 <- .moco_floor_density(pMXZn_A1, density_floor)
+
   # define parameters for storing results
   est <- matrix(nrow = 2, ncol = p)
-  eif_mat <- list(p)
-  cov_mat <- list(p)
+  eif_mat <- vector("list", p)
+  cov_mat <- vector("list", p)
   for(j in 1:p){
     # fit outcome regression
     mu_MXZn_A0 <- mu_MXZn_A1 <- mu_MXZn_A <- rep(NA, n)
@@ -648,7 +727,9 @@ one_step_gamlss <- function(
     }
     
     # fit additional pseudo-outcome regression for mu_MXZ*pMXD/pMXZD, conditioning on exposure or group indicator, binary mediator and baseline covariates
-    mu_pseudo_A <- mu_MXZn_A*pMXDn_A0/pMXZDn_A
+    mu_pseudo_A <- mu_MXZn_A * .moco_cap_density_ratio(
+      pMXDn_A0/pMXZDn_A, density_ratio_cap
+    )
     if(!is.null(glm_formula$eta_AXZ)){
       eta_AXZ_fit <- stats::glm(paste0("mu_pseudo_A ~ ", glm_formula$eta_AXZ), family = gaussian(),
                                 data = data.frame(mu_pseudo_A = mu_pseudo_A, A, X, Z)[Delta_M==1,])
@@ -668,7 +749,9 @@ one_step_gamlss <- function(
     }
     
     # fit pseudo-outcome regression for Qd, conditioning on exposure or group indicator, mediator and baseline covariates
-    mu_pseudo_A_star <- mu_MXZn_A*pMXn_A/pMXZn_A*gDYn_1_AX/gDYn_1_AXZ #warning here
+    mu_pseudo_A_star <- mu_MXZn_A * .moco_cap_density_ratio(
+      pMXn_A/pMXZn_A, density_ratio_cap
+    ) * gDYn_1_AX/gDYn_1_AXZ
     # fit the regression
     if(!is.null(glm_formula$eta_AXM)){
       eta_AXM_fit <- stats::glm(paste0("mu_pseudo_A_star ~ ", glm_formula$eta_AXM), family = gaussian(),
@@ -715,13 +798,15 @@ one_step_gamlss <- function(
                                  gA = 1 - gAn_1, gDM = gDMn_1_A0, gDY_AXZ = gDYn_1_A0XZ,
                                  eta_AXZ = eta_AXZn_A0, eta_AXM = eta_AXMn_A0,
                                  xi_AX = xi_AXn_A0,
-                                 mu = mu_MXZn_A0, pMXD = pMXDn_A0, pMXZ = pMXZn_A0)
+                                 mu = mu_MXZn_A0, pMXD = pMXDn_A0, pMXZ = pMXZn_A0,
+                                 density_ratio_cap = density_ratio_cap)
     
     eif_A1 <- make_full_data_eif(a = 1, A = A, Delta_Y = Delta_Y, Delta_M = Delta_M, Y = Y[,j],
                                  gA = gAn_1, gDM = gDMn_1_A0, gDY_AXZ = gDYn_1_A1XZ,
                                  eta_AXZ = eta_AXZn_A1, eta_AXM = eta_AXMn_A1,
                                  xi_AX = xi_AXn_A1,
-                                 mu = mu_MXZn_A1, pMXD = pMXDn_A0, pMXZ = pMXZn_A1)
+                                 mu = mu_MXZn_A1, pMXD = pMXDn_A0, pMXZ = pMXZn_A1,
+                                 density_ratio_cap = density_ratio_cap)
     
     # one-step estimator
     est[,j] <- c(mean(xi_AXn_A0) + mean(eif_A0), mean(xi_AXn_A1) + mean(eif_A1))
@@ -795,6 +880,7 @@ fit_mechanism_gamlss <- function(
     gamlss_bic_candidates = c("linear", "pb_mu", "pb_mu_sigma"),
     gamlss_bic_trace = FALSE,
     n.cyc = 300,
+    gamlss_c_crit = 0.001,
     HAL_pMX = TRUE,
     HAL_pMXZ = TRUE,
     HAL_options = list(
@@ -802,6 +888,10 @@ fit_mechanism_gamlss <- function(
       lambda_seq = exp(seq(-1, -10, length = 100)),
       num_knots = c(1000, 500, 250)
     ),
+    density_floor = sqrt(.Machine$double.eps),
+    density_ratio_cap = Inf,
+    support_rule = "delta_m",
+    support_upper = NULL,
     seed = 1,
     ...
 ){
@@ -883,7 +973,7 @@ fit_mechanism_gamlss <- function(
     stop("Cross-fit GAMLSS data frames are not aligned with the fold sizes.")
   }
   
-  predict_gamlss_parameters <- function(fit, newdata, fit_data) {
+  moco_gamlss_params_cv <- function(fit, newdata, fit_data) {
     list(
       mu = as.numeric(stats::predict(
         fit,
@@ -1049,15 +1139,14 @@ fit_mechanism_gamlss <- function(
       pMXDn_A0_valid <- rep(NA, n_valid)
       pMXDn_A0_valid[index_nomissingM_valid] <- stats::predict(pMXD_fit, new_A = M_valid[index_nomissingM_valid], new_W = data.frame(A = 0, valid_dat$X)[index_nomissingM_valid,], trim_min = 0)
     }else if(GAMLSS_pMX){
-      ctrl <- gamlss::gamlss.control(n.cyc = n.cyc, c.crit = 1e-6, trace = isTRUE(gamlss_bic_trace))
+      ctrl <- gamlss::gamlss.control(n.cyc = n.cyc, c.crit = gamlss_c_crit, trace = isTRUE(gamlss_bic_trace))
       
-      # GAMLSS p(M | A, X): fit on all positive observed M in the
-      # training fold; evaluate the density where Delta_Y == 1.
-      idx_train_all_M <- which(!is.na(M_train) & is.finite(M_train) & M_train > 0)
+      # GAMLSS p(M | A, X, Delta_Y = 1): fit on Delta_Y == 1 observations with
+      # positive M in the training fold, matching the HAL and GLM densities.
       idx_train_Y <- which(Delta_Y_train == 1 & !is.na(M_train) & is.finite(M_train) & M_train > 0)
       idx_valid_Y <- which(Delta_Y_valid == 1 & !is.na(M_valid) & is.finite(M_valid) & M_valid > 0)
 
-      pMX_fit_data <- pMX_train_data[idx_train_all_M, , drop = FALSE]
+      pMX_fit_data <- pMX_train_data[idx_train_Y, , drop = FALSE]
 
       if (nrow(pMX_fit_data) == 0) {
         stop("No training observations remain for the cross-fit pMX GAMLSS model.")
@@ -1078,7 +1167,7 @@ fit_mechanism_gamlss <- function(
       )
       gamlss_selection$pMX <- list(
         method = "default_pb_mu_sigma_nu1",
-        optimizer = .moco_gamlss_optimizer_label(gamlss_optimizer),
+        optimizer = attr(pMX_fit, "moco_gamlss_optimizer"),
         formulas = pMX_spec
       )
 
@@ -1086,7 +1175,7 @@ fit_mechanism_gamlss <- function(
       pMXn_A_valid <- rep(NA_real_, n_valid)
       
       if (length(idx_train_Y) > 0) {
-        pMX_predict_train <- predict_gamlss_parameters(
+        pMX_predict_train <- moco_gamlss_params_cv(
           fit = pMX_fit,
           newdata = pMX_train_data[idx_train_Y, , drop = FALSE],
           fit_data = pMX_fit_data
@@ -1101,7 +1190,7 @@ fit_mechanism_gamlss <- function(
       }
       
       if (length(idx_valid_Y) > 0) {
-        pMX_predict_valid <- predict_gamlss_parameters(
+        pMX_predict_valid <- moco_gamlss_params_cv(
           fit = pMX_fit,
           newdata = pMX_valid_data[idx_valid_Y, , drop = FALSE],
           fit_data = pMX_fit_data
@@ -1140,45 +1229,47 @@ fit_mechanism_gamlss <- function(
       )
       gamlss_selection$pMXD <- list(
         method = "default_pb_mu_sigma_nu1",
-        optimizer = .moco_gamlss_optimizer_label(gamlss_optimizer),
+        optimizer = attr(pMXD_fit, "moco_gamlss_optimizer"),
         formulas = pMXD_spec
       )
 
       pMXDn_A0_train <- rep(NA_real_, n_train)
       pMXDn_A0_valid <- rep(NA_real_, n_valid)
-      pMXDn_A0_train[Delta_M_train == 0] <- 0
-      pMXDn_A0_valid[Delta_M_valid == 0] <- 0
+      # Evaluate p(M | A = 0, X, Delta_M = 1) at every positive observed M; the
+      # support rule below sets it to zero where required.
+      idx_train_eval_M <- which(!is.na(M_train) & is.finite(M_train) & M_train > 0)
+      idx_valid_eval_M <- which(!is.na(M_valid) & is.finite(M_valid) & M_valid > 0)
       
-      if (length(idx_train_M) > 0) {
-        pMXD_new_train <- pMX_train_data[idx_train_M, , drop = FALSE]
+      if (length(idx_train_eval_M) > 0) {
+        pMXD_new_train <- pMX_train_data[idx_train_eval_M, , drop = FALSE]
         pMXD_new_train$A <- 0
         
-        pMXD_predict_train <- predict_gamlss_parameters(
+        pMXD_predict_train <- moco_gamlss_params_cv(
           fit = pMXD_fit,
           newdata = pMXD_new_train,
           fit_data = pMXD_fit_data
         )
         
-        pMXDn_A0_train[idx_train_M] <- gamlss.dist::dGG(
-          M_train[idx_train_M],
+        pMXDn_A0_train[idx_train_eval_M] <- gamlss.dist::dGG(
+          M_train[idx_train_eval_M],
           mu = pMXD_predict_train$mu,
           sigma = pMXD_predict_train$sigma,
           nu = pMXD_predict_train$nu
         )
       }
       
-      if (length(idx_valid_M) > 0) {
-        pMXD_new_valid <- pMX_valid_data[idx_valid_M, , drop = FALSE]
+      if (length(idx_valid_eval_M) > 0) {
+        pMXD_new_valid <- pMX_valid_data[idx_valid_eval_M, , drop = FALSE]
         pMXD_new_valid$A <- 0
         
-        pMXD_predict_valid <- predict_gamlss_parameters(
+        pMXD_predict_valid <- moco_gamlss_params_cv(
           fit = pMXD_fit,
           newdata = pMXD_new_valid,
           fit_data = pMXD_fit_data
         )
         
-        pMXDn_A0_valid[idx_valid_M] <- gamlss.dist::dGG(
-          M_valid[idx_valid_M],
+        pMXDn_A0_valid[idx_valid_eval_M] <- gamlss.dist::dGG(
+          M_valid[idx_valid_eval_M],
           mu = pMXD_predict_valid$mu,
           sigma = pMXD_predict_valid$sigma,
           nu = pMXD_predict_valid$nu
@@ -1193,12 +1284,14 @@ fit_mechanism_gamlss <- function(
       
       pMXD_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMX), family = gaussian(), data = data.frame(log_M = log(M_train), train_dat$A, train_dat$X)[Delta_M_train == 1,])
       pMXDn_A0_train <- rep(NA, n_train)
-      pMXDn_A0_train[Delta_M_train==0] <- 0
-      pMXDn_A0_train[Delta_M_train==1] <- (1/M_train)[Delta_M_train == 1] * dnorm(log(M_train)[Delta_M_train == 1], mean = stats::predict(pMXD_fit, newdata = data.frame(A=0, train_dat$X)[Delta_M_train == 1,]), sd = sd(pMXD_fit$residuals))
+      pMXDn_A0_train[index_nomissingM_train] <- (1/M_train)[index_nomissingM_train] * dnorm(log(M_train)[index_nomissingM_train], mean = stats::predict(pMXD_fit, newdata = data.frame(A=0, train_dat$X)[index_nomissingM_train,]), sd = sd(pMXD_fit$residuals))
       pMXDn_A0_valid <- rep(NA, n_valid)
-      pMXDn_A0_valid[Delta_M_valid==0] <- 0
-      pMXDn_A0_valid[Delta_M_valid==1] <- (1/M_valid)[Delta_M_valid == 1] * dnorm(log(M_valid)[Delta_M_valid == 1], mean = stats::predict(pMXD_fit, newdata = data.frame(A=0, valid_dat$X)[Delta_M_valid == 1,]), sd = sd(pMXD_fit$residuals))
+      pMXDn_A0_valid[index_nomissingM_valid] <- (1/M_valid)[index_nomissingM_valid] * dnorm(log(M_valid)[index_nomissingM_valid], mean = stats::predict(pMXD_fit, newdata = data.frame(A=0, valid_dat$X)[index_nomissingM_valid,]), sd = sd(pMXD_fit$residuals))
     }
+    
+    # target-density support rule (see moco(), argument support_rule)
+    pMXDn_A0_train <- .moco_apply_support_rule(pMXDn_A0_train, M_train, Delta_M_train, support_rule, support_upper, HAL_pMX)
+    pMXDn_A0_valid <- .moco_apply_support_rule(pMXDn_A0_valid, M_valid, Delta_M_valid, support_rule, support_upper, HAL_pMX)
     
     if(HAL_pMXZ){
       # density estimation for mediator, conditioning on exposure or group indicator, binary mediator,
@@ -1234,15 +1327,14 @@ fit_mechanism_gamlss <- function(
       pMXZDn_A_valid <- rep(NA, n_valid)
       pMXZDn_A_valid[index_nomissingM_valid] <- stats::predict(pMXZD_fit, new_A = M_valid[index_nomissingM_valid], new_W = data.frame(valid_dat$A, valid_dat$X, valid_dat$Z)[index_nomissingM_valid,], trim_min = 0)
     }else if(GAMLSS_pMXZ){
-      ctrl <- gamlss::gamlss.control(n.cyc = n.cyc, c.crit = 1e-6, trace = isTRUE(gamlss_bic_trace))
+      ctrl <- gamlss::gamlss.control(n.cyc = n.cyc, c.crit = gamlss_c_crit, trace = isTRUE(gamlss_bic_trace))
       
-      # GAMLSS p(M | A, X, Z): fit on all positive observed M in the
-      # training fold; evaluate the density where Delta_Y == 1.
-      idx_train_all_M <- which(!is.na(M_train) & is.finite(M_train) & M_train > 0)
+      # GAMLSS p(M | A, X, Z, Delta_Y = 1): fit on Delta_Y == 1 observations
+      # with positive M in the training fold, matching the HAL and GLM densities.
       idx_train_Y <- which(Delta_Y_train == 1 & !is.na(M_train) & is.finite(M_train) & M_train > 0)
       idx_valid_Y <- which(Delta_Y_valid == 1 & !is.na(M_valid) & is.finite(M_valid) & M_valid > 0)
 
-      pMXZ_fit_data <- pMXZ_train_data[idx_train_all_M, , drop = FALSE]
+      pMXZ_fit_data <- pMXZ_train_data[idx_train_Y, , drop = FALSE]
 
       if (nrow(pMXZ_fit_data) == 0) {
         stop("No training observations remain for the cross-fit pMXZ GAMLSS model.")
@@ -1265,7 +1357,7 @@ fit_mechanism_gamlss <- function(
       )
       gamlss_selection$pMXZ <- list(
         method = "default_pb_mu_sigma_nu1",
-        optimizer = .moco_gamlss_optimizer_label(gamlss_optimizer),
+        optimizer = attr(pMXZ_fit, "moco_gamlss_optimizer"),
         formulas = pMXZ_spec
       )
 
@@ -1284,17 +1376,17 @@ fit_mechanism_gamlss <- function(
         train_A0$A <- 0
         train_A1$A <- 1
         
-        pMXZ_predict_train <- predict_gamlss_parameters(
+        pMXZ_predict_train <- moco_gamlss_params_cv(
           fit = pMXZ_fit,
           newdata = train_obs,
           fit_data = pMXZ_fit_data
         )
-        pMXZ_predict0_train <- predict_gamlss_parameters(
+        pMXZ_predict0_train <- moco_gamlss_params_cv(
           fit = pMXZ_fit,
           newdata = train_A0,
           fit_data = pMXZ_fit_data
         )
-        pMXZ_predict1_train <- predict_gamlss_parameters(
+        pMXZ_predict1_train <- moco_gamlss_params_cv(
           fit = pMXZ_fit,
           newdata = train_A1,
           fit_data = pMXZ_fit_data
@@ -1327,17 +1419,17 @@ fit_mechanism_gamlss <- function(
         valid_A0$A <- 0
         valid_A1$A <- 1
         
-        pMXZ_predict_valid <- predict_gamlss_parameters(
+        pMXZ_predict_valid <- moco_gamlss_params_cv(
           fit = pMXZ_fit,
           newdata = valid_obs,
           fit_data = pMXZ_fit_data
         )
-        pMXZ_predict0_valid <- predict_gamlss_parameters(
+        pMXZ_predict0_valid <- moco_gamlss_params_cv(
           fit = pMXZ_fit,
           newdata = valid_A0,
           fit_data = pMXZ_fit_data
         )
-        pMXZ_predict1_valid <- predict_gamlss_parameters(
+        pMXZ_predict1_valid <- moco_gamlss_params_cv(
           fit = pMXZ_fit,
           newdata = valid_A1,
           fit_data = pMXZ_fit_data
@@ -1390,7 +1482,7 @@ fit_mechanism_gamlss <- function(
       )
       gamlss_selection$pMXZD <- list(
         method = "default_pb_mu_sigma_nu1",
-        optimizer = .moco_gamlss_optimizer_label(gamlss_optimizer),
+        optimizer = attr(pMXZD_fit, "moco_gamlss_optimizer"),
         formulas = pMXZD_spec
       )
 
@@ -1400,7 +1492,7 @@ fit_mechanism_gamlss <- function(
       pMXZDn_A_valid[Delta_M_valid == 0] <- 0
       
       if (length(idx_train_M) > 0) {
-        pMXZD_predict_train <- predict_gamlss_parameters(
+        pMXZD_predict_train <- moco_gamlss_params_cv(
           fit = pMXZD_fit,
           newdata = pMXZ_train_data[idx_train_M, , drop = FALSE],
           fit_data = pMXZD_fit_data
@@ -1415,7 +1507,7 @@ fit_mechanism_gamlss <- function(
       }
       
       if (length(idx_valid_M) > 0) {
-        pMXZD_predict_valid <- predict_gamlss_parameters(
+        pMXZD_predict_valid <- moco_gamlss_params_cv(
           fit = pMXZD_fit,
           newdata = pMXZ_valid_data[idx_valid_M, , drop = FALSE],
           fit_data = pMXZD_fit_data
@@ -1451,10 +1543,23 @@ fit_mechanism_gamlss <- function(
     }
   }
   
+  if(M_indicator){
+    # Bound the denominator densities away from zero so that density ratios in
+    # the pseudo-outcomes and the EIF stay finite. Bounds come from the training fold.
+    pMXZDn_A_train <- .moco_floor_density(pMXZDn_A_train, density_floor)
+    pMXZDn_A_valid <- .moco_floor_density(pMXZDn_A_valid, density_floor)
+    pMXZn_A_train <- .moco_floor_density(pMXZn_A_train, density_floor)
+    pMXZn_A0_train <- .moco_floor_density(pMXZn_A0_train, density_floor)
+    pMXZn_A1_train <- .moco_floor_density(pMXZn_A1_train, density_floor)
+    pMXZn_A_valid <- .moco_floor_density(pMXZn_A_valid, density_floor)
+    pMXZn_A0_valid <- .moco_floor_density(pMXZn_A0_valid, density_floor)
+    pMXZn_A1_valid <- .moco_floor_density(pMXZn_A1_valid, density_floor)
+  }
+
   # define parameters for storing results
   est <- matrix(nrow = 2, ncol = p)
-  eif_mat <- list(p)
-  cov_mat <- list(p)
+  eif_mat <- vector("list", p)
+  cov_mat <- vector("list", p)
   for(j in 1:p){
     # fit outcome regression
     mu_MXZn_A0_train <- mu_MXZn_A1_train <- mu_MXZn_A_train <- rep(NA, n_train)
@@ -1484,7 +1589,9 @@ fit_mechanism_gamlss <- function(
     
     if(M_indicator){
       # fit additional pseudo-outcome regression for QY*qM/qMZ, conditioning on exposure or group indicator, binary mediator and baseline covariates
-      mu_pseudo_A_train <- mu_MXZn_A_train*pMXDn_A0_train/pMXZDn_A_train
+      mu_pseudo_A_train <- mu_MXZn_A_train * .moco_cap_density_ratio(
+        pMXDn_A0_train/pMXZDn_A_train, density_ratio_cap
+      )
       if(!is.null(glm_formula$eta_AXZ)){
         eta_AXZ_fit <- stats::glm(paste0("mu_pseudo_A ~ ", glm_formula$eta_AXZ), family = gaussian(),
                                   data = data.frame(mu_pseudo_A = mu_pseudo_A_train, train_dat$A, train_dat$X, train_dat$Z)[Delta_M_train==1,])
@@ -1513,7 +1620,9 @@ fit_mechanism_gamlss <- function(
       }
       
       # fit pseudo-outcome regression for Qd, conditioning on exposure or group indicator, mediator and baseline covariates
-      mu_pseudo_A_star_train <- mu_MXZn_A_train*pMXn_A_train/pMXZn_A_train*gDYn_1_AX_train/gDYn_1_AXZ_train
+      mu_pseudo_A_star_train <- mu_MXZn_A_train * .moco_cap_density_ratio(
+        pMXn_A_train/pMXZn_A_train, density_ratio_cap
+      ) * gDYn_1_AX_train/gDYn_1_AXZ_train
       # fit the regression
       if(!is.null(glm_formula$eta_AXM)){
         eta_AXM_fit <- stats::glm(paste0("mu_pseudo_A_star ~ ", glm_formula$eta_AXM), family = gaussian(),
@@ -1577,13 +1686,15 @@ fit_mechanism_gamlss <- function(
                                    gA = 1 - gAn_1, gDM = gDMn_1_A0_valid, gDY_AXZ = gDYn_1_A0XZ_valid,
                                    eta_AXZ = eta_AXZn_A0_valid, eta_AXM = eta_AXMn_A0_valid,
                                    xi_AX = xi_AXn_A0,
-                                   mu = mu_MXZn_A0_valid, pMXD = pMXDn_A0_valid, pMXZ = pMXZn_A0_valid)
+                                   mu = mu_MXZn_A0_valid, pMXD = pMXDn_A0_valid, pMXZ = pMXZn_A0_valid,
+                                   density_ratio_cap = density_ratio_cap)
       
       eif_A1 <- make_full_data_eif(a = 1, A = valid_dat$A$A, Delta_Y = Delta_Y_valid, Delta_M = Delta_M_valid, Y = valid_dat$Y[,j],
                                    gA = gAn_1, gDM = gDMn_1_A0_valid, gDY_AXZ = gDYn_1_A1XZ_valid,
                                    eta_AXZ = eta_AXZn_A1_valid, eta_AXM = eta_AXMn_A1_valid,
                                    xi_AX = xi_AXn_A1,
-                                   mu = mu_MXZn_A1_valid, pMXD = pMXDn_A0_valid, pMXZ = pMXZn_A1_valid)
+                                   mu = mu_MXZn_A1_valid, pMXD = pMXDn_A0_valid, pMXZ = pMXZn_A1_valid,
+                                   density_ratio_cap = density_ratio_cap)
     }else{
       eif_A0 <- make_full_data_eif_easy(a = 0, A = valid_dat$A$A, Delta_Y = Delta_Y_valid, Y = valid_dat$Y[,j],
                                         gA = 1 - gAn_1, gDY_AXZ = gDYn_1_A0XZ_valid,
@@ -1659,9 +1770,14 @@ one_step_cross_gamlss <- function(
     gamlss_bic_candidates = c("linear", "pb_mu", "pb_mu_sigma"),
     gamlss_bic_trace = FALSE,
     n.cyc = 300,
+    gamlss_c_crit = 0.001,
     HAL_pMX = TRUE,
     HAL_pMXZ = TRUE,
     HAL_options = list(max_degree = 3, lambda_seq = exp(seq(-1, -10, length = 100)), num_knots = c(1000, 500, 250)),
+    density_floor = sqrt(.Machine$double.eps),
+    density_ratio_cap = Inf,
+    support_rule = "delta_m",
+    support_upper = NULL,
     seed = 1,
     cv_folds = 5,
     ...
@@ -1685,7 +1801,7 @@ one_step_cross_gamlss <- function(
   
   if(length(seed_position) != 0){
     # remove NA column for subsequent calculation
-    Y <- Y[, -seed_position]
+    Y <- Y[, -seed_position, drop = FALSE]
   }
   
   # number of participants
@@ -1716,6 +1832,10 @@ one_step_cross_gamlss <- function(
               M = data.frame(M), Delta_M = data.frame(Delta_M),
               Delta_Y = data.frame(Delta_Y), Y = data.frame(Y))
   
+  # full-sample support of acceptable motion, used when
+  # support_rule = "observed_range"
+  if (is.null(support_upper)) support_upper <- .moco_support_upper(M, Delta_M)
+
   # divide the dataset into train_dat and valid_dat
   set.seed(seed)
   folds <- caret::createFolds(1:n, k = cv_folds, list = TRUE, returnTrain = FALSE)
@@ -1723,7 +1843,7 @@ one_step_cross_gamlss <- function(
   # create empty matrix to store results
   est <- matrix(0, nrow = 2, ncol = p)
   # create empty vector to store eifs
-  eif_mat <- list(p)
+  eif_mat <- vector("list", p)
   gamlss_selection_by_fold <- vector("list", cv_folds)
   for(j in 1:p){
     eif_mat[[j]] <- matrix(nrow = n, ncol = 2)
@@ -1749,9 +1869,14 @@ one_step_cross_gamlss <- function(
       gamlss_bic_candidates = gamlss_bic_candidates,
       gamlss_bic_trace = gamlss_bic_trace,
       n.cyc = n.cyc,
+      gamlss_c_crit = gamlss_c_crit,
       HAL_pMX = HAL_pMX,
       HAL_pMXZ = HAL_pMXZ,
       HAL_options = HAL_options,
+      density_floor = density_floor,
+      density_ratio_cap = density_ratio_cap,
+      support_rule = support_rule,
+      support_upper = support_upper,
       seed = seed
     )
     
@@ -1771,7 +1896,7 @@ one_step_cross_gamlss <- function(
   adj_association <- est[2, ] - est[1, ]
   
   # calculate covariance matrix
-  cov_mat <- list(p)
+  cov_mat <- vector("list", p)
   for(j in 1:p){
     colnames(eif_mat[[j]]) <- c('est_A0', 'est_A1')
     cov_mat[[j]] <- cov(eif_mat[[j]])/n
@@ -1785,5 +1910,6 @@ one_step_cross_gamlss <- function(
     cov_mat = cov_mat,
     gamlss_selection_by_fold = gamlss_selection_by_fold
   )
-}
 
+  out
+}
