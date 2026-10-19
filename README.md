@@ -22,12 +22,7 @@ MoCo is under active development.
   GLMs.
 - Cross-fitting and repeated cross-fitting are supported; repeated seeds are
   combined by averaging estimates and participant-level EIFs.
-- `support_rule` handles motion-inclusion rules that are a cutoff on motion
-  (`"delta_m"`) and rules that are not, such as retained-frame counts
-  (`"observed_range"`).
-- GAMLSS fits fall back to alternative optimizers when the requested one fails
-  or does not converge, and record the algorithm used.
-- Analyses without motion data (`M = NULL`) are supported.
+- If motion `M = NULL`, a missing data method is implemented using the data availability `Delta\_Y = 1`, similar to Nebel et al. (2022).
 - A vector, one-column matrix, or multi-column outcome matrix can be analyzed.
 - EIF-based simultaneous confidence bands control the family-wise error rate
   (FWER) across multiple outcomes.
