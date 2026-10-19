@@ -1,6 +1,6 @@
 # MoCo: **Mo**tion-**Co**ntrolled Brain-Phenotype Differences Between Groups
 
-<img src="fig/MoCo.png" width="120" align="right" alt="MoCo logo"/>
+<img src="man/figures/MoCo.png" width="120" align="right" alt="MoCo logo"/>
 
 > Nonparametric estimation of group-specific brain-phenotype means and group
 > differences while accounting for motion-related selection.
@@ -12,13 +12,22 @@ cross-fitting, and efficient-influence-function (EIF) inference. Outcomes may
 be functional-connectivity edges, regional imaging measures, or other
 continuous brain phenotypes.
 
+MoCo is under active development.
+
 ## Highlights
 
 - A single high-level function, `moco()`, supports HAL, log-normal GLM, and
   generalized-gamma GAMLSS models for conditional motion densities.
 - Nuisance regressions can be estimated with Super Learner or user-specified
   GLMs.
-- Cross-fitting and repeated cross-fitting are supported.
+- Cross-fitting and repeated cross-fitting are supported; repeated seeds are
+  combined by averaging estimates and participant-level EIFs.
+- `support_rule` handles motion-inclusion rules that are a cutoff on motion
+  (`"delta_m"`) and rules that are not, such as retained-frame counts
+  (`"observed_range"`).
+- GAMLSS fits fall back to alternative optimizers when the requested one fails
+  or does not converge, and record the algorithm used.
+- Analyses without motion data (`M = NULL`) are supported.
 - A vector, one-column matrix, or multi-column outcome matrix can be analyzed.
 - EIF-based simultaneous confidence bands control the family-wise error rate
   (FWER) across multiple outcomes.
@@ -27,7 +36,13 @@ continuous brain phenotypes.
 
 ## Installation
 
-Install the development version from GitHub:
+Once released, install MoCo from CRAN:
+
+```r
+install.packages("MoCo")
+```
+
+Or install the development version from GitHub:
 
 ```r
 # install.packages("remotes")
@@ -92,7 +107,7 @@ The main outputs are:
 
 ## Data interface
 
-<img src="fig/input_output.png" width="750" align="center" alt="MoCo inputs and outputs"/>
+<img src="man/figures/input_output.png" width="750" align="center" alt="MoCo inputs and outputs"/>
 
 `moco()` uses the following data objects:
 
@@ -112,7 +127,13 @@ may be entirely missing; MoCo restores that position as `NA` in its outputs.
 
 `Delta_M` can be supplied directly or constructed inside `moco()` by supplying
 `thresh`. The definitions of `Delta_M` and `Delta_Y` should be prespecified and
-reported with the analysis.
+reported with the analysis. If `Delta_M` is not determined by `M` alone (for
+example, a minimum number of frames after censoring), use
+`support_rule = "observed_range"` (see below).
+
+When motion is unavailable, set `M = NULL` (and optionally `X = NULL`) and
+supply `Delta_M`; participants with `Delta_M = 0` are then treated as missing,
+as in Nebel et al. (2022).
 
 ## Choosing a motion-density model
 
@@ -132,6 +153,28 @@ Choose their estimators with `pMX_method` and `pMXZ_method`. If
 
 The methods for `pMX` and `pMXZ` may differ, although using the same method for
 both is generally easier to interpret and diagnose.
+
+Densities conditional on `A` and `X` (and `Z`) are fitted on `Delta_Y = 1`
+participants; the corresponding `Delta_M = 1` densities are fitted on
+`Delta_M = 1` participants. The tolerable-motion density
+`p(m | Delta_M = 1, A = 0, X)` is evaluated at each participant's observed
+motion and set to zero according to `support_rule`:
+
+| `support_rule` | Target density is zero for | Use when |
+|---|---|---|
+| `"delta_m"` (default) | every `Delta_M = 0` participant (GLM, GAMLSS); HAL predictions are zero outside their training range | `Delta_M` is a cutoff on `M` (for example `thresh`); reproduces the original MoCo |
+| `"observed_range"` | motion above the largest `M` among `Delta_M = 1` participants (full sample, all methods) | `Delta_M` is not a function of `M` alone (scrubbing, retained-frame counts, other QC) |
+
+The two rules give identical results when `Delta_M = 1` exactly when `M` is
+below a cutoff. Otherwise `"observed_range"` keeps participants with
+`Delta_M = 0` but tolerable motion in the efficient influence function, as
+required by the MoCo estimand.
+
+Motion densities used as denominators are bounded below by the absolute
+`density_floor` (default `sqrt(.Machine$double.eps)`). The optional
+`density_ratio_cap` can be set to a finite value for sensitivity analyses; a
+finite cap truncates the density-ratio weights and therefore changes the
+estimand. Its default, `Inf`, applies no truncation.
 
 ### Highly adaptive lasso
 
@@ -220,14 +263,20 @@ GAMLSS convergence benchmark.
 | Argument | Description |
 |---|---|
 | `gamlss_family` | Density family; currently restricted to `"GG"` |
-| `gamlss_optimizer` | `"RS"`, `"CG"`, or `"mixed"`; `"mixed"` uses `gamlss::mixed(1, 50)` |
+| `gamlss_optimizer` | `"RS"` (recommended), `"CG"`, or `"mixed"`; `"mixed"` uses `gamlss::mixed(1, 50)` and ignores `n.cyc` |
+| `gamlss_c_crit` | Convergence criterion for the global deviance (default `0.001`, the `gamlss` default) |
 | `gamlss_continuous_X` | Continuous columns of `X` modeled with penalized splines |
 | `gamlss_continuous_Z` | Continuous columns of `Z` modeled with penalized splines |
-| `n.cyc` | Maximum number of GAMLSS fitting cycles |
+| `n.cyc` | Maximum number of GAMLSS fitting cycles (RS and CG) |
 | `gamlss_bic_trace` | Whether to display GAMLSS fitting progress |
 | `gamlss_formula` | Reserved for interface compatibility |
 | `GAMLSS_BIC_select` | Reserved; model-structure selection is not currently performed |
 | `gamlss_bic_candidates` | Reserved for interface compatibility |
+
+If a GAMLSS fit fails or does not converge with the requested optimizer, the
+same model is refitted with RS, mixed and CG at `c.crit = 0.001`. Only the
+numerical algorithm changes. The algorithm used for each density (and fold) is
+recorded in `gamlss_selection_runs`.
 
 ## Tutorial: an ABIDE-like seed-based analysis
 
@@ -419,11 +468,15 @@ moco(
   gamlss_bic_candidates = c("linear", "pb_mu", "pb_mu_sigma"),
   gamlss_bic_trace = FALSE,
   n.cyc = 300,
+  gamlss_c_crit = 0.001,
   HAL_options = list(
     max_degree = 3,
     lambda_seq = exp(seq(-1, -10, length = 100)),
     num_knots = c(1000, 500, 250)
   ),
+  density_floor = sqrt(.Machine$double.eps),
+  density_ratio_cap = Inf,
+  support_rule = c("delta_m", "observed_range"),
   cross_fit = TRUE,
   cv_folds = 5,
   test = TRUE,
@@ -431,7 +484,7 @@ moco(
   seed_rgn = 1,
   test_seed = 1,
   test_n_sim = 100000L,
-  test_chunk_size = 25000L,
+  test_chunk_size = test_n_sim,
   ...
 )
 ```
@@ -462,6 +515,9 @@ functions separately:
 | `SL_library_customize` | Separate libraries for `gA`, `gDM`, `gDY_AX`, `gDY_AXZ`, `mu_AMXZ`, `eta_AXZ`, `eta_AXM`, and `xi_AX` |
 | `glm_formula` | Right-hand-side formulas for nuisance GLMs and GLM motion densities |
 | `HAL_options` | HAL basis and regularization controls |
+| `density_floor` | Strictly positive absolute lower bound for denominator motion densities (default `sqrt(.Machine$double.eps)`) |
+| `density_ratio_cap` | Optional upper bound for finite density ratios; `Inf` applies no cap |
+| `support_rule` | Where the tolerable-motion density is zero: `"delta_m"` or `"observed_range"` |
 | `cross_fit` | Whether to use cross-fitting |
 | `cv_folds` | Number of cross-fitting folds |
 | `seed_rgn` | Nuisance-fitting and cross-fitting seed or seeds |
@@ -469,7 +525,7 @@ functions separately:
 | `fwer` | Requested family-wise error rates |
 | `test_seed` | Monte Carlo seed for simultaneous testing |
 | `test_n_sim` | Number of multivariate-normal simulation draws |
-| `test_chunk_size` | Maximum draws generated at once to limit memory use |
+| `test_chunk_size` | Maximum draws generated at once; the default, `test_n_sim`, reproduces the original critical values |
 
 </details>
 
@@ -481,7 +537,10 @@ functions separately:
 - Use the same outcome family when comparing simultaneous tests across methods.
 - Save the R version, package versions, learner library, fold count, and seeds.
 - Examine GAMLSS convergence and distributional diagnostics before interpreting
-  GAMLSS-based results.
+  GAMLSS-based results, and report how many fits used a fallback optimizer.
+- Check positivity: summarise the propensities (`gA`, `gDM`, `gDY_AXZ`) and the
+  density ratios used in the influence function, including participants with
+  `Delta_M = 0` when `support_rule = "observed_range"`.
 - In distributed analyses, save estimates and participant-level EIFs for every
   outcome and seed, then aggregate them before calculating covariance and test
   statistics.
