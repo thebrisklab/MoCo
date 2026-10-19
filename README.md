@@ -12,8 +12,6 @@ cross-fitting, and efficient-influence-function (EIF) inference. Outcomes may
 be functional-connectivity edges, regional imaging measures, or other
 continuous brain phenotypes.
 
-MoCo is under active development.
-
 ## Highlights
 
 - A single high-level function, `moco()`, supports HAL, log-normal GLM, and
@@ -28,13 +26,7 @@ MoCo is under active development.
 
 ## Installation
 
-Once released, install MoCo from CRAN:
-
-```r
-install.packages("MoCo")
-```
-
-Or install the development version from GitHub:
+Install the development version from GitHub:
 
 ```r
 # install.packages("remotes")
