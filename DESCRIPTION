@@ -3,7 +3,7 @@ Title: Motion-Controlled Estimation of Group Differences in Brain Phenotypes
 Version: 0.1.0
 Authors@R: c(
     person("Xiyan", "Tan",
-           email = "xxx@emory.edu",
+           email = "xiyan.tan@emory.edu",
            role = c("aut", "cre")),
     person("Jialu", "Ran", role = "aut"),
     person("Benjamin B.", "Risk", role = "aut"),
