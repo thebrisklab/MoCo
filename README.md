@@ -162,7 +162,7 @@ motion and set to zero according to `support_rule`:
 
 | `support_rule` | Target density is zero for | Use when |
 |---|---|---|
-| `"delta_m"` (default) | every `Delta_M = 0` participant (GLM, GAMLSS); HAL predictions are zero outside their training range | `Delta_M` is a cutoff on `M` (for example `thresh`); reproduces the original MoCo |
+| `"delta_m"` (default) | every `Delta_M = 0` participant (GLM, GAMLSS); HAL predictions are zero outside their training range | `Delta_M` is a cutoff on `M` (for example `thresh`) |
 | `"observed_range"` | motion above the largest `M` among `Delta_M = 1` participants (full sample, all methods) | `Delta_M` is not a function of `M` alone (scrubbing, retained-frame counts, other QC) |
 
 The two rules give identical results when `Delta_M = 1` exactly when `M` is
