@@ -1,0 +1,22 @@
+bibentry(
+  bibtype = "Article",
+  title = "Nonparametric motion control in functional connectivity studies in children with autism spectrum disorder",
+  author = c(
+    person("Jialu", "Ran"),
+    person("Sarah", "Shultz"),
+    person("Benjamin B.", "Risk"),
+    person("David", "Benkeser")
+  ),
+  journal = "Biometrics",
+  year = "2026",
+  volume = "82",
+  number = "2",
+  pages = "ujag099",
+  doi = "10.1093/biomtc/ujag099",
+  textVersion = paste(
+    "Ran J, Shultz S, Risk BB, Benkeser D (2026).",
+    "Nonparametric motion control in functional connectivity studies in",
+    "children with autism spectrum disorder. Biometrics, 82(2), ujag099.",
+    "doi:10.1093/biomtc/ujag099"
+  )
+)
