@@ -1,1915 +1,455 @@
-# Internal helpers for the generalized-Gamma motion-density implementation.
+# GAMLSS conditional-density helpers for the four motion densities used by MoCo:
+#   pMX   = p(M | A, X)                 fit on Delta_Y = 1, evaluated at the observed A on Delta_Y = 1 rows
+#   pMXD  = p(M | Delta_M = 1, A, X)    fit on Delta_M = 1, evaluated at A = 0 on every row with observed M (q)
+#   pMXZ  = p(M | A, X, Z)              fit on Delta_Y = 1, evaluated at the observed A, A = 0 and A = 1 on Delta_Y = 1 rows
+#   pMXZD = p(M | Delta_M = 1, A, X, Z) fit on Delta_M = 1, evaluated at the observed A on every row with observed M
+# No density is set to 0 where Delta_M = 0, whether Delta_M was supplied or created from thresh
+# (the same evaluation rule as the GLM branch).
+# Each density is fitted once per call (once per fold when cross-fitting); all evaluation rows
+# (training and validation fold, each A value needed) are stacked in a single predictAll() call.
 #
-# The default specification uses penalized B-splines for continuous
-# covariates in both the location and scale submodels, includes categorical
-# covariates linearly, includes the exposure/group indicator in the location
-# submodel, and fixes the shape parameter. These helpers are intentionally
-# dataset agnostic; study-specific variable names belong in analysis scripts.
+# gamlss_options (all entries optional):
+#   family   family name ("GG"), family function (GG) or family object (GG()); or a named list
+#            by role with an optional `default`, e.g. list(default = "GG", pMXD = "BCTo").
+#            The family must be continuous on (0, Inf). Default "GG".
+#   formulas list(mu, sigma, nu, tau). Each entry is a formula, a character string, or a keyword:
+#            "linear" = all available columns (A, X and, for pMXZ/pMXZD, Z) entering linearly;
+#            "pb"     = the same columns, with pb() on continuous columns (numeric with at least
+#                       `continuous_min_unique` distinct values) and binary/factor columns linear;
+#            "1"      = intercept only.
+#            A "." in a formula expands to all available columns. A per-role list can be given
+#            as formulas = list(mu = "pb", sigma = "pb", pMXD = list(sigma = "1")) or with
+#            `default`. Defaults: mu = "linear", sigma = nu = tau = "1".
+#   method   fitting algorithm passed to gamlss(): "RS()" (default), "CG()", "mixed(1, 50)", as a
+#            string or a call such as quote(mixed(1, 50)).
+#   control  list of gamlss.control() arguments (n.cyc, c.crit, trace, mu.step, ...) or a
+#            gamlss.control object; n.cyc defaults to 200 and trace to FALSE.
+#   i.control list of glim.control() arguments (cc, cyc, bf.cyc, ...) or a glim.control object.
+#   weights  prior weights: a scalar, or a vector of length n (full data; subset to each fold's fit rows).
+#   mu.start, sigma.start, nu.start, tau.start  starting values: scalars, or vectors of length n.
+#   mu.fix, sigma.fix, nu.fix, tau.fix  logical, keep that parameter fixed at its start value.
+#   args     list of any further arguments forwarded to gamlss::gamlss() (e.g. list(contrasts = ...)).
+#   start    "auto" (default): Box-Cox families (BCCGo, BCPEo, BCTo, ...) start from the LOGNO fit with
+#            the same mu/sigma formulas (mu = exp(LOGNO mu), sigma = LOGNO sigma, nu = 0.1, tau = 2)
+#            unless start values are supplied; "default": gamlss starting values.
+#   retry    TRUE (default): if the fit fails or does not converge, refit (1) starting from the fit
+#            with the same mu formula and intercept-only sigma/nu/tau, then (2) with CG(), then (3) with
+#            RS() if another method was requested. The method
+#            used is recorded in gamlss_info. FALSE: no retry.
+#   clamp    TRUE (default): continuous covariates of the rows being predicted are limited to the
+#            range of the training rows of that density (no extrapolation of pb()/sigma terms);
+#            the number of clamped values is reported in gamlss_info$n_clamped. FALSE: no clamping.
+#   on_nonconvergence "stop" (default) or "warn" (after any retries).
+#   continuous_min_unique  default 10.
+#   pMX, pMXD, pMXZ, pMXZD  per-role overrides: a list with any of the entries above (except
+#            continuous_min_unique), e.g. pMXD = list(family = "BCTo", method = "CG()", control = list(n.cyc = 400)).
+#            control, i.control and args are merged with the global ones; formulas are merged by parameter.
 
-.moco_bt <- function(x) {
-  paste0("`", gsub("`", "\\`", x, fixed = TRUE), "`")
-}
+`%||%` <- function(x, y) if (is.null(x)) y else x
 
-.moco_join_terms <- function(x) {
-  if (length(x) == 0L) "1" else paste(x, collapse = " + ")
-}
+.moco_gamlss_roles <- c("pMX", "pMXD", "pMXZ", "pMXZD")
+.moco_gamlss_params <- c("mu", "sigma", "nu", "tau")
+.moco_gamlss_boxcox <- c("BCCG", "BCCGo", "BCPE", "BCPEo", "BCT", "BCTo")
+.moco_gamlss_rowvec <- c("weights", "mu.start", "sigma.start", "nu.start", "tau.start")
+.moco_gamlss_fixes <- c("mu.fix", "sigma.fix", "nu.fix", "tau.fix")
 
-.moco_default_pb_terms <- function(vars) {
-  if (length(vars) == 0L) return(character(0))
-  vapply(
-    vars,
-    function(v) paste0("pb(", .moco_bt(v), ")"),
-    character(1)
-  )
-}
-
-.moco_linear_terms <- function(vars) {
-  if (length(vars) == 0L) return(character(0))
-  vapply(vars, .moco_bt, character(1))
-}
-
-.moco_make_default_gamlss_formulas <- function(
-    x_names,
-    z_names = character(0),
-    continuous_X = character(0),
-    continuous_Z = character(0)
-) {
-  all_names <- c(x_names, z_names)
-  continuous <- unique(c(continuous_X, continuous_Z))
-  continuous <- intersect(continuous, all_names)
-  discrete <- setdiff(all_names, continuous)
-
-  pb_cont <- .moco_default_pb_terms(continuous)
-  lin_disc <- .moco_linear_terms(discrete)
-
-  mu_terms <- c("A", pb_cont, lin_disc)
-  sigma_terms <- c(pb_cont, lin_disc)
-
-  list(
-    mu = stats::as.formula(
-      paste("M ~", .moco_join_terms(mu_terms))
-    ),
-    sigma = stats::as.formula(
-      paste("~", .moco_join_terms(sigma_terms))
-    ),
-    nu = ~ 1
-  )
-}
-
-.moco_match_gamlss_optimizer <- function(gamlss_optimizer) {
-  if (length(gamlss_optimizer) != 1L || is.na(gamlss_optimizer)) {
-    stop("gamlss_optimizer must be one of: 'RS', 'mixed', or 'CG'.")
-  }
-
-  key <- tolower(as.character(gamlss_optimizer))
-  matched <- unname(c(rs = "RS", mixed = "mixed", cg = "CG")[key])
-
-  if (length(matched) != 1L || is.na(matched)) {
-    stop("gamlss_optimizer must be one of: 'RS', 'mixed', or 'CG'.")
-  }
-
-  matched
-}
-
-.moco_gamlss_optimizer_label <- function(gamlss_optimizer) {
-  switch(
-    .moco_match_gamlss_optimizer(gamlss_optimizer),
-    RS = "RS()",
-    mixed = "mixed(1,50)",
-    CG = "CG()"
-  )
-}
-
-# Fit a GAMLSS density. If the requested optimizer fails or does not converge,
-# the same model is refitted with fallback algorithms (RS, mixed and CG with
-# the gamlss default convergence criterion 0.001). Only the numerical
-# algorithm changes; the family and formulas do not. The algorithm used is
-# recorded in attr(fit, "moco_gamlss_optimizer").
-.moco_fit_gamlss <- function(
-    formula,
-    sigma.formula,
-    nu.formula,
-    data,
-    control,
-    gamlss_optimizer = "RS",
-    model_label = "GAMLSS"
-) {
-  gamlss_optimizer <- .moco_match_gamlss_optimizer(gamlss_optimizer)
-  attempts <- list(list(optimizer = gamlss_optimizer, control = control))
-  fallback_control <- control
-  fallback_control$c.crit <- max(control$c.crit, 0.001)
-  for (optimizer in c("RS", "mixed", "CG")) {
-    attempts[[length(attempts) + 1L]] <- list(
-      optimizer = optimizer, control = fallback_control
-    )
-  }
-
-  failures <- character(0)
-  for (attempt in attempts) {
-    fit <- tryCatch(
-      .moco_fit_gamlss_once(
-        formula = formula,
-        sigma.formula = sigma.formula,
-        nu.formula = nu.formula,
-        data = data,
-        control = attempt$control,
-        gamlss_optimizer = attempt$optimizer,
-        model_label = model_label
-      ),
-      error = function(e) e
-    )
-    if (!inherits(fit, "error")) {
-      label <- paste0(
-        .moco_gamlss_optimizer_label(attempt$optimizer),
-        ", c.crit = ", format(attempt$control$c.crit)
-      )
-      if (length(failures) > 0L) {
-        message(
-          model_label, ": fitted with fallback ", label,
-          " after: ", paste(failures, collapse = "; ")
-        )
-      }
-      attr(fit, "moco_gamlss_optimizer") <- label
-      attr(fit, "moco_gamlss_fallback") <- length(failures) > 0L
-      return(fit)
+# Resolve a family into its object, name, parameters and density function, and check that it
+# is a continuous distribution on the positive real line.
+.moco_gamlss_family <- function(family) {
+  if (inherits(family, "gamlss.family")) {
+    obj <- family
+  } else {
+    fun <- family
+    if (is.character(family)) {
+      fun <- get0(family, envir = asNamespace("gamlss.dist"), mode = "function") %||%
+        get0(family, envir = globalenv(), mode = "function")
+      if (is.null(fun)) stop(sprintf("gamlss family '%s' was not found in gamlss.dist or the global environment.", family), call. = FALSE)
     }
-    failures <- c(failures, conditionMessage(fit))
+    if (!is.function(fun)) stop("gamlss_options$family must be a family name, a family function or a family object.", call. = FALSE)
+    obj <- fun()
   }
-  stop(
-    model_label, " could not be fitted with any optimizer: ",
-    paste(failures, collapse = "; "),
-    call. = FALSE
-  )
+  name <- obj$family[1]
+  dfun <- get0(paste0("d", name), envir = asNamespace("gamlss.dist"), mode = "function") %||%
+    get0(paste0("d", name), envir = globalenv(), mode = "function")
+  if (is.null(dfun)) stop(sprintf("No density function d%s() found for gamlss family '%s'.", name, name), call. = FALSE)
+  yv <- function(y) isTRUE(tryCatch(obj$y.valid(y), error = function(e) FALSE))
+  positive <- identical(obj$type, "Continuous") && yv(c(1e-6, 0.5, 1, 1e6)) && !yv(0) && !yv(-1)
+  if (!positive) {
+    stop(sprintf(paste0("gamlss family '%s' is not a continuous distribution on the positive real line (0, Inf). ",
+                        "Motion M needs such a family, e.g. LOGNO, GA, IG, WEI3, GG, BCCGo, BCPEo, BCTo or GB2."), name),
+         call. = FALSE)
+  }
+  list(obj = obj, name = name, params = names(obj$parameters), dfun = dfun)
 }
 
-.moco_fit_gamlss_once <- function(
-    formula,
-    sigma.formula,
-    nu.formula,
-    data,
-    control,
-    gamlss_optimizer = "RS",
-    model_label = "GAMLSS"
-) {
-  gamlss_optimizer <- .moco_match_gamlss_optimizer(gamlss_optimizer)
+# Columns that enter keyword formulas, and which of them are continuous.
+.moco_gamlss_columns <- function(frame, min_unique) {
+  vars <- setdiff(names(frame), "M")
+  vars <- vars[vapply(frame[vars], function(v) length(unique(v[!is.na(v)])) > 1L, logical(1))]
+  cont <- vars[vapply(frame[vars], function(v) is.numeric(v) && length(unique(v[!is.na(v)])) >= min_unique, logical(1))]
+  list(vars = vars, cont = cont)
+}
 
-  if (!is.data.frame(data)) data <- as.data.frame(data)
-  if (!"M" %in% names(data)) stop(model_label, ": fitting data do not contain M.")
-  if (nrow(data) == 0L) stop(model_label, ": no observations remain for fitting.")
-  if (anyNA(data)) stop(model_label, ": fitting data contain missing values.")
-  if (!is.numeric(data$M)) stop(model_label, ": M must be numeric for the GG family.")
+.moco_gamlss_name <- function(x) ifelse(make.names(x) == x, x, paste0("`", gsub("`", "\\\\`", x), "`"))
 
-  numeric_columns <- vapply(data, is.numeric, logical(1))
-  if (any(vapply(data[numeric_columns], function(x) any(!is.finite(x)), logical(1)))) {
-    stop(model_label, ": fitting data contain non-finite numeric values.")
-  }
-  if (any(data$M <= 0)) {
-    stop(model_label, ": the GG family requires strictly positive M values.")
-  }
-
-  fit <- tryCatch(
-    switch(
-      gamlss_optimizer,
-      RS = gamlss::gamlss(
-        formula = formula,
-        sigma.formula = sigma.formula,
-        nu.formula = nu.formula,
-        family = "GG",
-        data = data,
-        method = RS(),
-        control = control
-      ),
-      mixed = gamlss::gamlss(
-        formula = formula,
-        sigma.formula = sigma.formula,
-        nu.formula = nu.formula,
-        family = "GG",
-        data = data,
-        method = mixed(1, 50),
-        control = control
-      ),
-      CG = gamlss::gamlss(
-        formula = formula,
-        sigma.formula = sigma.formula,
-        nu.formula = nu.formula,
-        family = "GG",
-        data = data,
-        method = CG(),
-        control = control
-      )
-    ),
-    error = function(e) {
-      stop(
-        model_label, " failed with optimizer ",
-        .moco_gamlss_optimizer_label(gamlss_optimizer), ": ",
-        conditionMessage(e),
-        call. = FALSE
-      )
+# Make the gamlss additive-term constructors visible to a formula without masking user objects.
+.moco_gamlss_formula_env <- function(parent) {
+  env <- new.env(parent = parent)
+  ns <- asNamespace("gamlss")
+  for (nm in c("pb", "pbm", "pbc", "pbz", "pbp", "cs", "scs", "fp", "pp", "random", "re", "ri", "lo", "ps", "pvc")) {
+    if (exists(nm, envir = ns, inherits = FALSE) && !exists(nm, envir = parent, inherits = TRUE)) {
+      assign(nm, get(nm, envir = ns), envir = env)
     }
-  )
+  }
+  env
+}
 
+# Build the formula of one distribution parameter.
+.moco_gamlss_formula <- function(f, param, cols) {
+  lhs <- if (param == "mu") "M ~ " else "~ "
+  parent <- globalenv()
+  if (is.null(f)) f <- if (param == "mu") "linear" else "1"
+  if (is.character(f) && length(f) == 1L && tolower(trimws(f)) %in% c("linear", "pb", "1", "intercept", "~1")) {
+    key <- tolower(trimws(f))
+    rhs <- if (key %in% c("1", "intercept", "~1") || !length(cols$vars)) {
+      "1"
+    } else {
+      lin <- setdiff(cols$vars, if (key == "pb") cols$cont)
+      sm <- if (key == "pb") sprintf("pb(%s)", .moco_gamlss_name(intersect(cols$vars, cols$cont)))
+      paste(c(.moco_gamlss_name(lin), sm), collapse = " + ")
+    }
+    f <- stats::as.formula(paste0(lhs, rhs), env = parent)
+  } else {
+    if (inherits(f, "formula")) {
+      parent <- environment(f) %||% globalenv()
+      txt <- paste(deparse(f, width.cutoff = 500L), collapse = " ")
+    } else if (is.character(f) && length(f) == 1L) {
+      txt <- f
+    } else {
+      stop(sprintf("gamlss formula for %s must be a formula, a character string or one of \"linear\", \"pb\", \"1\".", param), call. = FALSE)
+    }
+    rhs <- if (grepl("~", txt, fixed = TRUE)) sub("^[^~]*~", "", txt) else txt
+    if (grepl("(^|[^A-Za-z0-9_.])\\.([^A-Za-z0-9_.]|$)", rhs)) {
+      tmpl <- as.data.frame(stats::setNames(rep(list(0), length(cols$vars) + 1L), c("M", cols$vars)), check.names = FALSE)
+      expanded <- stats::terms(stats::as.formula(paste("M ~", rhs)), data = tmpl)
+      labs <- attr(expanded, "term.labels")
+      rhs <- paste(c(if (attr(expanded, "intercept") == 0) "-1", if (length(labs)) labs else "1"), collapse = " + ")
+    }
+    f <- stats::as.formula(paste0(lhs, rhs), env = parent)
+  }
+  environment(f) <- .moco_gamlss_formula_env(environment(f))
+  f
+}
+
+# Options of one role: global options with the role's override list (gamlss_options[[role]]) applied.
+.moco_gamlss_role_options <- function(options, role) {
+  base <- options[setdiff(names(options), .moco_gamlss_roles)]
+  ro <- options[[role]]
+  if (is.null(ro)) return(base)
+  if (!is.list(ro)) stop(sprintf("gamlss_options$%s must be a list of options for that density.", role), call. = FALSE)
+  for (k in names(ro)) {
+    if (k %in% c("control", "i.control", "args") && is.list(base[[k]]) && is.list(ro[[k]])) {
+      base[[k]] <- utils::modifyList(as.list(unclass(base[[k]])), as.list(unclass(ro[[k]])))
+    } else if (k %in% c("formulas", "formula")) {
+      fl <- ro[[k]]
+      if (inherits(fl, "formula") || is.character(fl)) fl <- list(mu = fl)
+      base$.role_formulas <- fl
+    } else {
+      base[k] <- list(ro[[k]])
+    }
+  }
+  base
+}
+
+# Family and formulas of one role.
+.moco_gamlss_role_spec <- function(options, role, cols) {
+  fam <- options$family
+  if (is.list(fam) && !inherits(fam, "gamlss.family")) fam <- fam[[role]] %||% fam$default
+  fam <- .moco_gamlss_family(fam %||% "GG")
+  fl <- options$formulas %||% options$formula %||% list()
+  if (inherits(fl, "formula") || is.character(fl)) fl <- list(mu = fl)
+  spec <- fl[intersect(names(fl), .moco_gamlss_params)]
+  if (is.list(fl$default)) spec[names(fl$default)] <- fl$default
+  if (is.list(fl[[role]])) spec[names(fl[[role]])] <- fl[[role]]
+  rf <- options$.role_formulas
+  if (is.list(rf)) spec[intersect(names(rf), .moco_gamlss_params)] <- rf[intersect(names(rf), .moco_gamlss_params)]
+  forms <- lapply(stats::setNames(.moco_gamlss_params, .moco_gamlss_params),
+                  function(p) .moco_gamlss_formula(spec[[p]], p, cols))
+  list(family = fam, formulas = forms[intersect(.moco_gamlss_params, fam$params)])
+}
+
+# Fill the defaults of the fitting options of one role and check them.
+.moco_gamlss_role_fill <- function(ro, role, n) {
+  ro$on_nonconvergence <- match.arg(ro$on_nonconvergence %||% "stop", c("stop", "warn"))
+  ro$retry <- ro$retry %||% TRUE
+  ro$clamp <- ro$clamp %||% TRUE
+  ro$start <- match.arg(ro$start %||% "auto", c("auto", "default"))
+  ctrl <- utils::modifyList(list(n.cyc = 200, trace = FALSE), as.list(unclass(ro$control %||% list())))
+  ro$control <- do.call(gamlss::gamlss.control, ctrl)
+  if (!is.null(ro$i.control)) ro$i.control <- do.call(gamlss::glim.control, as.list(unclass(ro$i.control)))
+  if (is.character(ro$method)) ro$method <- str2lang(ro$method)
+  if (!is.null(ro$args) && (!is.list(ro$args) || is.null(names(ro$args)) || any(names(ro$args) == ""))) {
+    stop(sprintf("gamlss_options$args (%s) must be a named list of arguments for gamlss::gamlss().", role), call. = FALSE)
+  }
+  for (k in .moco_gamlss_rowvec) {
+    v <- ro[[k]]
+    if (is.null(v)) next
+    if (!is.numeric(v) || !(length(v) %in% c(1L, n)) || any(!is.finite(v))) {
+      stop(sprintf("gamlss_options$%s (%s) must be a finite numeric scalar or a vector of length n = %d.", k, role, n), call. = FALSE)
+    }
+    if (k == "weights" && any(v < 0)) stop("gamlss_options$weights must be non-negative.", call. = FALSE)
+  }
+  for (k in .moco_gamlss_fixes) {
+    if (!is.null(ro[[k]]) && !(is.logical(ro[[k]]) && length(ro[[k]]) == 1L && !is.na(ro[[k]]))) {
+      stop(sprintf("gamlss_options$%s (%s) must be TRUE or FALSE.", k, role), call. = FALSE)
+    }
+  }
+  ro
+}
+
+# Check packages and data once, resolve every role's options, and fix the continuous columns
+# from the full data.
+.moco_gamlss_prepare <- function(options, X, Z, M) {
+  if (isTRUE(options$.prepared)) return(options)
+  if (!requireNamespace("gamlss", quietly = TRUE) || !requireNamespace("gamlss.dist", quietly = TRUE)) {
+    stop("Install both 'gamlss' and 'gamlss.dist' to use gamlss_options.", call. = FALSE)
+  }
+  if (!is.list(options)) stop("gamlss_options must be a list.", call. = FALSE)
+  M <- as.numeric(unlist(M))
+  if (any(!is.na(M) & (!is.finite(M) | M <= 0))) {
+    stop("GAMLSS motion densities need every observed motion value to be finite and > 0 (M > 0).", call. = FALSE)
+  }
+  n <- length(M)
+  min_unique <- options$continuous_min_unique %||% 10
+  frame_x <- .moco_density_frame(M, rep(0:1, length.out = n), X)
+  frame_z <- .moco_density_frame(M, rep(0:1, length.out = n), X, Z)
+  cols <- list(x = .moco_gamlss_columns(frame_x, min_unique), z = .moco_gamlss_columns(frame_z, min_unique))
+  roles <- list()
+  for (role in .moco_gamlss_roles) {
+    ro <- .moco_gamlss_role_fill(.moco_gamlss_role_options(options, role), role, n)
+    ro$.cols <- if (role %in% c("pMXZ", "pMXZD")) cols$z else cols$x
+    ro$.spec <- .moco_gamlss_role_spec(ro, role, ro$.cols)   # validates families and formulas early
+    roles[[role]] <- ro
+  }
+  list(.prepared = TRUE, .n = n, .roles = roles)
+}
+
+# Restrict full-data row vectors (weights, *.start of length n) to the rows of one fold.
+.moco_gamlss_subset <- function(options, rows) {
+  for (role in names(options$.roles)) {
+    for (k in .moco_gamlss_rowvec) {
+      v <- options$.roles[[role]][[k]]
+      if (length(v) > 1L) options$.roles[[role]][[k]] <- v[rows]
+    }
+  }
+  options$.n <- length(rows)
+  options
+}
+
+# Error message when a GAMLSS density fails or does not converge: names the density, family and
+# fold, and suggests other families for that density.
+.moco_gamlss_fail_msg <- function(role, family, label, n_fit, what, log) {
+  rows <- if (role %in% c("pMXD", "pMXZD")) "Delta_M = 1" else "Delta_Y = 1"
+  others <- setdiff(c("LOGNO", "GA", "WEI3", "BCCGo"), family)
+  paste0(
+    sprintf("GAMLSS density %s (family %s, %s) %s. It was fitted on the %d rows with %s.\n", role, family, label, what, n_fit, rows),
+    sprintf("Try another family for this density, e.g. gamlss_options = list(family = list(default = \"%s\", %s = \"%s\")).\n",
+            family, role, others[1]),
+    sprintf("Other families to try: %s. LOGNO (lognormal) is the most stable and matches the logGLM method; ", paste(others, collapse = ", ")),
+    "simpler formulas (e.g. sigma = \"1\") or a larger control$n.cyc can also help.\n",
+    "Attempts: ", paste(log, collapse = "; "))
+}
+
+.moco_gamlss_fit <- function(train, role, spec, ro, fit_rows, label) {
+  args <- list(formula = spec$formulas$mu, sigma.formula = spec$formulas$sigma,
+               family = spec$family$obj, data = train, control = ro$control)
+  if ("nu" %in% spec$family$params) args$nu.formula <- spec$formulas$nu
+  if ("tau" %in% spec$family$params) args$tau.formula <- spec$formulas$tau
+  if (!is.null(ro$method)) args$method <- ro$method
+  if (!is.null(ro$i.control)) args$i.control <- ro$i.control
+  for (k in .moco_gamlss_rowvec) {
+    v <- ro[[k]]
+    if (!is.null(v)) args[[k]] <- if (length(v) > 1L) v[fit_rows] else v
+  }
+  if (length(args$weights) == 1L) args$weights <- rep(args$weights, nrow(train))
+  for (k in .moco_gamlss_fixes) if (!is.null(ro[[k]])) args[[k]] <- ro[[k]]
+  if (length(ro$args)) args[names(ro$args)] <- ro$args
+  warn <- character()
+  start_note <- NULL
+  user_start <- any(paste0(.moco_gamlss_params, ".start") %in% names(args)) || !is.null(args$start.from)
+  if (identical(ro$start, "auto") && spec$family$name %in% .moco_gamlss_boxcox && !user_start) {
+    # Box-Cox families: start mu and sigma from the LOGNO fit with the same mu/sigma formulas,
+    # nu = 0.1 (close to the log transform) and tau = 2 (normal tails)
+    la <- args[setdiff(names(args), c("nu.formula", "tau.formula", .moco_gamlss_fixes, "method"))]
+    la$family <- gamlss.dist::LOGNO()
+    ln <- tryCatch(suppressWarnings(do.call(gamlss::gamlss, la)), error = function(e) NULL)
+    if (!is.null(ln)) {
+      args$mu.start <- exp(stats::fitted(ln, "mu")); args$sigma.start <- stats::fitted(ln, "sigma")
+      if ("nu" %in% spec$family$params) args$nu.start <- 0.1
+      if ("tau" %in% spec$family$params) args$tau.start <- 2
+      start_note <- "started from the LOGNO fit"
+    }
+  }
+  try_fit <- function(a) withCallingHandlers(
+    tryCatch(do.call(gamlss::gamlss, a), error = function(e) e),
+    warning = function(w) { warn <<- c(warn, conditionMessage(w)); invokeRestart("muffleWarning") })
+  ok <- function(f) !inherits(f, "error") && isTRUE(f$converged)
+  t0 <- proc.time()[["elapsed"]]
+  fit <- try_fit(args); method <- paste(c(deparse(args$method %||% quote(RS())), start_note), collapse = " ")
+  log <- paste0(method, ": ", if (inherits(fit, "error")) conditionMessage(fit) else if (!ok(fit)) "not converged" else "ok")
+  if (!ok(fit) && isTRUE(ro$retry)) {
+    # retry 1: start from the fit with the same mu formula and intercept-only sigma/nu/tau
+    simple <- args
+    one <- .moco_gamlss_formula("1", "sigma", NULL)
+    simple$sigma.formula <- one
+    if (!is.null(simple$nu.formula)) simple$nu.formula <- one
+    if (!is.null(simple$tau.formula)) simple$tau.formula <- one
+    f1 <- try_fit(simple)
+    if (!inherits(f1, "error")) {
+      a2 <- args; a2$start.from <- f1
+      a2[paste0(.moco_gamlss_params, ".start")] <- NULL
+      fit2 <- try_fit(a2)
+      log <- c(log, paste0("start from sigma ~ 1 fit: ", if (inherits(fit2, "error")) conditionMessage(fit2) else if (!ok(fit2)) "not converged" else "ok"))
+      if (ok(fit2) || inherits(fit, "error")) { fit <- fit2; method <- paste(method, "started from the sigma ~ 1 fit") }
+    } else log <- c(log, paste0("sigma ~ 1 start fit: ", conditionMessage(f1)))
+    # retry 2: CG algorithm
+    if (!ok(fit)) {
+      a3 <- args; a3$method <- call("CG", n.cyc = ro$control$n.cyc)
+      fit3 <- try_fit(a3)
+      log <- c(log, paste0("CG(): ", if (inherits(fit3, "error")) conditionMessage(fit3) else if (!ok(fit3)) "not converged" else "ok"))
+      if (ok(fit3) || inherits(fit, "error")) { fit <- fit3; method <- "CG()" }
+    }
+    # retry 3: RS algorithm, when another method (e.g. mixed() or CG()) was requested
+    # (on the example data mixed(1, 50) and CG() fail on the Delta_M = 1 rows, RS() converges)
+    if (!ok(fit) && !is.null(args$method) && !grepl("^RS\\(", deparse(args$method)[1])) {
+      a4 <- args; a4$method <- NULL
+      fit4 <- try_fit(a4)
+      log <- c(log, paste0("RS(): ", if (inherits(fit4, "error")) conditionMessage(fit4) else if (!ok(fit4)) "not converged" else "ok"))
+      if (ok(fit4) || inherits(fit, "error")) { fit <- fit4; method <- paste(c("RS()", start_note), collapse = " ") }
+    }
+  }
+  if (inherits(fit, "error")) {
+    stop(.moco_gamlss_fail_msg(role, spec$family$name, label, nrow(train), "failed to fit", log), call. = FALSE)
+  }
+  attr(fit, "moco_time") <- proc.time()[["elapsed"]] - t0
+  attr(fit, "moco_warnings") <- unique(warn)
+  attr(fit, "moco_method") <- method
+  attr(fit, "moco_attempts") <- paste(log, collapse = "; ")
   if (!isTRUE(fit$converged)) {
-    stop(
-      model_label, " did not converge with optimizer ",
-      .moco_gamlss_optimizer_label(gamlss_optimizer), ".",
-      call. = FALSE
-    )
+    msg <- .moco_gamlss_fail_msg(role, spec$family$name, label, nrow(train),
+                                 sprintf("did not converge in %d cycles", fit$iter), log)
+    if (ro$on_nonconvergence == "stop") stop(msg, call. = FALSE) else warning(msg, call. = FALSE)
   }
-  if (length(fit$G.deviance) != 1L || !is.finite(fit$G.deviance)) {
-    stop(model_label, ": fitted global deviance is not finite.", call. = FALSE)
-  }
-
-  bad_parameter <- vapply(
-    fit$parameters,
-    function(parameter) {
-      fitted_values <- fit[[paste0(parameter, ".fv")]]
-      is.null(fitted_values) || any(!is.finite(fitted_values))
-    },
-    logical(1)
-  )
-  if (any(bad_parameter)) {
-    stop(
-      model_label, ": non-finite fitted values for parameter(s): ",
-      paste(fit$parameters[bad_parameter], collapse = ", "),
-      ".",
-      call. = FALSE
-    )
-  }
-
-  attr(fit, "moco_gamlss_optimizer") <- .moco_gamlss_optimizer_label(gamlss_optimizer)
   fit
 }
 
-##########################################################
-# one_step function with gamlss motion density
-# similarly, we can use gamlss in one_step_cross function
-##########################################################
-
-one_step_gamlss <- function(
-    X, Z, A, M, Y,
-    Delta_M,
-    thresh = NULL,
-    Delta_Y,
-    SL_library = c("SL.earth","SL.glmnet","SL.gam","SL.glm", "SL.glm.interaction", "SL.step","SL.step.interaction","SL.xgboost","SL.ranger","SL.mean"),
-    SL_library_customize = list(
-      gA = NULL,
-      gDM = NULL,
-      gDY_AX = NULL,
-      gDY_AXZ = NULL,
-      mu_AMXZ = NULL,
-      eta_AXZ = NULL,
-      eta_AXM = NULL,
-      xi_AX = NULL
-    ),
-    glm_formula = list(
-      gA = NULL,
-      gDM = NULL,
-      gDY_AX = NULL,
-      gDY_AXZ = NULL,
-      mu_AMXZ = NULL,
-      eta_AXZ = NULL,
-      eta_AXM = NULL,
-      xi_AX = NULL,
-      pMX = NULL,
-      pMXZ = NULL
-    ),
-    GAMLSS_pMX = FALSE,
-    GAMLSS_pMXZ = FALSE,
-    gamlss_formula = list(
-      pMX_mu = NULL,
-      pMX_sigma = ~ 1,
-      pMX_nu = ~ 1,
-      pMXZ_mu = NULL,
-      pMXZ_sigma = ~ 1,
-      pMXZ_nu = ~ 1
-    ),
-    gamlss_family = "GG",
-    gamlss_optimizer = "RS",
-    GAMLSS_BIC_select = FALSE,
-    gamlss_continuous_X = character(0),
-    gamlss_continuous_Z = character(0),
-    gamlss_bic_candidates = c("linear", "pb_mu", "pb_mu_sigma"),
-    gamlss_bic_trace = FALSE,
-    n.cyc = 300,
-    gamlss_c_crit = 0.001,
-    HAL_pMX = FALSE,
-    HAL_pMXZ = FALSE,
-    HAL_options = list(
-      max_degree = 3,
-      lambda_seq = exp(seq(-1, -10, length = 100)),
-      num_knots = c(1000, 500, 250)
-    ),
-    density_floor = sqrt(.Machine$double.eps),
-    density_ratio_cap = Inf,
-    support_rule = "delta_m",
-    support_upper = NULL,
-    seed = 1,
-    ...
-){
-  if (!identical(gamlss_family, "GG")) {
-    stop("The current GAMLSS density implementation supports gamlss_family = \"GG\" only.")
+# Densities of all rows in `newdata` (one predictAll call).
+.moco_gamlss_eval <- function(fit, spec, newdata, train, role, label) {
+  if (!nrow(newdata)) return(list(density = numeric(), warn = character()))
+  warn <- character()
+  pred <- withCallingHandlers(
+    gamlss::predictAll(fit, newdata = newdata, data = train, type = "response"),
+    warning = function(w) { warn <<- c(warn, conditionMessage(w)); invokeRestart("muffleWarning") })
+  pars <- lapply(spec$family$params, function(p) as.numeric(pred[[p]]))
+  names(pars) <- spec$family$params
+  density <- do.call(spec$family$dfun, c(list(x = newdata$M), pars))
+  if (any(!is.finite(density)) || any(density < 0)) {
+    stop(sprintf("Invalid GAMLSS density from %s (%s, %s).", role, spec$family$name, label), call. = FALSE)
   }
-  if (isTRUE(GAMLSS_pMX) && isTRUE(HAL_pMX)) {
-    stop("Choose only one pMX density method: GAMLSS or HAL.")
-  }
-  if (isTRUE(GAMLSS_pMXZ) && isTRUE(HAL_pMXZ)) {
-    stop("Choose only one pMXZ density method: GAMLSS or HAL.")
-  }
-  # number of participants
-  n <- nrow(Y)
-  # number of outcomes
-  p <- ncol(Y)
-  
-  if(!is.null(thresh)){
-    # if thresh is not null, collapse M into dummy variables based on truncated level thresh
-    Delta_M <- as.numeric(M < thresh)
-    Delta_M[is.na(M)] <- 0
-  }
-  
-  # change X and Z to a dataframe if is a vector
-  if(is.null(dim(X))){X <- data.frame(X = X)}
-  if(is.null(dim(Z))){Z <- data.frame(Z = Z)}
-  
-  # Store BIC model-selection diagnostics for non-cross-fit analyses.
-  gamlss_selection <- list()
-  
-  # Explicitly named data frames prevent formula variables/splines from
-  # being resolved from an outer environment.
-  A_num <- as.numeric(A)
-  pMX_all_data <- data.frame(M = M, A = A_num, X, check.names = FALSE)
-  pMXZ_all_data <- data.frame(M = M, A = A_num, X, Z, check.names = FALSE)
-  
-  # GAMLSS parameter prediction through the standard S3 predict generic.
-  # This uses stats::predict() for mu, sigma, and nu.
-  # Helper names must not match the regex "predict.gamlss": gamlss.pb()
-  # searches the call stack with it to find the predict.gamlss() frame.
-  moco_gamlss_params_full <- function(fit, newdata, fit_data) {
-    list(
-      mu = as.numeric(stats::predict(
-        fit, what = "mu", type = "response",
-        newdata = newdata, data = fit_data
-      )),
-      sigma = as.numeric(stats::predict(
-        fit, what = "sigma", type = "response",
-        newdata = newdata, data = fit_data
-      )),
-      nu = as.numeric(stats::predict(
-        fit, what = "nu", type = "response",
-        newdata = newdata, data = fit_data
-      ))
-    )
-  }
-  
-  # non-missing motion index
-  index_nomissingM <- which(!is.na(M))
-  
-  # SL options
-  if(is.null(SL_library)){
-    SL_gA <- SL_library_customize$gA
-    SL_gDM <- SL_library_customize$gDM
-    SL_gDY_AX <- SL_library_customize$gDY_AX
-    SL_gDY_AXZ <- SL_library_customize$gDY_AXZ
-    SL_mu_AMXZ <- SL_library_customize$mu_AMXZ
-    SL_eta_AXZ <- SL_library_customize$eta_AXZ
-    SL_eta_AXM <- SL_library_customize$eta_AXM
-    SL_xi_AX <- SL_library_customize$xi_AX
-  }else{
-    SL_gA <- SL_gDM <- SL_gDY_AX <- SL_gDY_AXZ <- SL_mu_AMXZ <- SL_eta_AXZ <- SL_eta_AXM <- SL_xi_AX <- SL_library
-  }
-  
-  ####################################
-  # fit regression for propensity score
-  # exposure or group indicator, conditional on baseline covariates
-  if(!is.null(glm_formula$gA)){
-    gA_fit <- stats::glm(paste0("A ~ ", glm_formula$gA), family = binomial(),
-                         data = data.frame(A = A, X))
-    gAn_1 <- stats::predict(gA_fit, type = "response")
-  }else{
-    set.seed(seed)
-    if(ncol(X) == 1){
-      SL_gA <- SL_gA[SL_gA != "SL.glmnet"]
-    }
-    gA_fit <- SuperLearner::SuperLearner(Y = A, X = X,
-                                         family = binomial(),
-                                         SL.library = SL_gA,
-                                         method = tmp_method.CC_nloglik(),
-                                         control = list(saveCVFitLibrary = TRUE))
-    gAn_1 <- stats::predict(gA_fit, type = "response", newdata = X)[[1]]
-  }
-  
-  ####################################
-  # fit binary mediator regression
-  if(!is.null(glm_formula$gDM)){
-    gDM_fit <- stats::glm(paste0("Delta_M ~ ", glm_formula$gDM), family = binomial(),
-                          data = data.frame(Delta_M = Delta_M, A, X))
-    gDMn_1_A0 <- stats::predict(gDM_fit, type = "response", newdata = data.frame(A = 0, X))
-  }else{
-    set.seed(seed)
-    gDM_fit <- SuperLearner::SuperLearner(Y = Delta_M, X = data.frame(A, X),
-                                          family = binomial(),
-                                          SL.library = SL_gDM,
-                                          method = tmp_method.CC_nloglik(),
-                                          control = list(saveCVFitLibrary = TRUE))
-    gDMn_1_A0 <- stats::predict(gDM_fit, type = "response", newdata = data.frame(A = 0, X))[[1]]
-  }
-  
-  ############################################
-  # fit missingness indicator regression
-  if(sum(Delta_Y) == n){
-    gDYn_1_AX <- rep(1, n)
-    gDYn_1_AXZ <- gDYn_1_A0XZ <- gDYn_1_A1XZ <- rep(1, n)
-  }else{
-    # probability of non-missing conditioning on exposure or group indicator A, baseline covariates X and post-exposure covariates Z
-    if(!is.null(glm_formula$gDY_AX)){
-      gDY_AX_fit <- stats::glm(paste0("Delta_Y ~ ", glm_formula$gDY_AX), family = binomial(),
-                               data = data.frame(Delta_Y = Delta_Y, A, X))
-      gDYn_1_AX <- stats::predict(gDY_AX_fit, type = "response", newdata = data.frame(A, X))
-    }else{
-      set.seed(seed)
-      gDY_AX_fit <- SuperLearner::SuperLearner(Y = Delta_Y, X = data.frame(A, X),
-                                               family = binomial(),
-                                               SL.library = SL_gDY_AX,
-                                               method = tmp_method.CC_nloglik(),
-                                               control = list(saveCVFitLibrary = TRUE))
-      gDYn_1_AX <- stats::predict(gDY_AX_fit, type = "response", newdata = data.frame(A, X))[[1]]
-    }
-    
-    # probability of non-missing conditioning on exposure or group indicator A, baseline covariates X and post-exposure covariates Z
-    if(!is.null(glm_formula$gDY_AXZ)){
-      gDY_AXZ_fit <- stats::glm(paste0("Delta_Y ~ ", glm_formula$gDY_AXZ), family = binomial(),
-                                data = data.frame(Delta_Y = Delta_Y, A, X, Z))
-      gDYn_1_AXZ <- stats::predict(gDY_AXZ_fit, type = "response", newdata = data.frame(A, X, Z))
-      gDYn_1_A0XZ <- stats::predict(gDY_AXZ_fit, type = "response", newdata = data.frame(A = 0, X, Z))
-      gDYn_1_A1XZ <- stats::predict(gDY_AXZ_fit, type = "response", newdata = data.frame(A = 1, X, Z))
-    }else{
-      set.seed(seed)
-      gDY_AXZ_fit <- SuperLearner::SuperLearner(Y = Delta_Y, X = data.frame(A, X, Z),
-                                                family = binomial(),
-                                                SL.library = SL_gDY_AXZ,
-                                                method = tmp_method.CC_nloglik(),
-                                                control = list(saveCVFitLibrary = TRUE))
-      gDYn_1_AXZ <- stats::predict(gDY_AXZ_fit, type = "response", newdata = data.frame(A, X, Z))[[1]]
-      gDYn_1_A0XZ <- stats::predict(gDY_AXZ_fit, type = "response", newdata = data.frame(A = 0, X, Z))[[1]]
-      gDYn_1_A1XZ <- stats::predict(gDY_AXZ_fit, type = "response", newdata = data.frame(A = 1, X, Z))[[1]]
-    }
-  }
-  
-  ########################################
-  # Motion density
-  if(HAL_pMX){
-    # density estimation for mediator, conditioning on exposure or group indicator and baseline covariates p(m|a,x)
-    # estimate p(m|a,x) use highly adaptive lasso conditional density estimation method
-    # use default n_bins range, use cv to choose number of bins
-    pMX_fit <- haldensify::haldensify(
-      A = M[Delta_Y == 1],
-      W = data.frame(A, X)[Delta_Y == 1,],
-      max_degree = HAL_options$max_degree,
-      lambda_seq = HAL_options$lambda_seq,
-      num_knots = HAL_options$num_knots
-    )
-    pMXn_A <- rep(NA, n)
-    pMXn_A[Delta_Y == 1] <- stats::predict(pMX_fit, new_A = M[Delta_Y == 1], new_W = data.frame(A, X)[Delta_Y == 1,])
-    
-    # density estimation for mediator, conditioning on exposure or group indicator and baseline covariates p(m|0,x,Delta_M=1)
-    pMXD_fit <- haldensify::haldensify(
-      A = M[Delta_M == 1],
-      W = data.frame(A, X)[Delta_M == 1,],
-      max_degree = HAL_options$max_degree,
-      lambda_seq = HAL_options$lambda_seq,
-      num_knots = HAL_options$num_knots
-    )
-    pMXDn_A0 <- rep(NA, n)
-    pMXDn_A0[index_nomissingM] <- stats::predict(pMXD_fit, new_A = M[index_nomissingM], new_W = data.frame(A = 0, X)[index_nomissingM,], trim_min = 0)
-  }else if(GAMLSS_pMX){
-    ctrl <- gamlss::gamlss.control(n.cyc = n.cyc, c.crit = gamlss_c_crit, trace = isTRUE(gamlss_bic_trace))
-    
-    # --------------------------------------------------------------
-    # p(M | A, X)
-    #
-    # Fit on observations with Delta_Y == 1 and positive observed M, as for
-    # the HAL and GLM densities: the EIF weight
-    # Delta_Y / {P(Delta_Y = 1 | A, X, Z) p(M | A, X, Z)} requires the density
-    # conditional on Delta_Y = 1.
-    # --------------------------------------------------------------
-    idx_Y <- which(Delta_Y == 1 & !is.na(M) & is.finite(M) & M > 0)
-    pMX_fit_data <- pMX_all_data[idx_Y, , drop = FALSE]
-    if (nrow(pMX_fit_data) == 0L) stop("No observations remain for pMX GAMLSS fitting.")
-
-    pMX_spec <- .moco_make_default_gamlss_formulas(
-      x_names = names(X),
-      continuous_X = gamlss_continuous_X
-    )
-    pMX_fit <- .moco_fit_gamlss(
-      formula = pMX_spec$mu,
-      sigma.formula = pMX_spec$sigma,
-      nu.formula = pMX_spec$nu,
-      data = pMX_fit_data,
-      control = ctrl,
-      gamlss_optimizer = gamlss_optimizer,
-      model_label = "pMX GAMLSS"
-    )
-    gamlss_selection$pMX <- list(
-      method = "default_pb_mu_sigma_nu1",
-      optimizer = attr(pMX_fit, "moco_gamlss_optimizer"),
-      formulas = pMX_spec
-    )
-
-    pMXn_A <- rep(NA_real_, n)
-    pMX_predict <- moco_gamlss_params_full(
-      pMX_fit, pMX_all_data[idx_Y, , drop = FALSE], pMX_fit_data
-    )
-    pMXn_A[idx_Y] <- gamlss.dist::dGG(
-      M[idx_Y], mu = pMX_predict$mu, sigma = pMX_predict$sigma, nu = pMX_predict$nu
-    )
-    
-    # --------------------------------------------------------------
-    # p(M | A = 0, X, Delta_M = 1)
-    # --------------------------------------------------------------
-    idx_M <- which(Delta_M == 1 & !is.na(M) & is.finite(M) & M > 0)
-    pMXD_fit_data <- pMX_all_data[idx_M, , drop = FALSE]
-    if (nrow(pMXD_fit_data) == 0L) stop("No observations remain for pMXD GAMLSS fitting.")
-
-    pMXD_spec <- .moco_make_default_gamlss_formulas(
-      x_names = names(X),
-      continuous_X = gamlss_continuous_X
-    )
-    pMXD_fit <- .moco_fit_gamlss(
-      formula = pMXD_spec$mu,
-      sigma.formula = pMXD_spec$sigma,
-      nu.formula = pMXD_spec$nu,
-      data = pMXD_fit_data,
-      control = ctrl,
-      gamlss_optimizer = gamlss_optimizer,
-      model_label = "pMXD GAMLSS"
-    )
-    gamlss_selection$pMXD <- list(
-      method = "default_pb_mu_sigma_nu1",
-      optimizer = attr(pMXD_fit, "moco_gamlss_optimizer"),
-      formulas = pMXD_spec
-    )
-
-    # Evaluate p(M | A = 0, X, Delta_M = 1) at every positive observed M; the
-    # support rule below sets it to zero where required.
-    idx_eval_M <- which(!is.na(M) & is.finite(M) & M > 0)
-    pMXDn_A0 <- rep(NA_real_, n)
-    pMXD_new <- pMX_all_data[idx_eval_M, , drop = FALSE]
-    pMXD_new$A <- 0
-    pMXD_predict <- moco_gamlss_params_full(pMXD_fit, pMXD_new, pMXD_fit_data)
-    pMXDn_A0[idx_eval_M] <- gamlss.dist::dGG(
-      M[idx_eval_M], mu = pMXD_predict$mu, sigma = pMXD_predict$sigma, nu = pMXD_predict$nu
-    )
-    
-  }else{
-    pMX_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMX), family = gaussian(), data = data.frame(log_M = log(M), A, X)[Delta_Y == 1,])
-    pMXn_A <- rep(NA, n)
-    pMXn_A[Delta_Y == 1] <- (1/M)[Delta_Y == 1] * dnorm(log(M)[Delta_Y == 1], mean = stats::predict(pMX_fit, newdata = data.frame(A, X)[Delta_Y == 1,]), sd = sd(pMX_fit$residuals))
-    
-    pMXD_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMX), family = gaussian(), data = data.frame(log_M = log(M), A, X)[Delta_M == 1,])
-    pMXDn_A0 <- rep(NA, n)
-    pMXDn_A0[index_nomissingM] <- (1/M)[index_nomissingM] * dnorm(log(M)[index_nomissingM], mean = stats::predict(pMXD_fit, newdata = data.frame(A=0,X)[index_nomissingM,]), sd = sd(pMXD_fit$residuals))
-  }
-  
-  # target-density support rule (see moco(), argument support_rule)
-  pMXDn_A0 <- .moco_apply_support_rule(pMXDn_A0, M, Delta_M, support_rule, support_upper, HAL_pMX)
-  
-  if(HAL_pMXZ){
-    # density estimation for mediator, conditioning on exposure or group indicator, binary mediator,
-    # baseline covariates, and mediator-outcome confounder p(m|0,x,z)
-    # use default n_bins range, use cv to choose number of bins
-    pMXZ_fit <- haldensify::haldensify(
-      A = M[Delta_Y == 1],
-      W = data.frame(A, X, Z)[Delta_Y == 1,],
-      max_degree = HAL_options$max_degree,
-      lambda_seq = HAL_options$lambda_seq,
-      num_knots = HAL_options$num_knots
-    )
-    pMXZn_A0 <- pMXZn_A1 <- pMXZn_A <- rep(NA, n)
-    pMXZn_A[Delta_Y == 1] <- stats::predict(pMXZ_fit, new_A = M[Delta_Y == 1], new_W = data.frame(A, X, Z)[Delta_Y == 1,])
-    pMXZn_A0[Delta_Y == 1] <- stats::predict(pMXZ_fit, new_A = M[Delta_Y == 1], new_W = data.frame(A = 0, X, Z)[Delta_Y == 1,])
-    pMXZn_A1[Delta_Y == 1] <- stats::predict(pMXZ_fit, new_A = M[Delta_Y == 1], new_W = data.frame(A = 1, X, Z)[Delta_Y == 1,])
-    
-    # density estimation for mediator, conditioning on exposure or group indicator, binary mediator,
-    # baseline covariates, and mediator-outcome confounder p(m|0,x,z,Delta_M=1)
-    pMXZD_fit <- haldensify::haldensify(
-      A = M[Delta_M == 1],
-      W = data.frame(A, X, Z)[Delta_M == 1,],
-      max_degree = HAL_options$max_degree,
-      lambda_seq = HAL_options$lambda_seq,
-      num_knots = HAL_options$num_knots
-    )
-    # predict and set probability for M value out of the support to be 0
-    pMXZDn_A <- rep(NA, n)
-    pMXZDn_A[index_nomissingM] <- stats::predict(pMXZD_fit, new_A = M[index_nomissingM], new_W = data.frame(A, X, Z)[index_nomissingM,], trim_min = 0)
-  } else if(GAMLSS_pMXZ){
-    ctrl <- gamlss::gamlss.control(n.cyc = n.cyc, c.crit = gamlss_c_crit, trace = isTRUE(gamlss_bic_trace))
-    
-    # --------------------------------------------------------------
-    # p(M | A, X, Z)
-    #
-    # Fit on observations with Delta_Y == 1 and positive observed M.
-    # --------------------------------------------------------------
-    idx_Y <- which(Delta_Y == 1 & !is.na(M) & is.finite(M) & M > 0)
-    pMXZ_fit_data <- pMXZ_all_data[idx_Y, , drop = FALSE]
-    if (nrow(pMXZ_fit_data) == 0L) stop("No observations remain for pMXZ GAMLSS fitting.")
-
-    pMXZ_spec <- .moco_make_default_gamlss_formulas(
-      x_names = names(X),
-      z_names = names(Z),
-      continuous_X = gamlss_continuous_X,
-      continuous_Z = gamlss_continuous_Z
-    )
-    pMXZ_fit <- .moco_fit_gamlss(
-      formula = pMXZ_spec$mu,
-      sigma.formula = pMXZ_spec$sigma,
-      nu.formula = pMXZ_spec$nu,
-      data = pMXZ_fit_data,
-      control = ctrl,
-      gamlss_optimizer = gamlss_optimizer,
-      model_label = "pMXZ GAMLSS"
-    )
-    gamlss_selection$pMXZ <- list(
-      method = "default_pb_mu_sigma_nu1",
-      optimizer = attr(pMXZ_fit, "moco_gamlss_optimizer"),
-      formulas = pMXZ_spec
-    )
-
-    pMXZn_A <- pMXZn_A0 <- pMXZn_A1 <- rep(NA_real_, n)
-    new_obs <- pMXZ_all_data[idx_Y, , drop = FALSE]
-    pred_A <- moco_gamlss_params_full(pMXZ_fit, new_obs, pMXZ_fit_data)
-    new_A0 <- new_obs; new_A0$A <- 0
-    new_A1 <- new_obs; new_A1$A <- 1
-    pred_A0 <- moco_gamlss_params_full(pMXZ_fit, new_A0, pMXZ_fit_data)
-    pred_A1 <- moco_gamlss_params_full(pMXZ_fit, new_A1, pMXZ_fit_data)
-    
-    pMXZn_A[idx_Y] <- gamlss.dist::dGG(M[idx_Y], mu = pred_A$mu, sigma = pred_A$sigma, nu = pred_A$nu)
-    pMXZn_A0[idx_Y] <- gamlss.dist::dGG(M[idx_Y], mu = pred_A0$mu, sigma = pred_A0$sigma, nu = pred_A0$nu)
-    pMXZn_A1[idx_Y] <- gamlss.dist::dGG(M[idx_Y], mu = pred_A1$mu, sigma = pred_A1$sigma, nu = pred_A1$nu)
-    
-    # --------------------------------------------------------------
-    # p(M | A, X, Z, Delta_M = 1)
-    # --------------------------------------------------------------
-    idx_M <- which(Delta_M == 1 & !is.na(M) & is.finite(M) & M > 0)
-    pMXZD_fit_data <- pMXZ_all_data[idx_M, , drop = FALSE]
-    if (nrow(pMXZD_fit_data) == 0L) stop("No observations remain for pMXZD GAMLSS fitting.")
-
-    pMXZD_spec <- .moco_make_default_gamlss_formulas(
-      x_names = names(X),
-      z_names = names(Z),
-      continuous_X = gamlss_continuous_X,
-      continuous_Z = gamlss_continuous_Z
-    )
-    pMXZD_fit <- .moco_fit_gamlss(
-      formula = pMXZD_spec$mu,
-      sigma.formula = pMXZD_spec$sigma,
-      nu.formula = pMXZD_spec$nu,
-      data = pMXZD_fit_data,
-      control = ctrl,
-      gamlss_optimizer = gamlss_optimizer,
-      model_label = "pMXZD GAMLSS"
-    )
-    gamlss_selection$pMXZD <- list(
-      method = "default_pb_mu_sigma_nu1",
-      optimizer = attr(pMXZD_fit, "moco_gamlss_optimizer"),
-      formulas = pMXZD_spec
-    )
-
-    pMXZDn_A <- rep(NA_real_, n)
-    pMXZDn_A[Delta_M == 0] <- 0
-    pred_M <- moco_gamlss_params_full(
-      pMXZD_fit, pMXZ_all_data[idx_M, , drop = FALSE], pMXZD_fit_data
-    )
-    pMXZDn_A[idx_M] <- gamlss.dist::dGG(
-      M[idx_M], mu = pred_M$mu, sigma = pred_M$sigma, nu = pred_M$nu
-    )
-  }else{
-    pMXZ_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMXZ), family = gaussian(), data = data.frame(log_M = log(M), A, X, Z)[Delta_Y == 1,])
-    pMXZn_A0 <- pMXZn_A1 <- pMXZn_A <- rep(NA, n)
-    pMXZn_A[Delta_Y == 1] <- (1/M)[Delta_Y == 1] * dnorm(log(M)[Delta_Y == 1], mean = stats::predict(pMXZ_fit, newdata = data.frame(A, X, Z)[Delta_Y == 1,]), sd = sd(pMXZ_fit$residuals))
-    pMXZn_A0[Delta_Y == 1] <- (1/M)[Delta_Y == 1] * dnorm(log(M)[Delta_Y == 1], mean = stats::predict(pMXZ_fit, newdata = data.frame(A = 0, X, Z)[Delta_Y == 1,]), sd = sd(pMXZ_fit$residuals))
-    pMXZn_A1[Delta_Y == 1] <- (1/M)[Delta_Y == 1] * dnorm(log(M)[Delta_Y == 1], mean = stats::predict(pMXZ_fit, newdata = data.frame(A = 1, X, Z)[Delta_Y == 1,]), sd = sd(pMXZ_fit$residuals))
-    
-    pMXZD_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMXZ), family = gaussian(), data = data.frame(log_M = log(M), A, X, Z)[Delta_M == 1,])
-    pMXZDn_A <- rep(NA, n)
-    pMXZDn_A[Delta_M==0] <- 0
-    pMXZDn_A[Delta_M==1] <- (1/M)[Delta_M==1] * dnorm(log(M)[Delta_M==1], mean = stats::predict(pMXZD_fit, newdata = data.frame(A, X, Z)[Delta_M==1,]), sd = sd(pMXZD_fit$residuals))
-  }
-  
-  # Bound the denominator densities away from zero so that density ratios in
-  # the pseudo-outcomes and the EIF stay finite.
-  pMXZDn_A <- .moco_floor_density(pMXZDn_A, density_floor)
-  pMXZn_A <- .moco_floor_density(pMXZn_A, density_floor)
-  pMXZn_A0 <- .moco_floor_density(pMXZn_A0, density_floor)
-  pMXZn_A1 <- .moco_floor_density(pMXZn_A1, density_floor)
-
-  # define parameters for storing results
-  est <- matrix(nrow = 2, ncol = p)
-  eif_mat <- vector("list", p)
-  cov_mat <- vector("list", p)
-  for(j in 1:p){
-    # fit outcome regression
-    mu_MXZn_A0 <- mu_MXZn_A1 <- mu_MXZn_A <- rep(NA, n)
-    if(!is.null(glm_formula$mu_AMXZ)){
-      mu_AMXZ_fit <- stats::glm(paste0("Y ~ ", glm_formula$mu_AMXZ), family = gaussian(),
-                                data = data.frame(Y = Y[,j], A, M, X, Z)[Delta_Y==1,])
-      mu_MXZn_A0 <- stats::predict(mu_AMXZ_fit, newdata = data.frame(A = 0, M, X, Z))
-      mu_MXZn_A1 <- stats::predict(mu_AMXZ_fit, newdata = data.frame(A = 1, M, X, Z))
-      mu_MXZn_A <- stats::predict(mu_AMXZ_fit, newdata = data.frame(A, M, X, Z))
-    }else{
-      set.seed(seed)
-      mu_AMXZ_fit <- SuperLearner::SuperLearner(Y = Y[Delta_Y==1,j], X = data.frame(A, M, X, Z)[Delta_Y==1,],
-                                                family = gaussian(),
-                                                SL.library = SL_mu_AMXZ,
-                                                method = tmp_method.CC_LS(),
-                                                control = list(saveCVFitLibrary = TRUE))
-      mu_MXZn_A0[index_nomissingM] <- stats::predict(mu_AMXZ_fit, newdata = data.frame(A = 0, M, X, Z)[index_nomissingM,])[[1]]
-      mu_MXZn_A1[index_nomissingM] <- stats::predict(mu_AMXZ_fit, newdata = data.frame(A = 1, M, X, Z)[index_nomissingM,])[[1]]
-      mu_MXZn_A[index_nomissingM] <- stats::predict(mu_AMXZ_fit, newdata = data.frame(A, M, X, Z)[index_nomissingM,])[[1]]
-    }
-    
-    # fit additional pseudo-outcome regression for mu_MXZ*pMXD/pMXZD, conditioning on exposure or group indicator, binary mediator and baseline covariates
-    mu_pseudo_A <- mu_MXZn_A * .moco_cap_density_ratio(
-      pMXDn_A0/pMXZDn_A, density_ratio_cap
-    )
-    if(!is.null(glm_formula$eta_AXZ)){
-      eta_AXZ_fit <- stats::glm(paste0("mu_pseudo_A ~ ", glm_formula$eta_AXZ), family = gaussian(),
-                                data = data.frame(mu_pseudo_A = mu_pseudo_A, A, X, Z)[Delta_M==1,])
-      eta_AXZn_A <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A, X, Z))
-      eta_AXZn_A0 <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A = 0, X, Z))
-      eta_AXZn_A1 <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A = 1, X, Z))
-    }else{
-      set.seed(seed)
-      eta_AXZ_fit <- SuperLearner::SuperLearner(Y = mu_pseudo_A[Delta_M==1], X = data.frame(A, X, Z)[Delta_M==1,],
-                                                family = gaussian(),
-                                                SL.library = SL_eta_AXZ,
-                                                method = tmp_method.CC_LS(),
-                                                control = list(saveCVFitLibrary = TRUE))
-      eta_AXZn_A <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A, X, Z))[[1]]
-      eta_AXZn_A0 <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A = 0, X, Z))[[1]]
-      eta_AXZn_A1 <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A = 1, X, Z))[[1]]
-    }
-    
-    # fit pseudo-outcome regression for Qd, conditioning on exposure or group indicator, mediator and baseline covariates
-    mu_pseudo_A_star <- mu_MXZn_A * .moco_cap_density_ratio(
-      pMXn_A/pMXZn_A, density_ratio_cap
-    ) * gDYn_1_AX/gDYn_1_AXZ
-    # fit the regression
-    if(!is.null(glm_formula$eta_AXM)){
-      eta_AXM_fit <- stats::glm(paste0("mu_pseudo_A_star ~ ", glm_formula$eta_AXM), family = gaussian(),
-                                data = data.frame(mu_pseudo_A_star = mu_pseudo_A_star, A, M, X)[Delta_Y == 1,])
-      eta_AXMn_A0 <- stats::predict(eta_AXM_fit, newdata = data.frame(A = 0, M, X))
-      eta_AXMn_A1 <- stats::predict(eta_AXM_fit, newdata = data.frame(A = 1, M, X))
-    }else if(!is.null(SL_eta_AXM)){
-      set.seed(seed)
-      eta_AXMn_A0 <- eta_AXMn_A1 <- rep(NA, n)
-      # since observations with Delta_M=0 will not be considered in the next step
-      # so add restrictions here to better depict data with Delta_M=1 # [Delta_M==1]
-      eta_AXM_fit <- SuperLearner::SuperLearner(Y = mu_pseudo_A_star[Delta_Y == 1], X = data.frame(A, M, X)[Delta_Y == 1,],
-                                                family = gaussian(),
-                                                SL.library = SL_eta_AXM,
-                                                method = tmp_method.CC_LS(),
-                                                control = list(saveCVFitLibrary = TRUE))
-      eta_AXMn_A0[index_nomissingM] <- stats::predict(eta_AXM_fit, type = "response", newdata = data.frame(A = 0, M, X)[index_nomissingM,])[[1]]
-      eta_AXMn_A1[index_nomissingM] <- stats::predict(eta_AXM_fit, type = "response", newdata = data.frame(A = 1, M, X)[index_nomissingM,])[[1]]
-    }else{
-      set.seed(seed)
-      eta_AXM_fit <- hal9001::fit_hal(X = data.frame(A, M, X)[Delta_Y == 1,], Y = mu_pseudo_A_star[Delta_Y == 1])
-      eta_AXMn_A0 <- stats::predict(eta_AXM_fit, new_data = data.frame(A = 0, M, X))
-      eta_AXMn_A1 <- stats::predict(eta_AXM_fit, new_data = data.frame(A = 1, M, X))
-    }
-    
-    # fit pseudo-outcome regression for eta_AXZ, conditioning on exposure or group indicator and baseline covariates
-    if(!is.null(glm_formula$xi_AX)){
-      xi_fit <- stats::glm(paste0("eta_AXZn_A ~ ", glm_formula$xi_AX), family = gaussian(),
-                           data = data.frame(eta_AXZn_A = eta_AXZn_A, A, X))
-      xi_AXn_A0 <- stats::predict(xi_fit, newdata = data.frame(A = 0, X))
-      xi_AXn_A1 <- stats::predict(xi_fit, newdata = data.frame(A = 1, X))
-    }else{
-      set.seed(seed)
-      xi_fit <- SuperLearner::SuperLearner(Y = eta_AXZn_A, X = data.frame(A, X),
-                                           family = gaussian(),
-                                           SL.library = SL_xi_AX,
-                                           method = tmp_method.CC_LS(),
-                                           control = list(saveCVFitLibrary = TRUE))
-      xi_AXn_A0 <- stats::predict(xi_fit, newdata = data.frame(A = 0, X))[[1]]
-      xi_AXn_A1 <- stats::predict(xi_fit, newdata = data.frame(A = 1, X))[[1]]
-    }
-    
-    eif_A0 <- make_full_data_eif(a = 0, A = A, Delta_Y = Delta_Y, Delta_M = Delta_M, Y = Y[,j],
-                                 gA = 1 - gAn_1, gDM = gDMn_1_A0, gDY_AXZ = gDYn_1_A0XZ,
-                                 eta_AXZ = eta_AXZn_A0, eta_AXM = eta_AXMn_A0,
-                                 xi_AX = xi_AXn_A0,
-                                 mu = mu_MXZn_A0, pMXD = pMXDn_A0, pMXZ = pMXZn_A0,
-                                 density_ratio_cap = density_ratio_cap)
-    
-    eif_A1 <- make_full_data_eif(a = 1, A = A, Delta_Y = Delta_Y, Delta_M = Delta_M, Y = Y[,j],
-                                 gA = gAn_1, gDM = gDMn_1_A0, gDY_AXZ = gDYn_1_A1XZ,
-                                 eta_AXZ = eta_AXZn_A1, eta_AXM = eta_AXMn_A1,
-                                 xi_AX = xi_AXn_A1,
-                                 mu = mu_MXZn_A1, pMXD = pMXDn_A0, pMXZ = pMXZn_A1,
-                                 density_ratio_cap = density_ratio_cap)
-    
-    # one-step estimator
-    est[,j] <- c(mean(xi_AXn_A0) + mean(eif_A0), mean(xi_AXn_A1) + mean(eif_A1))
-    
-    # covariance matrix
-    eif_mat[[j]] <- cbind(eif_A0, eif_A1)
-    colnames(eif_mat[[j]]) <- c("eif_A0", "eif_A1")
-    cov_mat[[j]] <- cov(eif_mat[[j]]) / n
-  }
-  
-  # motion-controlled associations
-  adj_association <- est[2, ] - est[1, ]
-  
-  # output
-  out <- list(est = est,
-              adj_association = adj_association,
-              eif_mat = eif_mat,
-              cov_mat = cov_mat,
-              gamlss_selection = gamlss_selection
-  )
-  
-  return(out)
+  list(density = density, warn = unique(warn))
 }
 
-#######################################
-# one step cross with gamlss
-#######################################
-
-fit_mechanism_gamlss <- function(
-    train_dat,
-    valid_dat,
-    M_indicator,
-    SL_library = c("SL.earth","SL.glmnet","SL.gam","SL.glm", "SL.glm.interaction", "SL.step","SL.step.interaction","SL.xgboost","SL.ranger","SL.mean"),
-    SL_library_customize = list(
-      gA = NULL,
-      gDM = NULL,
-      gDY_AX = NULL,
-      gDY_AXZ = NULL,
-      mu_AMXZ = NULL,
-      eta_AXZ = NULL,
-      eta_AXM = NULL,
-      xi_AX = NULL
-    ),
-    glm_formula = list(
-      gA = NULL,
-      gDM = NULL,
-      gDY_AX = NULL,
-      gDY_AXZ = NULL,
-      mu_AMXZ = NULL,
-      eta_AXZ = NULL,
-      eta_AXM = NULL,
-      xi_AX = NULL,
-      pMX = NULL,
-      pMXZ = NULL
-    ),
-    GAMLSS_pMX = FALSE,
-    GAMLSS_pMXZ = FALSE,
-    gamlss_formula = list(
-      pMX_mu = NULL,
-      pMX_sigma = ~ 1,
-      pMX_nu = ~ 1,
-      pMXZ_mu = NULL,
-      pMXZ_sigma = ~ 1,
-      pMXZ_nu = ~ 1
-    ),
-    gamlss_family = "GG",
-    gamlss_optimizer = "RS",
-    GAMLSS_BIC_select = FALSE,
-    gamlss_continuous_X = character(0),
-    gamlss_continuous_Z = character(0),
-    gamlss_bic_candidates = c("linear", "pb_mu", "pb_mu_sigma"),
-    gamlss_bic_trace = FALSE,
-    n.cyc = 300,
-    gamlss_c_crit = 0.001,
-    HAL_pMX = TRUE,
-    HAL_pMXZ = TRUE,
-    HAL_options = list(
-      max_degree = 3,
-      lambda_seq = exp(seq(-1, -10, length = 100)),
-      num_knots = c(1000, 500, 250)
-    ),
-    density_floor = sqrt(.Machine$double.eps),
-    density_ratio_cap = Inf,
-    support_rule = "delta_m",
-    support_upper = NULL,
-    seed = 1,
-    ...
-){
-  if (!identical(gamlss_family, "GG")) {
-    stop("The current GAMLSS density implementation supports gamlss_family = \"GG\" only.")
-  }
-  if (isTRUE(GAMLSS_pMX) && isTRUE(HAL_pMX)) {
-    stop("Choose only one pMX density method: GAMLSS or HAL.")
-  }
-  if (isTRUE(GAMLSS_pMXZ) && isTRUE(HAL_pMXZ)) {
-    stop("Choose only one pMXZ density method: GAMLSS or HAL.")
-  }
-  # number of outcomes
-  p <- ncol(train_dat$Y)
-  
-  gamlss_selection <- list()
-  
-  # motion and motion indicator of training and valid data
-  M_train <- Reduce(c, train_dat$M)
-  Delta_M_train <- Reduce(c, train_dat$Delta_M)
-  M_valid <- Reduce(c, valid_dat$M)
-  Delta_M_valid <- Reduce(c, valid_dat$Delta_M)
-  Delta_Y_train <- Reduce(c, train_dat$Delta_Y)
-  Delta_Y_valid <- Reduce(c, valid_dat$Delta_Y)
-  
-  # number of samples
-  n_train <- nrow(train_dat$Y)
-  n_valid <- nrow(valid_dat$Y)
-  
-  # ----------------------------------------------------------------------
-  # Build explicitly named fold-specific data frames for GAMLSS.
-  # This prevents spline terms such as bs(age, ...) from being evaluated
-  # against full-sample vectors in the formula environment.
-  # ----------------------------------------------------------------------
-  A_train <- Reduce(c, train_dat$A)
-  A_valid <- Reduce(c, valid_dat$A)
-  
-  X_train <- as.data.frame(train_dat$X, check.names = FALSE)
-  X_valid <- as.data.frame(valid_dat$X, check.names = FALSE)
-  Z_train <- as.data.frame(train_dat$Z, check.names = FALSE)
-  Z_valid <- as.data.frame(valid_dat$Z, check.names = FALSE)
-  
-  pMX_train_data <- data.frame(
-    M = M_train,
-    A = A_train,
-    X_train,
-    check.names = FALSE
-  )
-  
-  pMX_valid_data <- data.frame(
-    M = M_valid,
-    A = A_valid,
-    X_valid,
-    check.names = FALSE
-  )
-  
-  pMXZ_train_data <- data.frame(
-    M = M_train,
-    A = A_train,
-    X_train,
-    Z_train,
-    check.names = FALSE
-  )
-  
-  pMXZ_valid_data <- data.frame(
-    M = M_valid,
-    A = A_valid,
-    X_valid,
-    Z_valid,
-    check.names = FALSE
-  )
-  
-  if (
-    nrow(pMX_train_data) != n_train ||
-    nrow(pMX_valid_data) != n_valid ||
-    nrow(pMXZ_train_data) != n_train ||
-    nrow(pMXZ_valid_data) != n_valid
-  ) {
-    stop("Cross-fit GAMLSS data frames are not aligned with the fold sizes.")
-  }
-  
-  moco_gamlss_params_cv <- function(fit, newdata, fit_data) {
-    list(
-      mu = as.numeric(stats::predict(
-        fit,
-        newdata = newdata,
-        data = fit_data,
-        what = "mu",
-        type = "response"
-      )),
-      sigma = as.numeric(stats::predict(
-        fit,
-        newdata = newdata,
-        data = fit_data,
-        what = "sigma",
-        type = "response"
-      )),
-      nu = as.numeric(stats::predict(
-        fit,
-        newdata = newdata,
-        data = fit_data,
-        what = "nu",
-        type = "response"
-      ))
-    )
-  }
-  
-  # non-missing motion index
-  index_nomissingM_train <- which(!is.na(M_train))
-  index_nomissingM_valid <- which(!is.na(M_valid))
-  
-  # SL options
-  if(is.null(SL_library)){
-    SL_gA <- SL_library_customize$gA
-    SL_gDM <- SL_library_customize$gDM
-    SL_gDY_AX <- SL_library_customize$gDY_AX
-    SL_gDY_AXZ <- SL_library_customize$gDY_AXZ
-    SL_mu_AMXZ <- SL_library_customize$mu_AMXZ
-    SL_eta_AXZ <- SL_library_customize$eta_AXZ
-    SL_eta_AXM <- SL_library_customize$eta_AXM
-    SL_xi_AX <- SL_library_customize$xi_AX
-  }else{
-    SL_gA <- SL_gDM <- SL_gDY_AX <- SL_gDY_AXZ <- SL_mu_AMXZ <- SL_eta_AXZ <- SL_eta_AXM <- SL_xi_AX <- SL_library
-  }
-  
-  # fit regression for propensity score
-  # exposure or group indicator, conditional on baseline covariates
-  if(!is.null(glm_formula$gA)){
-    gA_fit <- stats::glm(paste0("A ~ ", glm_formula$gA), family = binomial(),
-                         data = data.frame(train_dat$A, train_dat$X))
-    gAn_1 <- stats::predict(gA_fit, type = "response", newdata = valid_dat$X)
-  }else{
-    set.seed(seed)
-    if(ncol(train_dat$X) == 1){
-      SL_gA <- SL_gA[SL_gA != "SL.glmnet"]
-    }
-    gA_fit <- SuperLearner::SuperLearner(Y = train_dat$A$A, X = train_dat$X,
-                                         family = binomial(),
-                                         SL.library = SL_gA,
-                                         method = tmp_method.CC_nloglik(),
-                                         control = list(saveCVFitLibrary = TRUE))
-    gAn_1 <- stats::predict(gA_fit, type = "response", newdata = valid_dat$X)[[1]]
-  }
-  
-  # fit missingness indicator regression
-  if(sum(Delta_Y_train) == n_train){
-    gDYn_1_AXZ_train <- gDYn_1_A0XZ_train <- gDYn_1_A1XZ_train <- rep(1, n_train)
-    gDYn_1_AXZ_valid <- gDYn_1_A0XZ_valid <- gDYn_1_A1XZ_valid <- rep(1, n_valid)
-  }else{
-    # probability of non-missing conditioning on exposure or group indicator A, baseline covariates X and post-exposure covariates Z
-    if(!is.null(glm_formula$gDY_AXZ)){
-      gDY_AXZ_fit <- stats::glm(paste0("Delta_Y ~ ", glm_formula$gDY_AXZ), family = binomial(),
-                                data = data.frame(train_dat$Delta_Y, train_dat$A, train_dat$X, train_dat$Z))
-      gDYn_1_AXZ_train <- stats::predict(gDY_AXZ_fit, type = "response", newdata = data.frame(train_dat$A, train_dat$X, train_dat$Z))
-      gDYn_1_A0XZ_train <- stats::predict(gDY_AXZ_fit, type = "response", newdata = data.frame(A = 0, train_dat$X, train_dat$Z))
-      gDYn_1_A1XZ_train <- stats::predict(gDY_AXZ_fit, type = "response", newdata = data.frame(A = 1, train_dat$X, train_dat$Z))
-      gDYn_1_AXZ_valid <- stats::predict(gDY_AXZ_fit, type = "response", newdata = data.frame(valid_dat$A, valid_dat$X, valid_dat$Z))
-      gDYn_1_A0XZ_valid <- stats::predict(gDY_AXZ_fit, type = "response", newdata = data.frame(A = 0, valid_dat$X, valid_dat$Z))
-      gDYn_1_A1XZ_valid <- stats::predict(gDY_AXZ_fit, type = "response", newdata = data.frame(A = 1, valid_dat$X, valid_dat$Z))
-    }else{
-      set.seed(seed)
-      gDY_AXZ_fit <- SuperLearner::SuperLearner(Y = Delta_Y_train, X = data.frame(train_dat$A, train_dat$X, train_dat$Z),
-                                                family = binomial(),
-                                                SL.library = SL_gDY_AXZ,
-                                                method = tmp_method.CC_nloglik(),
-                                                control = list(saveCVFitLibrary = TRUE))
-      gDYn_1_AXZ_train <- stats::predict(gDY_AXZ_fit, type = "response", newdata = data.frame(train_dat$A, train_dat$X, train_dat$Z))[[1]]
-      gDYn_1_A0XZ_train <- stats::predict(gDY_AXZ_fit, type = "response", newdata = data.frame(A = 0, train_dat$X, train_dat$Z))[[1]]
-      gDYn_1_A1XZ_train <- stats::predict(gDY_AXZ_fit, type = "response", newdata = data.frame(A = 1, train_dat$X, train_dat$Z))[[1]]
-      gDYn_1_AXZ_valid <- stats::predict(gDY_AXZ_fit, type = "response", newdata = data.frame(valid_dat$A, valid_dat$X, valid_dat$Z))[[1]]
-      gDYn_1_A0XZ_valid <- stats::predict(gDY_AXZ_fit, type = "response", newdata = data.frame(A = 0, valid_dat$X, valid_dat$Z))[[1]]
-      gDYn_1_A1XZ_valid <- stats::predict(gDY_AXZ_fit, type = "response", newdata = data.frame(A = 1, valid_dat$X, valid_dat$Z))[[1]]
-    }
-  }
-  
-  if(M_indicator){
-    # fit binary mediator regression
-    if(!is.null(glm_formula$gDM)){
-      gDM_fit <- stats::glm(paste0("Delta_M ~ ", glm_formula$gDM), family = binomial(), data = data.frame(train_dat$Delta_M, train_dat$A, train_dat$X))
-      gDMn_1_A0_train <- stats::predict(gDM_fit, type = "response", newdata = data.frame(A = 0, train_dat$X))
-      gDMn_1_A0_valid <- stats::predict(gDM_fit, type = "response", newdata = data.frame(A = 0, valid_dat$X))
-    }else{
-      set.seed(seed)
-      gDM_fit <- SuperLearner::SuperLearner(Y = Delta_M_train, X = data.frame(train_dat$A, train_dat$X),
-                                            family = binomial(),
-                                            SL.library = SL_gDM,
-                                            method = tmp_method.CC_nloglik(),
-                                            control = list(saveCVFitLibrary = TRUE))
-      gDMn_1_A0_train <- stats::predict(gDM_fit, type = "response", newdata = data.frame(A = 0, train_dat$X))[[1]]
-      gDMn_1_A0_valid <- stats::predict(gDM_fit, type = "response", newdata = data.frame(A = 0, valid_dat$X))[[1]]
-    }
-    
-    # fit missingness indicator regression
-    if(sum(Delta_Y_train) == n_train){
-      gDYn_1_AX_train <- rep(1, n_train)
-      gDYn_1_AX_valid <- rep(1, n_valid)
-    }else{
-      # probability of non-missing conditioning on exposure or group indicator A and baseline covariates X
-      if(!is.null(glm_formula$gDY_AX)){
-        gDY_AX_fit <- stats::glm(paste0("Delta_Y ~ ", glm_formula$gDY_AX), family = binomial(),
-                                 data = data.frame(train_dat$Delta_Y, train_dat$A, train_dat$X))
-        gDYn_1_AX_train <- stats::predict(gDY_AX_fit, type = "response", newdata = data.frame(train_dat$A, train_dat$X))
-        gDYn_1_AX_valid <- stats::predict(gDY_AX_fit, type = "response", newdata = data.frame(valid_dat$A, valid_dat$X))
-      }else{
-        set.seed(seed)
-        gDY_AX_fit <- SuperLearner::SuperLearner(Y = Delta_Y_train, X = data.frame(train_dat$A, train_dat$X),
-                                                 family = binomial(),
-                                                 SL.library = SL_gDY_AX,
-                                                 method = tmp_method.CC_nloglik(),
-                                                 control = list(saveCVFitLibrary = TRUE))
-        gDYn_1_AX_train <- stats::predict(gDY_AX_fit, type = "response", newdata = data.frame(train_dat$A, train_dat$X))[[1]]
-        gDYn_1_AX_valid <- stats::predict(gDY_AX_fit, type = "response", newdata = data.frame(valid_dat$A, valid_dat$X))[[1]]
-      }
-    }
-    
-    ############################################
-    # Motion density
-    if(HAL_pMX){
-      # density estimation for mediator, conditioning on exposure or group indicator and baseline covariates p(m|a,x)
-      # estimate p(m|a,x) use highly adaptive lasso conditional density estimation method
-      # use default n_bins range, use cv to choose number of bins
-      pMX_fit <- haldensify::haldensify(
-        A = M_train[Delta_Y_train == 1],
-        W = data.frame(train_dat$A, train_dat$X)[Delta_Y_train == 1,],
-        max_degree = HAL_options$max_degree,
-        lambda_seq = HAL_options$lambda_seq,
-        num_knots = HAL_options$num_knots
-      )
-      pMXn_A_train <- rep(NA, n_train)
-      pMXn_A_valid <- rep(NA, n_valid)
-      pMXn_A_train[Delta_Y_train == 1] <- stats::predict(pMX_fit, new_A = M_train[Delta_Y_train == 1], new_W = data.frame(train_dat$A, train_dat$X)[Delta_Y_train == 1,])
-      pMXn_A_valid[Delta_Y_valid == 1] <- stats::predict(pMX_fit, new_A = M_valid[Delta_Y_valid == 1], new_W = data.frame(valid_dat$A, valid_dat$X)[Delta_Y_valid == 1,])
-      
-      # density estimation for mediator, conditioning on exposure or group indicator and baseline covariates p(m|0,x,Delta=1)
-      # use default n_bins range, use cv to choose number of bins
-      pMXD_fit <- haldensify::haldensify(
-        A = M_train[Delta_M_train == 1],
-        W = data.frame(train_dat$A, train_dat$X)[Delta_M_train == 1,],
-        max_degree = HAL_options$max_degree,
-        lambda_seq = HAL_options$lambda_seq,
-        num_knots = HAL_options$num_knots
-      )
-      pMXDn_A0_train <- rep(NA, n_train)
-      pMXDn_A0_train[index_nomissingM_train] <- stats::predict(pMXD_fit, new_A = M_train[index_nomissingM_train], new_W = data.frame(A = 0, train_dat$X)[index_nomissingM_train,], trim_min = 0)
-      pMXDn_A0_valid <- rep(NA, n_valid)
-      pMXDn_A0_valid[index_nomissingM_valid] <- stats::predict(pMXD_fit, new_A = M_valid[index_nomissingM_valid], new_W = data.frame(A = 0, valid_dat$X)[index_nomissingM_valid,], trim_min = 0)
-    }else if(GAMLSS_pMX){
-      ctrl <- gamlss::gamlss.control(n.cyc = n.cyc, c.crit = gamlss_c_crit, trace = isTRUE(gamlss_bic_trace))
-      
-      # GAMLSS p(M | A, X, Delta_Y = 1): fit on Delta_Y == 1 observations with
-      # positive M in the training fold, matching the HAL and GLM densities.
-      idx_train_Y <- which(Delta_Y_train == 1 & !is.na(M_train) & is.finite(M_train) & M_train > 0)
-      idx_valid_Y <- which(Delta_Y_valid == 1 & !is.na(M_valid) & is.finite(M_valid) & M_valid > 0)
-
-      pMX_fit_data <- pMX_train_data[idx_train_Y, , drop = FALSE]
-
-      if (nrow(pMX_fit_data) == 0) {
-        stop("No training observations remain for the cross-fit pMX GAMLSS model.")
-      }
-
-      pMX_spec <- .moco_make_default_gamlss_formulas(
-        x_names = names(X_train),
-        continuous_X = gamlss_continuous_X
-      )
-      pMX_fit <- .moco_fit_gamlss(
-        formula = pMX_spec$mu,
-        sigma.formula = pMX_spec$sigma,
-        nu.formula = pMX_spec$nu,
-        data = pMX_fit_data,
-        control = ctrl,
-        gamlss_optimizer = gamlss_optimizer,
-        model_label = "cross-fit pMX GAMLSS"
-      )
-      gamlss_selection$pMX <- list(
-        method = "default_pb_mu_sigma_nu1",
-        optimizer = attr(pMX_fit, "moco_gamlss_optimizer"),
-        formulas = pMX_spec
-      )
-
-      pMXn_A_train <- rep(NA_real_, n_train)
-      pMXn_A_valid <- rep(NA_real_, n_valid)
-      
-      if (length(idx_train_Y) > 0) {
-        pMX_predict_train <- moco_gamlss_params_cv(
-          fit = pMX_fit,
-          newdata = pMX_train_data[idx_train_Y, , drop = FALSE],
-          fit_data = pMX_fit_data
-        )
-        
-        pMXn_A_train[idx_train_Y] <- gamlss.dist::dGG(
-          M_train[idx_train_Y],
-          mu = pMX_predict_train$mu,
-          sigma = pMX_predict_train$sigma,
-          nu = pMX_predict_train$nu
-        )
-      }
-      
-      if (length(idx_valid_Y) > 0) {
-        pMX_predict_valid <- moco_gamlss_params_cv(
-          fit = pMX_fit,
-          newdata = pMX_valid_data[idx_valid_Y, , drop = FALSE],
-          fit_data = pMX_fit_data
-        )
-        
-        pMXn_A_valid[idx_valid_Y] <- gamlss.dist::dGG(
-          M_valid[idx_valid_Y],
-          mu = pMX_predict_valid$mu,
-          sigma = pMX_predict_valid$sigma,
-          nu = pMX_predict_valid$nu
-        )
-      }
-      
-      # GAMLSS p(M | A = 0, X, Delta_M = 1)
-      idx_train_M <- which(Delta_M_train == 1 & !is.na(M_train) & is.finite(M_train) & M_train > 0)
-      idx_valid_M <- which(Delta_M_valid == 1 & !is.na(M_valid) & is.finite(M_valid) & M_valid > 0)
-
-      pMXD_fit_data <- pMX_train_data[idx_train_M, , drop = FALSE]
-
-      if (nrow(pMXD_fit_data) == 0) {
-        stop("No training observations remain for the cross-fit pMXD GAMLSS model.")
-      }
-
-      pMXD_spec <- .moco_make_default_gamlss_formulas(
-        x_names = names(X_train),
-        continuous_X = gamlss_continuous_X
-      )
-      pMXD_fit <- .moco_fit_gamlss(
-        formula = pMXD_spec$mu,
-        sigma.formula = pMXD_spec$sigma,
-        nu.formula = pMXD_spec$nu,
-        data = pMXD_fit_data,
-        control = ctrl,
-        gamlss_optimizer = gamlss_optimizer,
-        model_label = "cross-fit pMXD GAMLSS"
-      )
-      gamlss_selection$pMXD <- list(
-        method = "default_pb_mu_sigma_nu1",
-        optimizer = attr(pMXD_fit, "moco_gamlss_optimizer"),
-        formulas = pMXD_spec
-      )
-
-      pMXDn_A0_train <- rep(NA_real_, n_train)
-      pMXDn_A0_valid <- rep(NA_real_, n_valid)
-      # Evaluate p(M | A = 0, X, Delta_M = 1) at every positive observed M; the
-      # support rule below sets it to zero where required.
-      idx_train_eval_M <- which(!is.na(M_train) & is.finite(M_train) & M_train > 0)
-      idx_valid_eval_M <- which(!is.na(M_valid) & is.finite(M_valid) & M_valid > 0)
-      
-      if (length(idx_train_eval_M) > 0) {
-        pMXD_new_train <- pMX_train_data[idx_train_eval_M, , drop = FALSE]
-        pMXD_new_train$A <- 0
-        
-        pMXD_predict_train <- moco_gamlss_params_cv(
-          fit = pMXD_fit,
-          newdata = pMXD_new_train,
-          fit_data = pMXD_fit_data
-        )
-        
-        pMXDn_A0_train[idx_train_eval_M] <- gamlss.dist::dGG(
-          M_train[idx_train_eval_M],
-          mu = pMXD_predict_train$mu,
-          sigma = pMXD_predict_train$sigma,
-          nu = pMXD_predict_train$nu
-        )
-      }
-      
-      if (length(idx_valid_eval_M) > 0) {
-        pMXD_new_valid <- pMX_valid_data[idx_valid_eval_M, , drop = FALSE]
-        pMXD_new_valid$A <- 0
-        
-        pMXD_predict_valid <- moco_gamlss_params_cv(
-          fit = pMXD_fit,
-          newdata = pMXD_new_valid,
-          fit_data = pMXD_fit_data
-        )
-        
-        pMXDn_A0_valid[idx_valid_eval_M] <- gamlss.dist::dGG(
-          M_valid[idx_valid_eval_M],
-          mu = pMXD_predict_valid$mu,
-          sigma = pMXD_predict_valid$sigma,
-          nu = pMXD_predict_valid$nu
-        )
-      }
-    }else{
-      pMX_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMX), family = gaussian(), data = data.frame(log_M = log(M_train), train_dat$A, train_dat$X)[Delta_Y_train == 1,])
-      pMXn_A_train <- rep(NA, n_train)
-      pMXn_A_valid <- rep(NA, n_valid)
-      pMXn_A_train[Delta_Y_train == 1] <- (1/M_train)[Delta_Y_train == 1] * dnorm(log(M_train)[Delta_Y_train == 1], mean = stats::predict(pMX_fit, newdata = data.frame(train_dat$A, train_dat$X)[Delta_Y_train == 1,]), sd = sd(pMX_fit$residuals))
-      pMXn_A_valid[Delta_Y_valid == 1] <- (1/M_valid)[Delta_Y_valid == 1] * dnorm(log(M_valid)[Delta_Y_valid == 1], mean = stats::predict(pMX_fit, newdata = data.frame(valid_dat$A, valid_dat$X)[Delta_Y_valid == 1,]), sd = sd(pMX_fit$residuals))
-      
-      pMXD_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMX), family = gaussian(), data = data.frame(log_M = log(M_train), train_dat$A, train_dat$X)[Delta_M_train == 1,])
-      pMXDn_A0_train <- rep(NA, n_train)
-      pMXDn_A0_train[index_nomissingM_train] <- (1/M_train)[index_nomissingM_train] * dnorm(log(M_train)[index_nomissingM_train], mean = stats::predict(pMXD_fit, newdata = data.frame(A=0, train_dat$X)[index_nomissingM_train,]), sd = sd(pMXD_fit$residuals))
-      pMXDn_A0_valid <- rep(NA, n_valid)
-      pMXDn_A0_valid[index_nomissingM_valid] <- (1/M_valid)[index_nomissingM_valid] * dnorm(log(M_valid)[index_nomissingM_valid], mean = stats::predict(pMXD_fit, newdata = data.frame(A=0, valid_dat$X)[index_nomissingM_valid,]), sd = sd(pMXD_fit$residuals))
-    }
-    
-    # target-density support rule (see moco(), argument support_rule)
-    pMXDn_A0_train <- .moco_apply_support_rule(pMXDn_A0_train, M_train, Delta_M_train, support_rule, support_upper, HAL_pMX)
-    pMXDn_A0_valid <- .moco_apply_support_rule(pMXDn_A0_valid, M_valid, Delta_M_valid, support_rule, support_upper, HAL_pMX)
-    
-    if(HAL_pMXZ){
-      # density estimation for mediator, conditioning on exposure or group indicator, binary mediator,
-      # baseline covariates, and mediator-outcome confounder p(m|0,x,z)
-      # use default n_bins range, use cv to choose number of bins
-      pMXZ_fit <- haldensify::haldensify(
-        A = M_train[Delta_Y_train == 1],
-        W = data.frame(train_dat$A, train_dat$X, train_dat$Z)[Delta_Y_train == 1,],
-        max_degree = HAL_options$max_degree,
-        lambda_seq = HAL_options$lambda_seq,
-        num_knots = HAL_options$num_knots
-      )
-      pMXZn_A0_train <- pMXZn_A1_train <- pMXZn_A_train <- rep(NA, n_train)
-      pMXZn_A_train[Delta_Y_train==1] <- stats::predict(pMXZ_fit, new_A = M_train[Delta_Y_train==1], new_W = data.frame(train_dat$A, train_dat$X, train_dat$Z)[Delta_Y_train==1,])
-      pMXZn_A0_train[Delta_Y_train==1] <- stats::predict(pMXZ_fit, new_A = M_train[Delta_Y_train==1], new_W = data.frame(A = 0, train_dat$X, train_dat$Z)[Delta_Y_train==1,])
-      pMXZn_A1_train[Delta_Y_train==1] <- stats::predict(pMXZ_fit, new_A = M_train[Delta_Y_train==1], new_W = data.frame(A = 1, train_dat$X, train_dat$Z)[Delta_Y_train==1,])
-      pMXZn_A0_valid <- pMXZn_A1_valid <- pMXZn_A_valid <- rep(NA, n_valid)
-      pMXZn_A_valid[Delta_Y_valid==1] <- stats::predict(pMXZ_fit, new_A = M_valid[Delta_Y_valid==1], new_W = data.frame(valid_dat$A, valid_dat$X, valid_dat$Z)[Delta_Y_valid==1,])
-      pMXZn_A0_valid[Delta_Y_valid==1] <- stats::predict(pMXZ_fit, new_A = M_valid[Delta_Y_valid==1], new_W = data.frame(A = 0, valid_dat$X, valid_dat$Z)[Delta_Y_valid==1,])
-      pMXZn_A1_valid[Delta_Y_valid==1] <- stats::predict(pMXZ_fit, new_A = M_valid[Delta_Y_valid==1], new_W = data.frame(A = 1, valid_dat$X, valid_dat$Z)[Delta_Y_valid==1,])
-      
-      # density estimation for mediator, conditioning on exposure or group indicator, binary mediator,
-      # baseline covariates, and mediator-outcome confounder p(m|0,x,z,Delta=1)
-      pMXZD_fit <- haldensify::haldensify(
-        A = M_train[Delta_M_train == 1],
-        W = data.frame(train_dat$A, train_dat$X, train_dat$Z)[Delta_M_train == 1,],
-        max_degree = HAL_options$max_degree,
-        lambda_seq = HAL_options$lambda_seq,
-        num_knots = HAL_options$num_knots
-      )
-      pMXZDn_A_train <- rep(NA, n_train)
-      pMXZDn_A_train[index_nomissingM_train] <- stats::predict(pMXZD_fit, new_A = M_train[index_nomissingM_train], new_W = data.frame(train_dat$A, train_dat$X, train_dat$Z)[index_nomissingM_train,], trim_min = 0)
-      pMXZDn_A_valid <- rep(NA, n_valid)
-      pMXZDn_A_valid[index_nomissingM_valid] <- stats::predict(pMXZD_fit, new_A = M_valid[index_nomissingM_valid], new_W = data.frame(valid_dat$A, valid_dat$X, valid_dat$Z)[index_nomissingM_valid,], trim_min = 0)
-    }else if(GAMLSS_pMXZ){
-      ctrl <- gamlss::gamlss.control(n.cyc = n.cyc, c.crit = gamlss_c_crit, trace = isTRUE(gamlss_bic_trace))
-      
-      # GAMLSS p(M | A, X, Z, Delta_Y = 1): fit on Delta_Y == 1 observations
-      # with positive M in the training fold, matching the HAL and GLM densities.
-      idx_train_Y <- which(Delta_Y_train == 1 & !is.na(M_train) & is.finite(M_train) & M_train > 0)
-      idx_valid_Y <- which(Delta_Y_valid == 1 & !is.na(M_valid) & is.finite(M_valid) & M_valid > 0)
-
-      pMXZ_fit_data <- pMXZ_train_data[idx_train_Y, , drop = FALSE]
-
-      if (nrow(pMXZ_fit_data) == 0) {
-        stop("No training observations remain for the cross-fit pMXZ GAMLSS model.")
-      }
-
-      pMXZ_spec <- .moco_make_default_gamlss_formulas(
-        x_names = names(X_train),
-        z_names = names(Z_train),
-        continuous_X = gamlss_continuous_X,
-        continuous_Z = gamlss_continuous_Z
-      )
-      pMXZ_fit <- .moco_fit_gamlss(
-        formula = pMXZ_spec$mu,
-        sigma.formula = pMXZ_spec$sigma,
-        nu.formula = pMXZ_spec$nu,
-        data = pMXZ_fit_data,
-        control = ctrl,
-        gamlss_optimizer = gamlss_optimizer,
-        model_label = "cross-fit pMXZ GAMLSS"
-      )
-      gamlss_selection$pMXZ <- list(
-        method = "default_pb_mu_sigma_nu1",
-        optimizer = attr(pMXZ_fit, "moco_gamlss_optimizer"),
-        formulas = pMXZ_spec
-      )
-
-      pMXZn_A_train <- rep(NA_real_, n_train)
-      pMXZn_A0_train <- rep(NA_real_, n_train)
-      pMXZn_A1_train <- rep(NA_real_, n_train)
-      
-      pMXZn_A_valid <- rep(NA_real_, n_valid)
-      pMXZn_A0_valid <- rep(NA_real_, n_valid)
-      pMXZn_A1_valid <- rep(NA_real_, n_valid)
-      
-      if (length(idx_train_Y) > 0) {
-        train_obs <- pMXZ_train_data[idx_train_Y, , drop = FALSE]
-        train_A0 <- train_obs
-        train_A1 <- train_obs
-        train_A0$A <- 0
-        train_A1$A <- 1
-        
-        pMXZ_predict_train <- moco_gamlss_params_cv(
-          fit = pMXZ_fit,
-          newdata = train_obs,
-          fit_data = pMXZ_fit_data
-        )
-        pMXZ_predict0_train <- moco_gamlss_params_cv(
-          fit = pMXZ_fit,
-          newdata = train_A0,
-          fit_data = pMXZ_fit_data
-        )
-        pMXZ_predict1_train <- moco_gamlss_params_cv(
-          fit = pMXZ_fit,
-          newdata = train_A1,
-          fit_data = pMXZ_fit_data
-        )
-        
-        pMXZn_A_train[idx_train_Y] <- gamlss.dist::dGG(
-          M_train[idx_train_Y],
-          mu = pMXZ_predict_train$mu,
-          sigma = pMXZ_predict_train$sigma,
-          nu = pMXZ_predict_train$nu
-        )
-        pMXZn_A0_train[idx_train_Y] <- gamlss.dist::dGG(
-          M_train[idx_train_Y],
-          mu = pMXZ_predict0_train$mu,
-          sigma = pMXZ_predict0_train$sigma,
-          nu = pMXZ_predict0_train$nu
-        )
-        pMXZn_A1_train[idx_train_Y] <- gamlss.dist::dGG(
-          M_train[idx_train_Y],
-          mu = pMXZ_predict1_train$mu,
-          sigma = pMXZ_predict1_train$sigma,
-          nu = pMXZ_predict1_train$nu
-        )
-      }
-      
-      if (length(idx_valid_Y) > 0) {
-        valid_obs <- pMXZ_valid_data[idx_valid_Y, , drop = FALSE]
-        valid_A0 <- valid_obs
-        valid_A1 <- valid_obs
-        valid_A0$A <- 0
-        valid_A1$A <- 1
-        
-        pMXZ_predict_valid <- moco_gamlss_params_cv(
-          fit = pMXZ_fit,
-          newdata = valid_obs,
-          fit_data = pMXZ_fit_data
-        )
-        pMXZ_predict0_valid <- moco_gamlss_params_cv(
-          fit = pMXZ_fit,
-          newdata = valid_A0,
-          fit_data = pMXZ_fit_data
-        )
-        pMXZ_predict1_valid <- moco_gamlss_params_cv(
-          fit = pMXZ_fit,
-          newdata = valid_A1,
-          fit_data = pMXZ_fit_data
-        )
-        
-        pMXZn_A_valid[idx_valid_Y] <- gamlss.dist::dGG(
-          M_valid[idx_valid_Y],
-          mu = pMXZ_predict_valid$mu,
-          sigma = pMXZ_predict_valid$sigma,
-          nu = pMXZ_predict_valid$nu
-        )
-        pMXZn_A0_valid[idx_valid_Y] <- gamlss.dist::dGG(
-          M_valid[idx_valid_Y],
-          mu = pMXZ_predict0_valid$mu,
-          sigma = pMXZ_predict0_valid$sigma,
-          nu = pMXZ_predict0_valid$nu
-        )
-        pMXZn_A1_valid[idx_valid_Y] <- gamlss.dist::dGG(
-          M_valid[idx_valid_Y],
-          mu = pMXZ_predict1_valid$mu,
-          sigma = pMXZ_predict1_valid$sigma,
-          nu = pMXZ_predict1_valid$nu
-        )
-      }
-      
-      # GAMLSS p(M | A, X, Z, Delta_M = 1)
-      idx_train_M <- which(Delta_M_train == 1 & !is.na(M_train) & is.finite(M_train) & M_train > 0)
-      idx_valid_M <- which(Delta_M_valid == 1 & !is.na(M_valid) & is.finite(M_valid) & M_valid > 0)
-
-      pMXZD_fit_data <- pMXZ_train_data[idx_train_M, , drop = FALSE]
-
-      if (nrow(pMXZD_fit_data) == 0) {
-        stop("No training observations remain for the cross-fit pMXZD GAMLSS model.")
-      }
-
-      pMXZD_spec <- .moco_make_default_gamlss_formulas(
-        x_names = names(X_train),
-        z_names = names(Z_train),
-        continuous_X = gamlss_continuous_X,
-        continuous_Z = gamlss_continuous_Z
-      )
-      pMXZD_fit <- .moco_fit_gamlss(
-        formula = pMXZD_spec$mu,
-        sigma.formula = pMXZD_spec$sigma,
-        nu.formula = pMXZD_spec$nu,
-        data = pMXZD_fit_data,
-        control = ctrl,
-        gamlss_optimizer = gamlss_optimizer,
-        model_label = "cross-fit pMXZD GAMLSS"
-      )
-      gamlss_selection$pMXZD <- list(
-        method = "default_pb_mu_sigma_nu1",
-        optimizer = attr(pMXZD_fit, "moco_gamlss_optimizer"),
-        formulas = pMXZD_spec
-      )
-
-      pMXZDn_A_train <- rep(NA_real_, n_train)
-      pMXZDn_A_valid <- rep(NA_real_, n_valid)
-      pMXZDn_A_train[Delta_M_train == 0] <- 0
-      pMXZDn_A_valid[Delta_M_valid == 0] <- 0
-      
-      if (length(idx_train_M) > 0) {
-        pMXZD_predict_train <- moco_gamlss_params_cv(
-          fit = pMXZD_fit,
-          newdata = pMXZ_train_data[idx_train_M, , drop = FALSE],
-          fit_data = pMXZD_fit_data
-        )
-        
-        pMXZDn_A_train[idx_train_M] <- gamlss.dist::dGG(
-          M_train[idx_train_M],
-          mu = pMXZD_predict_train$mu,
-          sigma = pMXZD_predict_train$sigma,
-          nu = pMXZD_predict_train$nu
-        )
-      }
-      
-      if (length(idx_valid_M) > 0) {
-        pMXZD_predict_valid <- moco_gamlss_params_cv(
-          fit = pMXZD_fit,
-          newdata = pMXZ_valid_data[idx_valid_M, , drop = FALSE],
-          fit_data = pMXZD_fit_data
-        )
-        
-        pMXZDn_A_valid[idx_valid_M] <- gamlss.dist::dGG(
-          M_valid[idx_valid_M],
-          mu = pMXZD_predict_valid$mu,
-          sigma = pMXZD_predict_valid$sigma,
-          nu = pMXZD_predict_valid$nu
-        )
-      }
-    }else{
-      pMXZ_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMXZ), family = gaussian(), data = data.frame(log_M = log(M_train), train_dat$A, train_dat$X, train_dat$Z)[Delta_Y_train == 1,])
-      pMXZn_A0_train <- pMXZn_A1_train <- pMXZn_A_train <- rep(NA, n_train)
-      pMXZn_A_train[Delta_Y_train==1] <- (1/M_train)[Delta_Y_train==1] * dnorm(log(M_train)[Delta_Y_train==1], mean = stats::predict(pMXZ_fit, newdata = data.frame(train_dat$A, train_dat$X, train_dat$Z)[Delta_Y_train==1, ]), sd = sd(pMXZ_fit$residuals))
-      pMXZn_A0_train[Delta_Y_train==1] <- (1/M_train)[Delta_Y_train==1] * dnorm(log(M_train)[Delta_Y_train==1], mean = stats::predict(pMXZ_fit, newdata = data.frame(A = 0, train_dat$X, train_dat$Z)[Delta_Y_train==1, ]), sd = sd(pMXZ_fit$residuals))
-      pMXZn_A1_train[Delta_Y_train==1] <- (1/M_train)[Delta_Y_train==1] * dnorm(log(M_train)[Delta_Y_train==1], mean = stats::predict(pMXZ_fit, newdata = data.frame(A = 1, train_dat$X, train_dat$Z)[Delta_Y_train==1, ]), sd = sd(pMXZ_fit$residuals))
-      pMXZn_A0_valid <- pMXZn_A1_valid <- pMXZn_A_valid <- rep(NA, n_valid)
-      pMXZn_A_valid[Delta_Y_valid==1] <- (1/M_valid)[Delta_Y_valid==1] * dnorm(log(M_valid)[Delta_Y_valid==1], mean = stats::predict(pMXZ_fit, newdata = data.frame(valid_dat$A, valid_dat$X, valid_dat$Z)[Delta_Y_valid==1, ]), sd = sd(pMXZ_fit$residuals))
-      pMXZn_A0_valid[Delta_Y_valid==1] <- (1/M_valid)[Delta_Y_valid==1] * dnorm(log(M_valid)[Delta_Y_valid==1], mean = stats::predict(pMXZ_fit, newdata = data.frame(A = 0, valid_dat$X, valid_dat$Z)[Delta_Y_valid==1, ]), sd = sd(pMXZ_fit$residuals))
-      pMXZn_A1_valid[Delta_Y_valid==1] <- (1/M_valid)[Delta_Y_valid==1] * dnorm(log(M_valid)[Delta_Y_valid==1], mean = stats::predict(pMXZ_fit, newdata = data.frame(A = 1, valid_dat$X, valid_dat$Z)[Delta_Y_valid==1, ]), sd = sd(pMXZ_fit$residuals))
-      
-      pMXZD_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMXZ), family = gaussian(), data = data.frame(log_M = log(M_train), train_dat$A, train_dat$X, train_dat$Z)[Delta_M_train == 1,])
-      pMXZDn_A_train <- rep(NA, n_train)
-      pMXZDn_A_train[Delta_M_train==0] <- 0
-      pMXZDn_A_train[Delta_M_train==1] <- (1/M_train)[Delta_M_train==1] * dnorm(log(M_train)[Delta_M_train==1], mean = stats::predict(pMXZD_fit, newdata = data.frame(train_dat$A, train_dat$X, train_dat$Z)[Delta_M_train==1,]),
-                                                                                sd = sd(pMXZD_fit$residuals))
-      pMXZDn_A_valid <- rep(NA, n_valid)
-      pMXZDn_A_valid[Delta_M_valid==0] <- 0
-      pMXZDn_A_valid[Delta_M_valid==1] <- (1/M_valid)[Delta_M_valid==1] * dnorm(log(M_valid)[Delta_M_valid==1], mean = stats::predict(pMXZD_fit, newdata = data.frame(valid_dat$A, valid_dat$X, valid_dat$Z)[Delta_M_valid==1,]),
-                                                                                sd = sd(pMXZD_fit$residuals))
-    }
-  }
-  
-  if(M_indicator){
-    # Bound the denominator densities away from zero so that density ratios in
-    # the pseudo-outcomes and the EIF stay finite. Bounds come from the training fold.
-    pMXZDn_A_train <- .moco_floor_density(pMXZDn_A_train, density_floor)
-    pMXZDn_A_valid <- .moco_floor_density(pMXZDn_A_valid, density_floor)
-    pMXZn_A_train <- .moco_floor_density(pMXZn_A_train, density_floor)
-    pMXZn_A0_train <- .moco_floor_density(pMXZn_A0_train, density_floor)
-    pMXZn_A1_train <- .moco_floor_density(pMXZn_A1_train, density_floor)
-    pMXZn_A_valid <- .moco_floor_density(pMXZn_A_valid, density_floor)
-    pMXZn_A0_valid <- .moco_floor_density(pMXZn_A0_valid, density_floor)
-    pMXZn_A1_valid <- .moco_floor_density(pMXZn_A1_valid, density_floor)
-  }
-
-  # define parameters for storing results
-  est <- matrix(nrow = 2, ncol = p)
-  eif_mat <- vector("list", p)
-  cov_mat <- vector("list", p)
-  for(j in 1:p){
-    # fit outcome regression
-    mu_MXZn_A0_train <- mu_MXZn_A1_train <- mu_MXZn_A_train <- rep(NA, n_train)
-    mu_MXZn_A0_valid <- mu_MXZn_A1_valid <- mu_MXZn_A_valid <- rep(NA, n_valid)
-    if(!is.null(glm_formula$mu_AMXZ)){
-      mu_AMXZ_fit <- stats::glm(paste0("Y ~ ", glm_formula$mu_AMXZ), family = gaussian(), data = data.frame(Y = train_dat$Y[,j], train_dat$A, train_dat$M, train_dat$X, train_dat$Z)[Delta_Y_train==1,])
-      mu_MXZn_A0_train <- stats::predict(mu_AMXZ_fit, newdata = data.frame(A = 0, train_dat$M, train_dat$X, train_dat$Z))
-      mu_MXZn_A1_train <- stats::predict(mu_AMXZ_fit, newdata = data.frame(A = 1, train_dat$M, train_dat$X, train_dat$Z))
-      mu_MXZn_A0_valid <- stats::predict(mu_AMXZ_fit, newdata = data.frame(A = 0, valid_dat$M, valid_dat$X, valid_dat$Z))
-      mu_MXZn_A1_valid <- stats::predict(mu_AMXZ_fit, newdata = data.frame(A = 1, valid_dat$M, valid_dat$X, valid_dat$Z))
-      mu_MXZn_A_train <- stats::predict(mu_AMXZ_fit, newdata = data.frame(train_dat$A, train_dat$M, train_dat$X, train_dat$Z))
-      mu_MXZn_A_valid <- stats::predict(mu_AMXZ_fit, newdata = data.frame(valid_dat$A, valid_dat$M, valid_dat$X, valid_dat$Z))
-    }else{
-      set.seed(seed)
-      mu_AMXZ_fit <- SuperLearner::SuperLearner(Y = Reduce(c, train_dat$Y[,j])[Delta_Y_train==1], X = data.frame(train_dat$A, train_dat$M, train_dat$X, train_dat$Z)[Delta_Y_train==1,],
-                                                family = gaussian(),
-                                                SL.library = SL_mu_AMXZ,
-                                                method = tmp_method.CC_LS(),
-                                                control = list(saveCVFitLibrary = TRUE))
-      mu_MXZn_A0_train[index_nomissingM_train] <- stats::predict(mu_AMXZ_fit, newdata = data.frame(A = 0, train_dat$M, train_dat$X, train_dat$Z)[index_nomissingM_train,])[[1]]
-      mu_MXZn_A1_train[index_nomissingM_train] <- stats::predict(mu_AMXZ_fit, newdata = data.frame(A = 1, train_dat$M, train_dat$X, train_dat$Z)[index_nomissingM_train,])[[1]]
-      mu_MXZn_A0_valid[index_nomissingM_valid] <- stats::predict(mu_AMXZ_fit, newdata = data.frame(A = 0, valid_dat$M, valid_dat$X, valid_dat$Z)[index_nomissingM_valid,])[[1]]
-      mu_MXZn_A1_valid[index_nomissingM_valid] <- stats::predict(mu_AMXZ_fit, newdata = data.frame(A = 1, valid_dat$M, valid_dat$X, valid_dat$Z)[index_nomissingM_valid,])[[1]]
-      mu_MXZn_A_train[index_nomissingM_train] <- stats::predict(mu_AMXZ_fit, newdata = data.frame(train_dat$A, train_dat$M, train_dat$X, train_dat$Z)[index_nomissingM_train,])[[1]]
-      mu_MXZn_A_valid[index_nomissingM_valid] <- stats::predict(mu_AMXZ_fit, newdata = data.frame(valid_dat$A, valid_dat$M, valid_dat$X, valid_dat$Z)[index_nomissingM_valid,])[[1]]
-    }
-    
-    if(M_indicator){
-      # fit additional pseudo-outcome regression for QY*qM/qMZ, conditioning on exposure or group indicator, binary mediator and baseline covariates
-      mu_pseudo_A_train <- mu_MXZn_A_train * .moco_cap_density_ratio(
-        pMXDn_A0_train/pMXZDn_A_train, density_ratio_cap
-      )
-      if(!is.null(glm_formula$eta_AXZ)){
-        eta_AXZ_fit <- stats::glm(paste0("mu_pseudo_A ~ ", glm_formula$eta_AXZ), family = gaussian(),
-                                  data = data.frame(mu_pseudo_A = mu_pseudo_A_train, train_dat$A, train_dat$X, train_dat$Z)[Delta_M_train==1,])
-        eta_AXZn_A_train <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(train_dat$A, train_dat$X, train_dat$Z))
-        eta_AXZn_A0_train <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A = 0, train_dat$X, train_dat$Z))
-        eta_AXZn_A1_train <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A = 1, train_dat$X, train_dat$Z))
-        
-        eta_AXZn_A_valid <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(valid_dat$A, valid_dat$X, valid_dat$Z))
-        eta_AXZn_A0_valid <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A = 0, valid_dat$X, valid_dat$Z))
-        eta_AXZn_A1_valid <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A = 1, valid_dat$X, valid_dat$Z))
-      }else{
-        set.seed(seed)
-        eta_AXZ_fit <- SuperLearner::SuperLearner(Y = mu_pseudo_A_train[Delta_M_train==1],
-                                                  X = data.frame(train_dat$A, train_dat$X, train_dat$Z)[Delta_M_train==1,],
-                                                  family = gaussian(),
-                                                  SL.library = SL_eta_AXZ,
-                                                  method = tmp_method.CC_LS(),
-                                                  control = list(saveCVFitLibrary = TRUE))
-        eta_AXZn_A_train <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(train_dat$A, train_dat$X, train_dat$Z))[[1]]
-        eta_AXZn_A0_train <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A = 0, train_dat$X, train_dat$Z))[[1]]
-        eta_AXZn_A1_train <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A = 1, train_dat$X, train_dat$Z))[[1]]
-        
-        eta_AXZn_A_valid <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(valid_dat$A, valid_dat$X, valid_dat$Z))[[1]]
-        eta_AXZn_A0_valid <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A = 0, valid_dat$X, valid_dat$Z))[[1]]
-        eta_AXZn_A1_valid <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A = 1, valid_dat$X, valid_dat$Z))[[1]]
-      }
-      
-      # fit pseudo-outcome regression for Qd, conditioning on exposure or group indicator, mediator and baseline covariates
-      mu_pseudo_A_star_train <- mu_MXZn_A_train * .moco_cap_density_ratio(
-        pMXn_A_train/pMXZn_A_train, density_ratio_cap
-      ) * gDYn_1_AX_train/gDYn_1_AXZ_train
-      # fit the regression
-      if(!is.null(glm_formula$eta_AXM)){
-        eta_AXM_fit <- stats::glm(paste0("mu_pseudo_A_star ~ ", glm_formula$eta_AXM), family = gaussian(),
-                                  data = data.frame(mu_pseudo_A_star = mu_pseudo_A_star_train, train_dat$A, train_dat$M, train_dat$X)[Delta_Y_train==1,])
-        eta_AXMn_A0_train <- stats::predict(eta_AXM_fit, newdata = data.frame(A = 0, train_dat$M, train_dat$X))
-        eta_AXMn_A1_train <- stats::predict(eta_AXM_fit, newdata = data.frame(A = 1, train_dat$M, train_dat$X))
-        
-        eta_AXMn_A0_valid <- stats::predict(eta_AXM_fit, newdata = data.frame(A = 0, valid_dat$M, valid_dat$X))
-        eta_AXMn_A1_valid <- stats::predict(eta_AXM_fit, newdata = data.frame(A = 1, valid_dat$M, valid_dat$X))
-      }else if(!is.null(SL_eta_AXM)){
-        set.seed(seed)
-        eta_AXMn_A0_train <- eta_AXMn_A1_train <- rep(NA, n_train)
-        eta_AXMn_A0_valid <- eta_AXMn_A1_valid <- rep(NA, n_valid)
-        # since observations with Delta=0 will not be considered in the next step
-        # so add restrictions here to better depict data with Delta=1
-        eta_AXM_fit <- SuperLearner::SuperLearner(Y = mu_pseudo_A_star_train[Delta_Y_train==1],
-                                                  X = data.frame(train_dat$A, train_dat$M, train_dat$X)[Delta_Y_train==1,],
-                                                  family = gaussian(),
-                                                  SL.library = SL_eta_AXM,
-                                                  method = tmp_method.CC_LS(),
-                                                  control = list(saveCVFitLibrary = TRUE))
-        eta_AXMn_A0_train[index_nomissingM_train] <- stats::predict(eta_AXM_fit, newdata = data.frame(A = 0, train_dat$M, train_dat$X)[index_nomissingM_train,])[[1]]
-        eta_AXMn_A1_train[index_nomissingM_train] <- stats::predict(eta_AXM_fit, newdata = data.frame(A = 1, train_dat$M, train_dat$X)[index_nomissingM_train,])[[1]]
-        
-        eta_AXMn_A0_valid[index_nomissingM_valid] <- stats::predict(eta_AXM_fit, newdata = data.frame(A = 0, valid_dat$M, valid_dat$X)[index_nomissingM_valid,])[[1]]
-        eta_AXMn_A1_valid[index_nomissingM_valid] <- stats::predict(eta_AXM_fit, newdata = data.frame(A = 1, valid_dat$M, valid_dat$X)[index_nomissingM_valid,])[[1]]
-      }else{
-        set.seed(seed)
-        eta_AXM_fit <- hal9001::fit_hal(X = data.frame(train_dat$A, train_dat$M, train_dat$X)[Delta_Y_train==1,], Y = mu_pseudo_A_star_train[Delta_Y_train==1])
-        eta_AXMn_A0_train <- stats::predict(eta_AXM_fit, new_data = data.frame(A = 0, train_dat$M, train_dat$X))
-        eta_AXMn_A1_train <- stats::predict(eta_AXM_fit, new_data = data.frame(A = 1, train_dat$M, train_dat$X))
-        
-        eta_AXMn_A0_valid <- stats::predict(eta_AXM_fit, new_data = data.frame(A = 0, valid_dat$M, valid_dat$X))
-        eta_AXMn_A1_valid <- stats::predict(eta_AXM_fit, new_data = data.frame(A = 1, valid_dat$M, valid_dat$X))
-      }
-      
-    }else{
-      eta_AXZn_A_train = mu_MXZn_A_train
-    }
-    
-    # fit pseudo-outcome regression for u_star, conditioning on exposure or group indicator and baseline covariates
-    if(!is.null(glm_formula$xi_AX)){
-      xi_fit <- stats::glm(paste0("eta_AXZn_A ~ ", glm_formula$xi_AX), family = gaussian(),
-                           data = data.frame(eta_AXZn_A = eta_AXZn_A_train, train_dat$A, train_dat$X))
-      xi_AXn_A0 <- stats::predict(xi_fit, newdata = data.frame(A = 0, valid_dat$X))
-      xi_AXn_A1 <- stats::predict(xi_fit, newdata = data.frame(A = 1, valid_dat$X))
-    }else{
-      set.seed(seed)
-      xi_fit <- SuperLearner::SuperLearner(Y = eta_AXZn_A_train, X = data.frame(train_dat$A, train_dat$X),
-                                           family = gaussian(),
-                                           SL.library = SL_xi_AX,
-                                           method = tmp_method.CC_LS(),
-                                           control = list(saveCVFitLibrary = TRUE))
-      xi_AXn_A0 <- stats::predict(xi_fit, newdata = data.frame(A = 0, valid_dat$X))[[1]]
-      xi_AXn_A1 <- stats::predict(xi_fit, newdata = data.frame(A = 1, valid_dat$X))[[1]]
-    }
-    
-    # calculate efficient influence function
-    if(M_indicator){
-      eif_A0 <- make_full_data_eif(a = 0, A = valid_dat$A$A, Delta_Y = Delta_Y_valid, Delta_M = Delta_M_valid, Y = valid_dat$Y[,j],
-                                   gA = 1 - gAn_1, gDM = gDMn_1_A0_valid, gDY_AXZ = gDYn_1_A0XZ_valid,
-                                   eta_AXZ = eta_AXZn_A0_valid, eta_AXM = eta_AXMn_A0_valid,
-                                   xi_AX = xi_AXn_A0,
-                                   mu = mu_MXZn_A0_valid, pMXD = pMXDn_A0_valid, pMXZ = pMXZn_A0_valid,
-                                   density_ratio_cap = density_ratio_cap)
-      
-      eif_A1 <- make_full_data_eif(a = 1, A = valid_dat$A$A, Delta_Y = Delta_Y_valid, Delta_M = Delta_M_valid, Y = valid_dat$Y[,j],
-                                   gA = gAn_1, gDM = gDMn_1_A0_valid, gDY_AXZ = gDYn_1_A1XZ_valid,
-                                   eta_AXZ = eta_AXZn_A1_valid, eta_AXM = eta_AXMn_A1_valid,
-                                   xi_AX = xi_AXn_A1,
-                                   mu = mu_MXZn_A1_valid, pMXD = pMXDn_A0_valid, pMXZ = pMXZn_A1_valid,
-                                   density_ratio_cap = density_ratio_cap)
-    }else{
-      eif_A0 <- make_full_data_eif_easy(a = 0, A = valid_dat$A$A, Delta_Y = Delta_Y_valid, Y = valid_dat$Y[,j],
-                                        gA = 1 - gAn_1, gDY_AXZ = gDYn_1_A0XZ_valid,
-                                        xi_AX = xi_AXn_A0, mu = mu_MXZn_A0_valid)
-      
-      eif_A1 <- make_full_data_eif_easy(a = 1, A = valid_dat$A$A, Delta_Y = Delta_Y_valid, Y = valid_dat$Y[,j],
-                                        gA = gAn_1, gDY_AXZ = gDYn_1_A1XZ_valid,
-                                        xi_AX = xi_AXn_A1, mu = mu_MXZn_A1_valid)
-    }
-    
-    # one-step estimator
-    est[,j] <- c(mean(xi_AXn_A0) + mean(eif_A0), mean(xi_AXn_A1) + mean(eif_A1))
-    
-    # covariance matrix
-    eif_mat[[j]] <- cbind(eif_A0, eif_A1)
-    colnames(eif_mat[[j]]) <- c("eif_A0", "eif_A1")
-  }
-  
-  # output
-  out <- list(
-    est = est,
-    eif_mat = eif_mat,
-    gamlss_selection = gamlss_selection
-  )
-  
-  return(out)
+.moco_gamlss_info_row <- function(fit, spec, role, label, pred_warn, time_pred) {
+  fw <- attr(fit, "moco_warnings")
+  f <- function(p) if (is.null(spec$formulas[[p]])) NA_character_ else paste(deparse(spec$formulas[[p]], width.cutoff = 500L), collapse = " ")
+  data.frame(fold = label, role = role, family = spec$family$name,
+             mu = f("mu"), sigma = f("sigma"), nu = f("nu"), tau = f("tau"),
+             n = fit$N, edf = fit$df.fit, G_deviance = fit$G.deviance,
+             AIC = fit$G.deviance + 2 * fit$df.fit, SBC = fit$G.deviance + log(fit$N) * fit$df.fit,
+             converged = isTRUE(fit$converged), iter = fit$iter, method = attr(fit, "moco_method"),
+             attempts = attr(fit, "moco_attempts"),
+             time_fit = attr(fit, "moco_time"), time_pred = time_pred,
+             n_warnings = length(fw) + length(pred_warn),
+             warnings = paste(substr(unique(c(fw, pred_warn)), 1, 150), collapse = " | "),
+             stringsAsFactors = FALSE)
 }
 
-one_step_cross_gamlss <- function(
-    X, Z, A, M, Y,
-    Delta_M,
-    thresh = NULL,
-    Delta_Y,
-    SL_library = c("SL.earth","SL.glmnet","SL.gam","SL.glm", "SL.glm.interaction", "SL.step","SL.step.interaction","SL.xgboost","SL.ranger","SL.mean"),
-    SL_library_customize = list(
-      gA = NULL,
-      gDM = NULL,
-      gDY_AX = NULL,
-      gDY_AXZ = NULL,
-      mu_AMXZ = NULL,
-      eta_AXZ = NULL,
-      eta_AXM = NULL,
-      xi_AX = NULL
-    ),
-    glm_formula = list(
-      gA = NULL,
-      gDM = NULL,
-      gDY_X = NULL,
-      gDY_AX = NULL,
-      gDY_AXZ = NULL,
-      mu_AMXZ = NULL,
-      eta_AXZ = NULL,
-      eta_AXM = NULL,
-      xi_AX = NULL,
-      pMX = NULL,
-      pMXZ = NULL
-    ),
-    GAMLSS_pMX = FALSE,
-    GAMLSS_pMXZ = FALSE,
-    gamlss_formula = list(
-      pMX_mu = NULL,
-      pMX_sigma = ~ 1,
-      pMX_nu = ~ 1,
-      pMXZ_mu = NULL,
-      pMXZ_sigma = ~ 1,
-      pMXZ_nu = ~ 1
-    ),
-    gamlss_family = "GG",
-    gamlss_optimizer = "RS",
-    GAMLSS_BIC_select = FALSE,
-    gamlss_continuous_X = character(0),
-    gamlss_continuous_Z = character(0),
-    gamlss_bic_candidates = c("linear", "pb_mu", "pb_mu_sigma"),
-    gamlss_bic_trace = FALSE,
-    n.cyc = 300,
-    gamlss_c_crit = 0.001,
-    HAL_pMX = TRUE,
-    HAL_pMXZ = TRUE,
-    HAL_options = list(max_degree = 3, lambda_seq = exp(seq(-1, -10, length = 100)), num_knots = c(1000, 500, 250)),
-    density_floor = sqrt(.Machine$double.eps),
-    density_ratio_cap = Inf,
-    support_rule = "delta_m",
-    support_upper = NULL,
-    seed = 1,
-    cv_folds = 5,
-    ...
-){
-  
-  #from moco
-  # check if A, X, Z are complete
-  if(sum(is.na(A)) != 0 | sum(is.na(X)) != 0 | sum(is.na(Z)) != 0) {
-    stop("There are missing values in A, X, or Z. Please input full data for these variables.")
-  }
-  
-  # change Y to matrix if it is a vector
-  if(is.null(dim(Y))){
-    Y <- as.matrix(Y)
-  }
-  
-  # seed position
-  seed_position <- which(apply(Y, 2, function(x){
-    sum(is.na(x))
-  }) == nrow(Y))
-  
-  if(length(seed_position) != 0){
-    # remove NA column for subsequent calculation
-    Y <- Y[, -seed_position, drop = FALSE]
-  }
-  
-  # number of participants
-  n <- nrow(Y)
-  # number of outcomes
-  p <- ncol(Y)
-  # whether motion is available
-  M_indicator <- (!is.null(M))
-  
-  if(!M_indicator){
-    # missingness indicator as in Nebel
-    Delta_Y <- ifelse(Delta_M + Delta_Y == 2, 1, 0)
-    # impute M to be all 1's for computation convenience
-    M <- rep(1, n)
-    # M[Delta_Y == 0] <- NA
-  }else if(!is.null(thresh)){
-    # if thresh is not null, collapse M into dummy variables based on truncated level thresh
-    Delta_M <- as.numeric(M < thresh)
-    Delta_M[is.na(M)] <- 0
-  }
-  
-  # if X or Z is null
-  if(is.null(X)){X <- rep(1, n)}
-  if(is.null(Z)){Z <- rep(1, n)}
-  
-  # the original dataset
-  dat <- list(X = data.frame(X), Z = data.frame(Z), A = data.frame(A),
-              M = data.frame(M), Delta_M = data.frame(Delta_M),
-              Delta_Y = data.frame(Delta_Y), Y = data.frame(Y))
-  
-  # full-sample support of acceptable motion, used when
-  # support_rule = "observed_range"
-  if (is.null(support_upper)) support_upper <- .moco_support_upper(M, Delta_M)
-
-  # divide the dataset into train_dat and valid_dat
-  set.seed(seed)
-  folds <- caret::createFolds(1:n, k = cv_folds, list = TRUE, returnTrain = FALSE)
-  
-  # create empty matrix to store results
-  est <- matrix(0, nrow = 2, ncol = p)
-  # create empty vector to store eifs
-  eif_mat <- vector("list", p)
-  gamlss_selection_by_fold <- vector("list", cv_folds)
-  for(j in 1:p){
-    eif_mat[[j]] <- matrix(nrow = n, ncol = 2)
-  }
-  
-  # cross fitting
-  for(i in 1:cv_folds){
-    rslt_cross <- fit_mechanism_gamlss(
-      train_dat = lapply(dat, function(x){x[-folds[[i]], , drop = FALSE]}),
-      valid_dat = lapply(dat, function(x){x[folds[[i]], , drop = FALSE]}),
-      M_indicator = M_indicator,
-      SL_library = SL_library,
-      SL_library_customize = SL_library_customize,
-      glm_formula = glm_formula,
-      GAMLSS_pMX = GAMLSS_pMX,
-      GAMLSS_pMXZ = GAMLSS_pMXZ,
-      gamlss_formula = gamlss_formula,
-      gamlss_family = gamlss_family,
-      gamlss_optimizer = gamlss_optimizer,
-      GAMLSS_BIC_select = GAMLSS_BIC_select,
-      gamlss_continuous_X = gamlss_continuous_X,
-      gamlss_continuous_Z = gamlss_continuous_Z,
-      gamlss_bic_candidates = gamlss_bic_candidates,
-      gamlss_bic_trace = gamlss_bic_trace,
-      n.cyc = n.cyc,
-      gamlss_c_crit = gamlss_c_crit,
-      HAL_pMX = HAL_pMX,
-      HAL_pMXZ = HAL_pMXZ,
-      HAL_options = HAL_options,
-      density_floor = density_floor,
-      density_ratio_cap = density_ratio_cap,
-      support_rule = support_rule,
-      support_upper = support_upper,
-      seed = seed
-    )
-    
-    gamlss_selection_by_fold[[i]] <- rslt_cross$gamlss_selection
-    
-    # store results
-    est <- est + rslt_cross$est
-    for(j in 1:p){
-      eif_mat[[j]][folds[[i]],] <- rslt_cross$eif_mat[[j]]
+# All four motion densities on the training rows and (optionally) the validation rows.
+# `train` / `valid` are lists with M, A, X, Z, Delta_Y, Delta_M (valid = NULL: no cross-fitting).
+# pMX/pMXZ are fitted and evaluated on Delta_Y = 1 rows; pMXD/pMXZD are fitted on Delta_M = 1 rows and
+# evaluated on every row with observed M (pMXD at A = 0, pMXZD at the observed A); nothing is zeroed.
+.moco_gamlss_densities <- function(train, valid = NULL, options, label = "full data") {
+  sets <- list(train = train, valid = valid)
+  sets <- sets[!vapply(sets, is.null, logical(1))]
+  frames <- lapply(sets, function(s) list(x = .moco_density_frame(s$M, s$A, s$X), z = .moco_density_frame(s$M, s$A, s$X, s$Z),
+                                          DY = as.numeric(unlist(s$Delta_Y)), DM = as.numeric(unlist(s$Delta_M)),
+                                          M = as.numeric(unlist(s$M))))
+  if (length(frames$train$M) != options$.n) stop("Internal error: GAMLSS options were not subset to the training rows.", call. = FALSE)
+  out <- list(); info <- list(); fits <- list()
+  roles <- list(pMX = list(z = FALSE, fit_on = "DY", A = "obs"),
+                pMXD = list(z = FALSE, fit_on = "DM", A = "0"),
+                pMXZ = list(z = TRUE, fit_on = "DY", A = c("obs", "0", "1")),
+                pMXZD = list(z = TRUE, fit_on = "DM", A = "obs"))
+  for (role in names(roles)) {
+    r <- roles[[role]]
+    ro <- options$.roles[[role]]
+    cols <- ro$.cols
+    spec <- ro$.spec
+    ftr <- frames$train
+    fit_rows <- which(ftr[[r$fit_on]] == 1 & !is.na(ftr$M))
+    if (!length(fit_rows)) stop(sprintf("No training rows for GAMLSS %s (%s).", role, label), call. = FALSE)
+    fr <- if (r$z) ftr$z else ftr$x
+    keep <- c("M", cols$vars)
+    trn <- fr[fit_rows, keep, drop = FALSE]
+    fit <- .moco_gamlss_fit(trn, role, spec, ro, fit_rows, label)
+    # evaluation rows per set
+    blocks <- list(); where <- list()
+    for (s in names(frames)) {
+      fs <- frames[[s]]
+      ev <- if (role %in% c("pMX", "pMXZ")) which(fs$DY == 1 & !is.na(fs$M)) else which(!is.na(fs$M))
+      base <- (if (r$z) fs$z else fs$x)[ev, keep, drop = FALSE]
+      for (a in r$A) {
+        b <- base
+        if (a != "obs") b$A <- rep(as.numeric(a), nrow(b))
+        blocks[[length(blocks) + 1L]] <- b
+        where[[length(where) + 1L]] <- list(set = s, a = a, rows = ev)
+      }
     }
+    newdata <- do.call(rbind, blocks)
+    n_clamped <- 0L
+    if (isTRUE(ro$clamp)) {
+      # keep continuous covariates of the prediction rows inside the training-fold range, so that
+      # smooth terms (pb) and sigma models are not extrapolated (ABCD: one T-score of 147 vs a
+      # training maximum of 120 gave sigma below its training range and a density ratio of 3e5)
+      for (v in intersect(cols$cont, names(newdata))) {
+        rg <- range(trn[[v]])
+        outside <- newdata[[v]] < rg[1] | newdata[[v]] > rg[2]
+        n_clamped <- n_clamped + sum(outside)
+        newdata[[v]] <- pmin(pmax(newdata[[v]], rg[1]), rg[2])
+      }
+    }
+    t0 <- proc.time()[["elapsed"]]
+    ev <- .moco_gamlss_eval(fit, spec, newdata, trn, role, label)
+    tp <- proc.time()[["elapsed"]] - t0
+    pos <- 0L
+    for (w in where) {
+      nm <- paste0(role, "n_", if (w$a == "obs") "A" else paste0("A", w$a), "_", w$set)
+      v <- rep(NA_real_, length(frames[[w$set]]$M))
+      if (length(w$rows)) v[w$rows] <- ev$density[pos + seq_along(w$rows)]
+      pos <- pos + length(w$rows)
+      out[[nm]] <- v
+    }
+    info[[role]] <- .moco_gamlss_info_row(fit, spec, role, label, ev$warn, tp)
+    info[[role]]$n_clamped <- n_clamped
+    fits[[role]] <- fit
   }
-  
-  # calculate one-step estimator
-  est <- est/cv_folds
-  
-  # motion-adjusted associations
-  adj_association <- est[2, ] - est[1, ]
-  
-  # calculate covariance matrix
-  cov_mat <- vector("list", p)
-  for(j in 1:p){
-    colnames(eif_mat[[j]]) <- c('est_A0', 'est_A1')
-    cov_mat[[j]] <- cov(eif_mat[[j]])/n
-  }
-  
-  # output
-  out <- list(
-    est = est,
-    adj_association = adj_association,
-    eif_mat = eif_mat,
-    cov_mat = cov_mat,
-    gamlss_selection_by_fold = gamlss_selection_by_fold
-  )
+  out$info <- do.call(rbind, info); rownames(out$info) <- NULL
+  out$fits <- fits
+  out
+}
 
+.moco_density_frame <- function(M, A, X, Z = NULL) {
+  out <- data.frame(M = as.numeric(unlist(M)), A = as.numeric(unlist(A)), as.data.frame(X), check.names = FALSE)
+  if (!is.null(Z)) out <- cbind(out, as.data.frame(Z))
   out
 }

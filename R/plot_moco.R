@@ -1,46 +1,29 @@
-#' Plot parcel-wise MoCo estimates on a cortical surface
+#' Plot Motion-Controlled Mean Functional Connectivity and Associations
 #' 
-#' Maps group-specific estimates and significant adjusted contrasts to a CIFTI
-#' surface parcellation. This optional helper requires the `ciftiTools` package
-#' and Connectome Workbench.
+#' This function plots motion-controlled mean functional connectivity example results using the provided data and parameters.
 #' 
-#' @param result A result returned by [moco()].
-#' @param wb_path Path to the Connectome Workbench executable.
-#' @param template_path Path to a template CIFTI file.
-#' @param parcellation A parcellation recognized by
-#'   [ciftiTools::load_parc()]. The network-collapsing logic currently supports
-#'   `"Yeo_7"`.
-#' @param plots_path Directory in which PNG files are written.
-#' @param zlim_est Numeric length-two color limits for group-specific means.
-#' @param zlim_association Numeric length-two color limits for contrasts.
-#' @param fwer_index Row of `result$significant_regions` to plot when several
-#'   FWER levels were requested.
-#' @return Invisibly returns the three output file paths.
-#' @examples
-#' \dontrun{
-#' # Requires the ciftiTools package, Connectome Workbench and a CIFTI template.
-#' fit <- moco(...)
-#' plot_moco(
-#'   fit,
-#'   wb_path = "path/to/workbench",
-#'   template_path = "path/to/template.dscalar.nii",
-#'   plots_path = tempdir()
-#' )
-#' }
+#' @param result A list containing the results of motion-controlled functional connectivity analysis.
+#' @param wb_path The path to the workbench binary for ciftiTools.
+#' @param template_path The path to the template file for the visualization.
+#' @param parcellation The parcellation used in the analysis.
+#' @param plots_path The path where the plots will be saved.
+#' @param zlim_est The z-axis limits for functional connectivity plots.
+#' @param zlim_association The z-axis limits for association plots.
+#' @return This function does not return any value. It generates and saves plots based on the provided parameters.
+#' 
 #' @export
 
 plot_moco <- function(result, wb_path, template_path, 
                       parcellation = "Yeo_7", 
                       plots_path,
                       zlim_est = c(-0.3, 0.3), 
-                      zlim_association = c(-0.1, 0.1),
-                      fwer_index = 1L){
+                      zlim_association = c(-0.1, 0.1)){
   
   if (!requireNamespace("ciftiTools", quietly = TRUE)) {
-    stop("plot_moco() requires the optional package 'ciftiTools'.")
+    stop("plot_moco() requires the 'ciftiTools' package. Please install it first.", call. = FALSE)
   }
-  dir.create(plots_path, recursive = TRUE, showWarnings = FALSE)
-
+  
+  # set the path for ciftiTools workbench
   ciftiTools::ciftiTools.setOption('wb_path', wb_path) 
   
   # read in the parcellation
@@ -51,15 +34,13 @@ plot_moco <- function(result, wb_path, template_path,
   parcel_label <- rownames(parc$meta$cifti$labels$parcels)[-1]
   
   if(parcellation == "Yeo_7"){
-    # Map each parcel to its Yeo-7 network with a lookup table, so that
-    # already relabelled values are never matched again.
-    network_patterns <- c("Vis", "SomMot", "DorsAttn", "Limbic", "SalVentAttn", "Cont", "Default")
-    network_of_parcel <- vapply(parcel_label, function(label) {
-      hit <- which(vapply(network_patterns, grepl, logical(1), x = label, fixed = TRUE))
-      if (length(hit) == 0L) NA_integer_ else hit[1L]
-    }, integer(1), USE.NAMES = FALSE)
-    in_parcel <- !is.na(parc_vec) & parc_vec > 0
-    parc_vec[in_parcel] <- network_of_parcel[parc_vec[in_parcel]]
+    parc_vec[parc_vec %in% which(grepl("Vis", parcel_label))] <- 1
+    parc_vec[parc_vec %in% which(grepl("SomMot", parcel_label))] <- 2
+    parc_vec[parc_vec %in% which(grepl("DorsAttn", parcel_label))] <- 3
+    parc_vec[parc_vec %in% which(grepl("Limbic", parcel_label))] <- 4
+    parc_vec[parc_vec %in% which(grepl("SalVentAttn", parcel_label))] <- 5
+    parc_vec[parc_vec %in% which(grepl("Cont", parcel_label))] <- 6
+    parc_vec[parc_vec %in% which(grepl("Default", parcel_label))] <- 7
   }
   
   # retrive results
@@ -67,12 +48,6 @@ plot_moco <- function(result, wb_path, template_path,
   est_A1 <- as.matrix(result$est)[2,]
   adj_association <- result$adj_association
   significant_regions <- result$significant_regions
-  if (is.matrix(significant_regions)) {
-    if (fwer_index < 1L || fwer_index > nrow(significant_regions)) {
-      stop("fwer_index is outside the available significance rows.")
-    }
-    significant_regions <- significant_regions[fwer_index, ]
-  }
   
   # read in the template xii file
   xii <- ciftiTools::read_xifti(template_path)
@@ -91,16 +66,14 @@ plot_moco <- function(result, wb_path, template_path,
   xii_sig <- ciftiTools::newdata_xifti(xii1, xii_sig)
   
   # plot 
-  output_files <- file.path(
-    plots_path,
-    c("MoCo_FC_A0.png", "MoCo_FC_A1.png", "Sig_regions.png")
-  )
+  old_wd <- setwd(plots_path)
+  on.exit(setwd(old_wd), add = TRUE)
   plot(xii_A0, # title = "Motion-controlled Mean Functional Connectivity A0", 
-       fname = output_files[1L], zlim = zlim_est)
+       fname = "MoCo_FC_A0.png", zlim = zlim_est)
   plot(xii_A1, # title = "Motion-controlled Mean Functional Connectivity A1", 
-       fname = output_files[2L], zlim = zlim_est)
+       fname = "MoCo_FC_A1.png", zlim = zlim_est)
   plot(xii_sig, # title = "Significant Motion-controlled Association", 
-       fname = output_files[3L], zlim = zlim_association)
-
-  invisible(output_files)
+       fname = "Sig_regions.png", zlim = zlim_association)
 }
+
+

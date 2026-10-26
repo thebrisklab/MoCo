@@ -1,151 +1,76 @@
 #' Evaluate EIF for stochastic interventional (in)direct effects
 #'
 #' @param a Either 0 or 1.
-#' @param A A binary exposure or group-indicator vector of length `n`.
-#' @param Delta_Y Binary indicator that the outcome is observed and usable.
-#' @param Delta_M Binary indicator that motion meets the inclusion criterion.
+#' @param A A binary vector of length n \code{number of participants} representing the diagnosis status.
+#' @param Delta_Y A binary vector indicating whether the brain image data \code{Y} is usable (non-missing and passes quality control).
+#' @param Delta_M A binary vector indicating whether motion is available and meets inclusion criteria.
 #' @param Y A vector of continuous outcome of interest.
-#' @param gA Estimate of P(A = 1 | X_i), i = 1,...,n.
-#' @param gDM Estimate of P(Delta_M = 1 | A_i, X_i), i = 1,...,n.
-#' @param gDY_AXZ Estimate of P(Delta_Y = 1 | A_i, X_i, Z_i).
-#' @param eta_AXZ Estimate of E(mu_pseudo_A | A_i, Delta_i, X_i).
+#' @param gA Estimate of P(A = a | X_i), i = 1,...,n.
+#' @param gDM Estimate of P(Delta_M = 1 | A_i = 0, X_i), i = 1,...,n.
+#' @param gDY_AXZ Estimate of P(Delta_Y = 1 | A_i = a, X_i, Z_i), i = 1,...,n.
+#' @param eta_AXZ Estimate of E(mu_pseudo_A | A_i, Delta_M = 1, X_i, Z_i).
 #' @param eta_AXM Estimate of E(mu_pseudo_A_star | A_i, M_i, X_i).
-#' @param xi_AX Estimate of E(eta_AXZ | A_i, Delta_i, X_i).
+#' @param xi_AX Estimate of E(eta_AXZ | A_i, X_i).
 #' @param mu Estimate of E(Y| A_i, M_i, X_i, Z_i).
 #' @param pMXD Estimate of p(M | A = 0, Delta_M = 1, X_i).
 #' @param pMXZ Estimate of p(M | A_i, X_i, Z_i).
 #'
 #' @return An n-length vector of the estimated EIF evaluated on the observations.
-#' @noRd
+#' @keywords internal
 
-make_full_data_eif <- function(a, A, Delta_Y, Delta_M, Y, gA, gDM, gDY_AXZ,
-                               eta_AXZ, eta_AXM, xi_AX, mu, pMXD, pMXZ,
-                               density_ratio_cap = Inf){
-  n <- length(A)
-  # Each term is non-zero only for the participants who contribute to it;
-  # elsewhere its inputs may legitimately be missing.
-  use_p1 <- Delta_Y == 1 & A == a
-  use_p2 <- A == a
-  use_p3 <- A == 0 & Delta_M == 1
-
-  p1 <- p2 <- p3 <- numeric(n)
-  density_ratio <- .moco_cap_density_ratio(pMXD / pMXZ, density_ratio_cap)
-  p1[use_p1] <- (density_ratio * (Y - mu) / (gDY_AXZ * gA))[use_p1]
-  p2[use_p2] <- ((eta_AXZ - xi_AX) / gA)[use_p2]
-  gA_0 <- (1 - gA) * (a == 1) + gA * (a == 0)
-  p3[use_p3] <- ((eta_AXM - xi_AX) / (gA_0 * gDM))[use_p3]
+make_full_data_eif <- function(a, A, Delta_Y, Delta_M, Y, gA, gDM, gDY_AXZ, eta_AXZ, eta_AXM, xi_AX, mu, pMXD, pMXZ){
+  ipw_a <- as.numeric(A == a)/gA
+  ipw_a_prime <- as.numeric(Delta_Y == 1&A == a)/(gDY_AXZ*gA)
+  ipw_a_MD <- as.numeric(A == 0 & Delta_M == 1)/(((1 - gA)*I(a==1) + gA*I(a==0))*gDM)
+  
+  c_star <- pMXD/pMXZ
+  
+  p1 <- ipw_a_prime * c_star * (Y - mu)
+  p2 <- ipw_a * (eta_AXZ - xi_AX)
+  p3 <- ipw_a_MD * (eta_AXM - xi_AX)
   p4 <- xi_AX - mean(xi_AX)
-
-  .moco_check_eif_terms(list(p1 = p1, p2 = p2, p3 = p3, p4 = p4))
-  p1 + p2 + p3 + p4
+  
+  p1[is.na(p1)] <- 0
+  p3[is.na(p3)] <- 0
+  
+  return(p1 + p2 + p3 + p4)
 }
 
 make_full_data_eif_easy <- function(a, A, Delta_Y, Y, gA, gDY_AXZ, xi_AX, mu) {
-  n <- length(A)
-  use_p1 <- Delta_Y == 1 & A == a
-  use_p2 <- A == a
-
-  p1 <- p2 <- numeric(n)
-  p1[use_p1] <- ((Y - mu) / (gDY_AXZ * gA))[use_p1]
-  p2[use_p2] <- ((mu - xi_AX) / gA)[use_p2]
+  ipw_a <- as.numeric(A == a) / gA
+  ipw_a_prime <- as.numeric(Delta_Y == 1 & A == a) / (gDY_AXZ * gA)
+  
+  p1 <- ipw_a_prime * (Y - mu)
+  p2 <- ipw_a * (mu - xi_AX)
   p3 <- xi_AX - mean(xi_AX)
-
-  .moco_check_eif_terms(list(p1 = p1, p2 = p2, p3 = p3))
-  p1 + p2 + p3
+  
+  p1[is.na(p1)] <- 0
+  
+  return(p1 + p2 + p3)
 }
 
-# Stop with an informative error instead of silently treating missing or
-# infinite nuisance predictions as zero.
-.moco_check_eif_terms <- function(terms) {
-  bad <- names(terms)[!vapply(terms, function(x) all(is.finite(x)), logical(1))]
-  if (length(bad) > 0L) {
-    stop(
-      "Non-finite values in EIF term(s) ", paste(bad, collapse = ", "),
-      ". Check the nuisance fits (missing motion values, zero densities or ",
-      "zero estimated probabilities).",
-      call. = FALSE
-    )
-  }
-  invisible(TRUE)
-}
+#' Add NA value back indicating seed position
+#'
+#' @param vec A vector indicating the MoCo estimates, adjusted association, z-scores, or significant regions.
+#' @param seed_position Position indicator of where the seed region is.
+#' @return A vector with NA values inserted to indicate the position of the seed region.
+#' @keywords internal
 
-# Average repeated one-step fits at the estimator and participant-level EIF
-# stages, then recompute covariance. Averaging z statistics or critical values
-# directly does not represent the variance of the averaged estimator.
-.moco_combine_one_step <- function(results) {
-  if (!is.list(results) || length(results) == 0L) {
-    stop("results must be a non-empty list of one-step fit objects.")
+add_NA <- function(vec, seed_position){
+  if(seed_position == (length(vec) + 1)){
+    vec <- c(vec[1:(seed_position-1)], NA)
+  }else{
+    vec <- c(vec[1:(seed_position-1)], NA, vec[seed_position:length(vec)])
   }
-
-  required <- c("est", "eif_mat")
-  for (i in seq_along(results)) {
-    missing_components <- setdiff(required, names(results[[i]]))
-    if (length(missing_components) > 0L) {
-      stop(
-        "Seed fit ", i, " is missing: ",
-        paste(missing_components, collapse = ", "), "."
-      )
-    }
-  }
-
-  reference_est <- as.matrix(results[[1L]]$est)
-  if (nrow(reference_est) != 2L || ncol(reference_est) < 1L ||
-      any(!is.finite(reference_est))) {
-    stop("Each seed fit must contain a finite 2 by p est matrix.")
-  }
-  n_features <- ncol(reference_est)
-  if (!is.list(results[[1L]]$eif_mat) ||
-      length(results[[1L]]$eif_mat) != n_features) {
-    stop("Each seed fit must contain one EIF matrix per outcome.")
-  }
-  reference_eif <- as.matrix(results[[1L]]$eif_mat[[1L]])
-  if (ncol(reference_eif) != 2L || nrow(reference_eif) < 2L) {
-    stop("Each EIF must be an n by 2 matrix.")
-  }
-  n_obs <- nrow(reference_eif)
-
-  normalized <- lapply(seq_along(results), function(i) {
-    est_i <- as.matrix(results[[i]]$est)
-    if (!identical(dim(est_i), c(2L, n_features)) ||
-        any(!is.finite(est_i))) {
-      stop("All seed fits must have finite est matrices with identical dimensions.")
-    }
-    if (!is.list(results[[i]]$eif_mat) ||
-        length(results[[i]]$eif_mat) != n_features) {
-      stop("All seed fits must contain the same number of EIF matrices.")
-    }
-    eif_i <- lapply(results[[i]]$eif_mat, function(x) {
-      x <- as.matrix(x)
-      if (!identical(dim(x), c(n_obs, 2L)) || any(!is.finite(x))) {
-        stop(
-          "All seed EIF matrices must be finite, have dimension n by 2, ",
-          "and retain the same participant order."
-        )
-      }
-      x
-    })
-    list(est = est_i, eif_mat = eif_i)
-  })
-
-  est <- Reduce(`+`, lapply(normalized, `[[`, "est")) / length(normalized)
-  eif_mat <- lapply(seq_len(n_features), function(j) {
-    Reduce(`+`, lapply(normalized, function(x) x$eif_mat[[j]])) /
-      length(normalized)
-  })
-  cov_mat <- lapply(eif_mat, function(x) stats::cov(x) / n_obs)
-
-  list(
-    est = est,
-    adj_association = est[2L, ] - est[1L, ],
-    eif_mat = eif_mat,
-    cov_mat = cov_mat
-  )
+  
+  return(vec)
 }
 
 #' Temporary fix for convex combination method mean squared error
 #' Relative to existing implementation, we reduce the tolerance at which
 #' we declare predictions from a given algorithm the same as another
-#' @noRd
+#' @return A list with elements \code{require}, \code{computeCoef} and \code{computePred}, usable as a SuperLearner \code{method}.
+#' @keywords internal
 tmp_method.CC_LS <- function() {
   computeCoef <- function(Z, Y, libraryNames, verbose, obsWeights,
                           errorsInLibrary = NULL, ...) {
@@ -213,9 +138,9 @@ tmp_method.CC_LS <- function() {
     }
     if (!inherits(fit, "error")) {
       if (anyDupCols | anyNACols) {
-        full_coef <- rep(0, ncol(Z))
-        full_coef[-rmCols] <- coef
-        coef <- full_coef
+        ind <- c(seq_along(coef), rmCols - 0.5)
+        coef <- c(coef, rep(0, length(rmCols)))
+        coef <- coef[order(ind)]
       }
       coef[coef < 1e-04] <- 0
       coef <- coef / sum(coef)
@@ -241,7 +166,8 @@ tmp_method.CC_LS <- function() {
 #' we declare predictions from a given algorithm the same as another.
 #' Note that because of the way \code{SuperLearner} is structure, one needs to
 #' install the optimization software separately.
-#' @noRd
+#' @return A list with elements \code{require}, \code{computeCoef} and \code{computePred}, usable as a SuperLearner \code{method}.
+#' @keywords internal
 tmp_method.CC_nloglik <- function() {
   computePred <- function(predY, coef, control, ...) {
     if (sum(coef != 0) == 0) {
@@ -317,11 +243,10 @@ tmp_method.CC_nloglik <- function() {
         out
       }
     )
-    optimizer_failed <- inherits(r, "error")
-    if (!optimizer_failed && (r$status < 1 || r$status > 4)) {
+    if (r$status < 1 || r$status > 4) {
       warning(r$message)
     }
-    if (!optimizer_failed) {
+    if (!inherits(r, "error")) {
       coef <- r$solution
     } else {
       coef <- rep(0, ncol(Z))
@@ -331,12 +256,10 @@ tmp_method.CC_nloglik <- function() {
       warning("Some algorithms have weights of NA, setting to 0.")
       coef[is.na(coef)] <- 0
     }
-    # The fallback coefficients already have one entry per learner, so only
-    # re-insert the removed duplicate columns after a successful optimization.
-    if (!optimizer_failed && anyDupCols) {
-      full_coef <- rep(0, ncol(Z))
-      full_coef[-dupCols] <- coef
-      coef <- full_coef
+    if (anyDupCols) {
+      ind <- c(seq_along(coef), dupCols - 0.5)
+      coef <- c(coef, rep(0, length(dupCols)))
+      coef <- coef[order(ind)]
     }
     coef[coef < 1e-04] <- 0
     coef <- coef / sum(coef)
@@ -346,99 +269,3 @@ tmp_method.CC_nloglik <- function() {
   list(require = "nloptr", computeCoef = computeCoef, computePred = computePred)
 }
 
-# Packages needed by Super Learner wrappers whose packages are listed in
-# Suggests rather than Imports.
-.moco_learner_packages <- c(
-  SL.earth = "earth",
-  SL.gam = "gam",
-  SL.glmnet = "glmnet",
-  SL.ranger = "ranger",
-  SL.xgboost = "xgboost"
-)
-
-# Drop learners whose package is not installed so that the default library
-# works on systems without the suggested packages.
-.moco_available_learners <- function(library, argument = "SL_library") {
-  if (is.null(library) || !is.character(library)) return(library)
-  needed <- .moco_learner_packages[intersect(library, names(.moco_learner_packages))]
-  missing_pkg <- needed[!vapply(needed, requireNamespace, logical(1), quietly = TRUE)]
-  if (length(missing_pkg) > 0L) {
-    message(
-      "Dropping learners from ", argument, " because their packages are not installed: ",
-      paste0(names(missing_pkg), " (", missing_pkg, ")", collapse = ", "), "."
-    )
-    library <- setdiff(library, names(missing_pkg))
-  }
-  if (length(library) == 0L) {
-    stop(argument, " has no learners left after removing unavailable ones.")
-  }
-  library
-}
-
-# Largest observed motion value among participants who meet the motion
-# inclusion criterion (NA if there are none).
-.moco_support_upper <- function(M, Delta_M) {
-  included <- M[!is.na(Delta_M) & Delta_M == 1 & is.finite(M)]
-  if (length(included) == 0L) return(NA_real_)
-  max(included)
-}
-
-# Apply the support rule to the target density p(m | Delta_M = 1, A = 0, X)
-# evaluated at each participant's observed M.
-# - "delta_m" (original MoCo): zero for every Delta_M = 0 participant when the
-#   density is GLM or GAMLSS; HAL predictions are used as returned by
-#   haldensify, which are zero outside the training range. Appropriate when
-#   Delta_M is a cutoff on M itself (Delta_M = 1 if M < thresh).
-# - "observed_range": zero only above the largest observed M among
-#   Delta_M = 1 participants (full sample when cross-fitting). Appropriate when
-#   Delta_M is defined by scrubbing or a retained-frame count.
-.moco_apply_support_rule <- function(density, M, Delta_M, support_rule,
-                                     support_upper = NULL, hal = FALSE) {
-  if (identical(support_rule, "delta_m")) {
-    if (!isTRUE(hal)) density[Delta_M == 0] <- 0
-    return(density)
-  }
-  if (!identical(support_rule, "observed_range")) {
-    stop("support_rule must be \"delta_m\" or \"observed_range\".")
-  }
-  if (is.null(support_upper)) support_upper <- .moco_support_upper(M, Delta_M)
-  if (length(support_upper) != 1L || !is.finite(support_upper)) {
-    stop("No finite motion values among observations with Delta_M = 1.")
-  }
-  density[!is.na(M) & M > support_upper] <- 0
-  density
-}
-
-# Bound a density used as a denominator away from zero using an absolute floor.
-# This is a numerical guard only; it is not relative to the empirical density
-# distribution and therefore does not intentionally trim the target estimand.
-.moco_floor_density <- function(density, density_floor = sqrt(.Machine$double.eps)) {
-  density[!is.na(density) & density < density_floor] <- density_floor
-  density
-}
-
-.moco_cap_density_ratio <- function(ratio, density_ratio_cap = Inf) {
-  if (is.finite(density_ratio_cap)) {
-    ratio[!is.na(ratio) & ratio > density_ratio_cap] <- density_ratio_cap
-  }
-  ratio
-}
-
-.moco_validate_density_controls <- function(
-    density_floor = sqrt(.Machine$double.eps),
-    density_ratio_cap = Inf
-) {
-  if (!is.numeric(density_floor) || length(density_floor) != 1L ||
-      is.na(density_floor) || !is.finite(density_floor) ||
-      density_floor <= 0) {
-    stop("density_floor must be one strictly positive finite number.")
-  }
-  if (!is.numeric(density_ratio_cap) || length(density_ratio_cap) != 1L ||
-      is.na(density_ratio_cap) || density_ratio_cap <= 0) {
-    stop("density_ratio_cap must be one positive number or Inf.")
-  }
-  list(
-    density_floor = as.numeric(density_floor),
-    density_ratio_cap = as.numeric(density_ratio_cap)
-  )
-}

@@ -1,20 +1,28 @@
-#' Simulated data for illustrating MoCo
+#' Simulated ABIDE-like seed-based example data
 #'
-#' A simulated data set with 400 observations and seven continuous outcomes.
-#' It is intended only for examples and software checks; it does not contain
-#' participant data from a real study.
+#' A simulated data set of 400 participants that reproduces the layout of a
+#' seed-based functional-connectivity analysis motivated by the Autism Brain
+#' Imaging Data Exchange (ABIDE). The seed is the default mode network (DMN),
+#' and the outcomes represent its Fisher-z-transformed functional connectivity
+#' with networks from the Yeo seven-network parcellation.
 #'
-#' @format A list with seven elements:
-#' \describe{
-#'   \item{A}{Binary group indicator.}
-#'   \item{X}{Data frame with three baseline covariates.}
-#'   \item{Z}{Data frame with four post-exposure covariates.}
-#'   \item{M}{Continuous motion measure.}
-#'   \item{Delta_M}{Binary motion-inclusion indicator.}
-#'   \item{Delta_Y}{Binary outcome-observation and quality indicator.}
-#'   \item{Y}{Numeric matrix with seven outcomes; the final column is a
-#'     structural seed/self-correlation position.}
-#' }
+#' @docType data
 #' @usage data(data)
+#' @format A list with 7 elements:
+#' \describe{
+#'   \item{A}{Integer vector of length 400: diagnostic group, 1 for ASD and 0 for non-ASD.}
+#'   \item{M}{Numeric vector of length 400: mean framewise displacement (motion).}
+#'   \item{Delta_M}{Numeric vector of length 400: motion inclusion indicator; high motion is defined in the simulation as mean FD greater than 0.2.}
+#'   \item{Delta_Y}{Integer vector of length 400: imaging-data availability and quality indicator.}
+#'   \item{X}{Data frame with 400 rows and 3 columns (\code{X1}, \code{X2}, \code{X3}): sex, age and handedness.}
+#'   \item{Z}{Data frame with 400 rows and 4 columns (\code{Z1}--\code{Z4}): ADOS, full-scale IQ, stimulant medication and nonstimulant medication.}
+#'   \item{Y}{Numeric 400 by 7 functional-connectivity matrix. The seventh column is the seed-to-self position and is entirely \code{NA}; rows with \code{Delta_Y = 0} are also missing.}
+#' }
+#' @details The simulated group differences are zero for the first four
+#'   outcomes, -0.0485 for the fifth and -0.0682 for the sixth.
+#' @source Simulated data; no real participant data are included.
 #' @keywords datasets
+#' @examples
+#' data(data)
+#' str(data)
 "data"
