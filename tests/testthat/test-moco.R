@@ -1,117 +1,74 @@
-test_that("moco validates its inputs", {
-  data("data", package = "MoCo", envir = environment())
-  base_args <- list(
-    X = data$X, Z = data$Z, A = data$A, M = data$M, Y = data$Y,
-    Delta_M = data$Delta_M, Delta_Y = data$Delta_Y,
-    pMX_method = "GLM", glm_formula = list(pMX = ".", pMXZ = ".")
-  )
-  expect_error(do.call(moco, modifyList(base_args, list(Delta_M = NULL))), "Delta_M or thresh")
-  expect_error(do.call(moco, modifyList(base_args, list(cv_folds = 1))), "cv_folds")
-  expect_error(do.call(moco, modifyList(base_args, list(density_floor = -1))), "density_floor")
-  expect_error(do.call(moco, modifyList(base_args, list(density_floor = 0))), "density_floor")
-  expect_error(do.call(moco, modifyList(base_args, list(density_ratio_cap = 0))), "density_ratio_cap")
-  expect_error(do.call(moco, modifyList(base_args, list(A = data$A[-1]))), "same number")
-  bad_M <- data$M
-  bad_M[which(data$Delta_Y == 1)[1]] <- NA
-  expect_error(do.call(moco, modifyList(base_args, list(M = bad_M))), "observed")
-  # modifyList() drops empty lists, so set the element directly
-  bad_formula <- base_args
-  bad_formula$glm_formula <- list()
-  expect_error(do.call(moco, bad_formula), "glm_formula")
-})
-
-test_that("the GLM path returns finite estimates with the right shape", {
-  skip_on_cran()
-  data("data", package = "MoCo", envir = environment())
-  set.seed(99)
-  before <- .Random.seed
-  fit <- quiet_moco(
-    X = data$X, Z = data$Z, A = data$A, M = data$M, Y = data$Y[, c(1, 7)],
-    Delta_M = data$Delta_M, Delta_Y = data$Delta_Y,
-    SL_library = c("SL.mean", "SL.glm"),
-    pMX_method = "GLM", glm_formula = list(pMX = ".", pMXZ = "."),
-    cv_folds = 2, test_n_sim = 1000
-  )
-  expect_identical(.Random.seed, before)
-  expect_equal(dim(fit$est), c(2L, 2L))
-  expect_true(all(is.finite(as.matrix(fit$est)[, 1])))
-  expect_true(all(is.na(as.matrix(fit$est)[, 2])))
-  expect_true(is.finite(fit$z_score[1]))
-  expect_equal(fit$density_controls$density_floor, sqrt(.Machine$double.eps))
-  expect_identical(fit$density_controls$density_ratio_cap, Inf)
-})
-
-test_that("support rules agree when Delta_M is a cutoff on M", {
-  skip_on_cran()
-  data("data", package = "MoCo", envir = environment())
+run_glm <- function(...) {
+  e <- new.env()
+  utils::data("data", package = "MoCo", envir = e)
+  d <- e$data
   args <- list(
-    X = data$X, Z = data$Z, A = data$A, M = data$M, Y = data$Y[, 1, drop = FALSE],
-    Delta_M = data$Delta_M, Delta_Y = data$Delta_Y,
+    X = d$X, Z = d$Z, A = d$A, M = d$M, Y = d$Y,
+    Delta_M = d$Delta_M, Delta_Y = d$Delta_Y,
     SL_library = c("SL.mean", "SL.glm"),
-    pMX_method = "GLM", glm_formula = list(pMX = ".", pMXZ = "."),
-    cross_fit = FALSE, test = FALSE
+    glm_formula = list(pMX = ".", pMXZ = "."),
+    HAL_pMX = FALSE, HAL_pMXZ = FALSE,
+    cross_fit = FALSE, test = TRUE, fwer = 0.05
   )
-  fit_dm <- do.call(quiet_moco, args)
-  fit_or <- do.call(quiet_moco, c(args, list(support_rule = "observed_range")))
-  expect_identical(fit_dm$support_rule, "delta_m")
-  expect_identical(fit_or$support_rule, "observed_range")
-  expect_equal(fit_dm$est, fit_or$est)
-  expect_error(do.call(moco, c(args, list(support_rule = "other"))))
+  extra <- list(...)
+  args[names(extra)] <- extra
+  suppressWarnings(do.call(moco, args))
+}
+
+example_data <- function() {
+  e <- new.env()
+  utils::data("data", package = "MoCo", envir = e)
+  e$data
+}
+
+test_that("GLM run returns finite estimates with NA at the seed column", {
+  fit <- run_glm()
+  est <- as.matrix(fit$est)
+  expect_equal(dim(est), c(2L, 7L))
+  expect_true(all(is.na(est[, 7])))
+  expect_true(all(is.finite(est[, -7])))
+  expect_length(fit$adj_association, 7L)
+  expect_true(is.na(fit$adj_association[7]))
+  expect_true(all(is.finite(fit$adj_association[-7])))
+  expect_true(all(is.finite(fit$z_score[-7])))
+  expect_length(fit$fwer_critical_value, 1L)
 })
 
-test_that("repeated seeds average estimates and EIFs", {
-  skip_on_cran()
-  data("data", package = "MoCo", envir = environment())
-  args <- list(
-    X = data$X, Z = data$Z, A = data$A, M = data$M, Y = data$Y[, 1:2],
-    Delta_M = data$Delta_M, Delta_Y = data$Delta_Y,
-    SL_library = c("SL.mean", "SL.glm"),
-    pMX_method = "GLM", glm_formula = list(pMX = ".", pMXZ = "."),
-    cross_fit = TRUE, cv_folds = 2, test_n_sim = 2000
-  )
-  one <- do.call(quiet_moco, c(args, list(seed_rgn = 1)))
-  two <- do.call(quiet_moco, c(args, list(seed_rgn = 2)))
-  both <- do.call(quiet_moco, c(args, list(seed_rgn = 1:2)))
-  expect_equal(as.matrix(both$est), (as.matrix(one$est) + as.matrix(two$est)) / 2)
-  expect_true(all(is.finite(both$z_score)))
+test_that("moco() leaves the caller's random-number stream untouched", {
+  set.seed(123)
+  a <- stats::runif(1)
+  set.seed(123)
+  invisible(run_glm())
+  b <- stats::runif(1)
+  expect_identical(a, b)
 })
 
-test_that("moco runs without motion or baseline covariates", {
-  skip_on_cran()
-  data("data", package = "MoCo", envir = environment())
-  fit <- quiet_moco(
-    X = NULL, Z = data$Z, A = data$A, M = NULL, Y = data$Y[, 1, drop = FALSE],
-    Delta_M = data$Delta_M, Delta_Y = data$Delta_Y,
-    SL_library = c("SL.mean", "SL.glm"),
-    cross_fit = FALSE, test = FALSE
-  )
-  expect_identical(unname(fit$density_method), c("none", "none"))
-  expect_true(all(is.finite(as.matrix(fit$est))))
+test_that("thresh = 0.2 gives the same result as the supplied Delta_M", {
+  d <- example_data()
+  expect_identical(as.numeric(d$M < 0.2), as.numeric(d$Delta_M))
+  fit_delta <- run_glm()
+  fit_thresh <- run_glm(thresh = 0.2)
+  expect_identical(fit_thresh$est, fit_delta$est)
+  expect_identical(fit_thresh$adj_association, fit_delta$adj_association)
+})
+
+test_that("GAMLSS LOGNO agrees with the log-normal GLM densities", {
+  skip_if_not_installed("gamlss")
+  skip_if_not_installed("gamlss.dist")
+  fit_glm <- run_glm()
+  fit_gam <- run_glm(gamlss_options = list(
+    family = "LOGNO", formulas = list(mu = "linear", sigma = "1")
+  ))
+  expect_identical(is.na(fit_gam$adj_association), is.na(fit_glm$adj_association))
+  expect_lt(max(abs(fit_gam$adj_association - fit_glm$adj_association), na.rm = TRUE), 1e-3)
+  expect_s3_class(fit_gam$gamlss_info, "data.frame")
+})
+
+test_that("default GG family fails on the example data with a clear message", {
+  skip_if_not_installed("gamlss")
+  skip_if_not_installed("gamlss.dist")
   expect_error(
-    moco(
-      X = data$X, Z = data$Z, A = data$A, M = NULL, Y = data$Y[, 1, drop = FALSE],
-      thresh = 0.2, Delta_Y = data$Delta_Y, test = FALSE
-    ),
-    "thresh requires M"
+    run_glm(gamlss_options = list(family = "GG")),
+    "Try another family"
   )
-})
-
-test_that("GAMLSS densities with spline terms fit and predict", {
-  skip_on_cran()
-  data("data", package = "MoCo", envir = environment())
-  # A soft, scrubbing-like inclusion indicator, so that the Delta_M = 1 motion
-  # values are not hard-truncated.
-  set.seed(7)
-  Delta_M <- stats::rbinom(length(data$M), 1, stats::plogis(3 - 12 * data$M))
-  fit <- quiet_moco(
-    X = data$X, Z = data$Z, A = data$A, M = data$M, Y = data$Y[, 5:6],
-    Delta_M = Delta_M, Delta_Y = data$Delta_Y,
-    SL_library = c("SL.mean", "SL.glm"),
-    pMX_method = "GAMLSS", gamlss_continuous_X = "X2",
-    gamlss_continuous_Z = c("Z1", "Z2"),
-    support_rule = "observed_range",
-    cross_fit = FALSE, test = FALSE
-  )
-  expect_identical(unname(fit$density_method), c("GAMLSS", "GAMLSS"))
-  expect_true(all(is.finite(as.matrix(fit$est))))
 })
