@@ -4,21 +4,10 @@
 \name{MoCo-package}
 \alias{MoCo}
 \alias{MoCo-package}
-\title{MoCo: motion-controlled brain-phenotype estimation}
+\title{MoCo: Motion-Controlled Estimation of Group Differences in Brain Phenotypes}
 \description{
-MoCo provides nonparametric one-step estimators for group-specific means and
-contrasts under motion-related selection, with optional cross-fitting and
-simultaneous family-wise error-rate control.
+Implements nonparametric one-step estimators for group-specific brain-phenotype means and contrasts while accounting for motion-related selection, following Ran, Shultz, Risk and Benkeser (2026) \doi{10.1093/biomtc/ujag099}. Nuisance functions can be estimated with 'SuperLearner', and conditional motion densities can be modeled with the highly adaptive lasso, log-normal generalized linear models, or generalized additive models for location, scale, and shape. Simultaneous confidence bands provide family-wise error-rate control across multiple outcomes.
 }
-\section{Main functions}{
-
-\itemize{
-\item \code{\link[=moco]{moco()}} fits MoCo using HAL, log-normal GLM, or generalized-gamma
-GAMLSS motion densities.
-\item \code{\link[=hypo_test]{hypo_test()}} applies EIF-based simultaneous confidence-band tests.
-}
-}
-
 \seealso{
 Useful links:
 \itemize{
@@ -28,11 +17,11 @@ Useful links:
 
 }
 \author{
-\strong{Maintainer}: Xiyan Tan \email{xxx@emory.edu}
+\strong{Maintainer}: Xiyan Tan \email{xiyan.tan@emory.edu}
 
 Authors:
 \itemize{
-  \item Xiyan Tan \email{xxx@emory.edu}
+  \item Xiyan Tan \email{xiyan.tan@emory.edu}
   \item Jialu Ran
   \item Benjamin B. Risk
   \item David Benkeser

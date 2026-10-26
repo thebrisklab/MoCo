@@ -4,7 +4,7 @@
 \alias{hypo_test}
 \title{Simultaneous confidence-band hypothesis tests}
 \usage{
-hypo_test(result, fwer = 0.05, seed = 1, n_sim = 100000L, chunk_size = n_sim)
+hypo_test(result, fwer = 0.05, seed = 1, n_sim = 100000L, chunk_size = 25000L)
 }
 \arguments{
 \item{result}{An aggregated one-step result containing
@@ -15,20 +15,17 @@ automatically.}
 
 \item{fwer}{Numeric vector of target family-wise error rates in \verb{(0, 1)}.}
 
-\item{seed}{Integer seed for the multivariate-normal simulation. The
-caller's random-number state is restored on exit.}
+\item{seed}{Integer seed for the multivariate-normal simulation.}
 
 \item{n_sim}{Positive integer number of simulation draws. Larger values
 reduce Monte Carlo error at greater computational cost.}
 
 \item{chunk_size}{Positive integer maximum number of draws generated at one
-time. The default, \code{n_sim}, draws all samples at once and reproduces the
-critical values of the original MoCo implementation; smaller values limit
-memory use when testing many outcomes, at the cost of a different Monte
-Carlo stream.}
+time. Chunking limits memory use when testing many outcomes or using a
+large \code{n_sim}.}
 }
 \value{
-A list with \code{z_score}, \code{conf_band}, \code{significant_regions}, and
+A list with \code{z_score}, \code{fwer_critical_value}, \code{significant_regions}, and
 \code{correlation_matrix}. \code{significant_regions} has one row per requested FWER
 and one column per tested outcome.
 }
@@ -46,14 +43,14 @@ function separately for each outcome when family-wise inference across all
 outcomes is desired.
 }
 \examples{
-# A toy aggregated result with three outcomes and simulated EIF values.
-set.seed(1)
-n <- 200
-eif <- lapply(1:3, function(j) cbind(eif_A0 = rnorm(n), eif_A1 = rnorm(n)))
+# A toy aggregated result with three outcomes and 50 participants
+set.seed(2)
+n <- 50
+eif_mat <- replicate(3, matrix(rnorm(2 * n), n, 2), simplify = FALSE)
 toy <- list(
-  adj_association = c(Y1 = 0.30, Y2 = 0.02, Y3 = -0.01),
-  eif_mat = eif,
-  cov_mat = lapply(eif, function(x) stats::cov(x) / n)
+  adj_association = c(0.4, 0.05, -0.3),
+  eif_mat = eif_mat,
+  cov_mat = lapply(eif_mat, function(x) stats::cov(x) / n)
 )
-hypo_test(toy, fwer = c(0.05, 0.10), n_sim = 2000)
+hypo_test(toy, fwer = c(0.05, 0.1), n_sim = 2000)
 }

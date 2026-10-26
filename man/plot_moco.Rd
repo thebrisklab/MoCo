@@ -2,7 +2,7 @@
 % Please edit documentation in R/plot_moco.R
 \name{plot_moco}
 \alias{plot_moco}
-\title{Plot parcel-wise MoCo estimates on a cortical surface}
+\title{Plot Motion-Controlled Mean Functional Connectivity and Associations}
 \usage{
 plot_moco(
   result,
@@ -11,47 +11,27 @@ plot_moco(
   parcellation = "Yeo_7",
   plots_path,
   zlim_est = c(-0.3, 0.3),
-  zlim_association = c(-0.1, 0.1),
-  fwer_index = 1L
+  zlim_association = c(-0.1, 0.1)
 )
 }
 \arguments{
-\item{result}{A result returned by \code{\link[=moco]{moco()}}.}
+\item{result}{A list containing the results of motion-controlled functional connectivity analysis.}
 
-\item{wb_path}{Path to the Connectome Workbench executable.}
+\item{wb_path}{The path to the workbench binary for ciftiTools.}
 
-\item{template_path}{Path to a template CIFTI file.}
+\item{template_path}{The path to the template file for the visualization.}
 
-\item{parcellation}{A parcellation recognized by
-\code{\link[ciftiTools:load_parc]{ciftiTools::load_parc()}}. The network-collapsing logic currently supports
-\code{"Yeo_7"}.}
+\item{parcellation}{The parcellation used in the analysis.}
 
-\item{plots_path}{Directory in which PNG files are written.}
+\item{plots_path}{The path where the plots will be saved.}
 
-\item{zlim_est}{Numeric length-two color limits for group-specific means.}
+\item{zlim_est}{The z-axis limits for functional connectivity plots.}
 
-\item{zlim_association}{Numeric length-two color limits for contrasts.}
-
-\item{fwer_index}{Row of \code{result$significant_regions} to plot when several
-FWER levels were requested.}
+\item{zlim_association}{The z-axis limits for association plots.}
 }
 \value{
-Invisibly returns the three output file paths.
+This function does not return any value. It generates and saves plots based on the provided parameters.
 }
 \description{
-Maps group-specific estimates and significant adjusted contrasts to a CIFTI
-surface parcellation. This optional helper requires the \code{ciftiTools} package
-and Connectome Workbench.
-}
-\examples{
-\dontrun{
-# Requires the ciftiTools package, Connectome Workbench and a CIFTI template.
-fit <- moco(...)
-plot_moco(
-  fit,
-  wb_path = "path/to/workbench",
-  template_path = "path/to/template.dscalar.nii",
-  plots_path = tempdir()
-)
-}
+This function plots motion-controlled mean functional connectivity example results using the provided data and parameters.
 }
