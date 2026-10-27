@@ -396,10 +396,7 @@ dependency, and numerical-optimization versions.
 
 The same analysis with GAMLSS motion densities replaces `HAL_pMX`,
 `HAL_pMXZ`, and the density formulas in `glm_formula` with `gamlss_options`.
-With the default `GG` family for all four densities, the fit stops on this
-small example: the densities fitted on `Delta_M = 1` use about 200
-participants per training fold, all with motion below 0.2, and `GG` does not
-converge for them. The example therefore keeps `GG` for the densities fitted on
+The example uses `GG` for the densities fitted on
 `Delta_Y = 1` (`pMX`, `pMXZ`) and uses the log-normal family for the two
 densities fitted on `Delta_M = 1` (`pMXD`, `pMXZD`), with all covariates
 entering the location linearly and constant scale and shape:
