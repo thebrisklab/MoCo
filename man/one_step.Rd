@@ -11,7 +11,6 @@ one_step(
   M,
   Y,
   Delta_M,
-  thresh = NULL,
   Delta_Y,
   SL_library = c("SL.earth", "SL.glmnet", "SL.gam", "SL.glm", "SL.glm.interaction",
     "SL.step", "SL.step.interaction", "SL.xgboost", "SL.ranger", "SL.mean"),
@@ -23,8 +22,10 @@ one_step(
   HAL_pMXZ = TRUE,
   HAL_options = list(max_degree = 3, lambda_seq = exp(seq(-1, -10, length = 100)),
     num_knots = c(1000, 500, 250)),
-  seed = 1,
+  density_method = NULL,
+  Delta_M_threshold = NULL,
   gamlss_options = NULL,
+  seed = 1,
   ...
 )
 }
@@ -45,10 +46,10 @@ If it represents other types of association measures:
 Each (i, j) element denotes participant i's association measure between two brain regions of interest, such as the upper diagonal part of the functional connectivity matrix.
 No NA values are allowed in \code{Y} in this case.}
 
-\item{Delta_M}{A binary vector of length n indicating whether motion is available and meets inclusion criteria.
-If motion meets inclusion criteria for analysis, set \code{Delta_M} = 1; otherwise, set \code{Delta_M} = 0.}
-
-\item{thresh}{A numeric value used to threshold M to produce \code{Delta_M}. One can specify either \code{Delta_M} or thresh.}
+\item{Delta_M}{Required. A binary (0/1) vector of length n indicating whether motion is available and meets the motion quality control (QC) inclusion criteria.
+Set \code{Delta_M} = 1 if the participant passes motion QC; otherwise, set \code{Delta_M} = 0.
+Any QC definition can be used, e.g., a threshold on mean framewise displacement (\code{Delta_M = as.numeric(M < 0.2)}),
+or criteria based on scrubbing or the number of remaining frames. \code{Delta_M} must be 0 when \code{M} is missing.}
 
 \item{Delta_Y}{A binary vector indicating the non-missingness and whether the brain image data \code{Y} passes quality control after preprocessing.
 Set \code{Delta_Y = 1} if \code{Y} is usable; otherwise, set \code{Delta_Y = 0}.}
@@ -57,30 +58,26 @@ Set \code{Delta_Y = 1} if \code{Y} is usable; otherwise, set \code{Delta_Y = 0}.
 Defaults to c("SL.earth","SL.glmnet","SL.gam","SL.glm", "SL.glm.interaction", "SL.step","SL.step.interaction","SL.xgboost","SL.ranger","SL.mean") if not specified.}
 
 \item{SL_library_customize}{Customize SuperLearner library for estimating each nuisance regression.
-\itemize{
-\item \code{gA}: SuperLearner library for estimating the propensity score.
-\item \code{gDM}: SuperLearner library for estimating the probability P(Delta_M = 1 | A, X).
-\item \code{gDY_AX}: SuperLearner library for estimating the probability P(Delta_Y = 1 | A, X).
-\item \code{gDY_AXZ}: SuperLearner library for estimating the probability P(Delta_Y = 1 | A, X, Z).
-\item \code{mu_AMXZ}: SuperLearner library for estimating the outcome regression E(Y | Delta_Y = 1, A, M, X, Z).
-\item \code{eta_AXZ}: SuperLearner library for estimating E(mu_AMXZ pMXD / pMXZD | A, X, Z, Delta_M = 1).
-\item \code{eta_AXM}: SuperLearner library for estimating E(mu_AMXZ pMX/pMXZ gDY_AX/gDY_AXZ | A, M, X, Delta_Y = 1).
-\item \code{xi_AX}: SuperLearner library for estimating E(eta_AXZ | A, X).
-}}
+- \code{gA}: SuperLearner library for estimating the propensity score.
+- \code{gDM}: SuperLearner library for estimating the probability P(Delta_M = 1 | A, X).
+- \code{gDY_AX}: SuperLearner library for estimating the probability P(Delta_Y = 1 | A, X).
+- \code{gDY_AXZ}: SuperLearner library for estimating the probability P(Delta_Y = 1 | A, X, Z).
+- \code{mu_AMXZ}: SuperLearner library for estimating the outcome regression E(Y | Delta_Y = 1, A, M, X, Z).
+- \code{eta_AXZ}: SuperLearner library for estimating E(mu_AMXZ pMXD / pMXZD | A, X, Z, Delta_M = 1).
+- \code{eta_AXM}: SuperLearner library for estimating E(mu_AMXZ pMX/pMXZ gDY_AX/gDY_AXZ | A, M, X, Delta_Y = 1).
+- \code{xi_AX}: SuperLearner library for estimating E(eta_AXZ | A, X).}
 
 \item{glm_formula}{All glm formulas default to NULL, indicating SuperLearner will be used for nuisance regressions.
-\itemize{
-\item \code{gA}: GLM formula for estimating the propensity score.
-\item \code{gDM}: GLM formula for estimating the probability P(Delta_M = 1 | A, X).
-\item \code{gDY_AX}: GLM formula for estimating the probability P(Delta_Y = 1 | A, X).
-\item \code{gDY_AXZ}: GLM formula for estimating the probability P(Delta_Y = 1 | A, X, Z).
-\item \code{mu_AMXZ}: GLM formula for estimating the outcome regression E(Y | Delta_Y = 1, A, M, X, Z).
-\item \code{eta_AXZ}: GLM formula for estimating E(mu_AMXZ pMXD / pMXZD | A, X, Z, Delta_M = 1).
-\item \code{eta_AXM}: GLM formula for estimating E(mu_AMXZ pMX/pMXZ gDY_AX/gDY_AXZ | A, M, X, Delta_Y = 1).
-\item \code{xi_AX}: GLM formula for estimating E(eta_AXZ | A, X).
-\item \code{pMX}: GLM formula for estimating p(m | a, x, Delta_Y = 1) and p(m | a, x, Delta_M = 1), assuming M follows a log normal distribution.
-\item \code{pMXZ}: GLM formula for estimating p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M = 1), assuming M follows a log normal distribution.
-}}
+- \code{gA}: GLM formula for estimating the propensity score.
+- \code{gDM}: GLM formula for estimating the probability P(Delta_M = 1 | A, X).
+- \code{gDY_AX}: GLM formula for estimating the probability P(Delta_Y = 1 | A, X).
+- \code{gDY_AXZ}: GLM formula for estimating the probability P(Delta_Y = 1 | A, X, Z).
+- \code{mu_AMXZ}: GLM formula for estimating the outcome regression E(Y | Delta_Y = 1, A, M, X, Z).
+- \code{eta_AXZ}: GLM formula for estimating E(mu_AMXZ pMXD / pMXZD | A, X, Z, Delta_M = 1).
+- \code{eta_AXM}: GLM formula for estimating E(mu_AMXZ pMX/pMXZ gDY_AX/gDY_AXZ | A, M, X, Delta_Y = 1).
+- \code{xi_AX}: GLM formula for estimating E(eta_AXZ | A, X).
+- \code{pMX}: GLM formula for estimating p(m | a, x, Delta_Y = 1) and p(m | a, x, Delta_M = 1), assuming M follows a log normal distribution.
+- \code{pMXZ}: GLM formula for estimating p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M = 1), assuming M follows a log normal distribution.}
 
 \item{HAL_pMX}{Specifies whether to estimate p(m | a, x, Delta_Y = 1) and p(m | a, x, Delta_M=1) using the highly adaptive lasso conditional density estimation method.
 Defaults to \code{TRUE}. If set to \code{FALSE}, please specify the \code{pMX} option in \code{glm_formula}, such as \code{pMX = "."}.}
@@ -89,17 +86,11 @@ Defaults to \code{TRUE}. If set to \code{FALSE}, please specify the \code{pMX} o
 Defaults to \code{TRUE}. If set to \code{FALSE}, please specify the \code{pMXZ} option in \code{glm_formula}, such as \code{pMXZ = "."}.}
 
 \item{HAL_options}{Additional options for highly adaptive lasso (HAL) method.
-\itemize{
-\item \code{max_degree}: The highest order of interaction terms for generating basis functions (passed to \code{haldensify}).
-\item \code{lambda_seq}: A numeric sequence of values for the regularization parameter of Lasso regression (passed to \code{haldensify}).
-\item \code{num_knots}: The maximum number of knot points (i.e., bins) for any covariate for generating basis functions (passed to \code{haldensify}).
-}}
+- \code{max_degree}: The highest order of interaction terms for generating basis functions (passed to \code{haldensify}).
+- \code{lambda_seq}: A numeric sequence of values for the regularization parameter of Lasso regression (passed to \code{haldensify}).
+- \code{num_knots}: The maximum number of knot points (i.e., bins) for any covariate for generating basis functions (passed to \code{haldensify}).}
 
-\item{seed}{Integer seed passed to \code{withr::local_seed()} before each SuperLearner (and cross-validated) fit; the caller's random-number state is restored on exit. Defaults to 1.}
-
-\item{gamlss_options}{Optional GAMLSS conditional-density specification (requires gamlss and gamlss.dist); see \code{moco()}. When supplied, GAMLSS replaces the HAL/GLM fits of pMX, pMXD, pMXZ and pMXZD; each is fitted once (per training fold).}
-
-\item{...}{Currently unused; included for forward compatibility.}
+\item{density_method, Delta_M_threshold, gamlss_options}{Motion density method, the threshold that defines \code{Delta_M}, and GAMLSS options. See \code{\link{moco}}.}
 }
 \value{
 A list with named entries
@@ -116,4 +107,3 @@ Non-parametric efficient motion-controlled brain phenotype estimators
 \details{
 Compute non-parametric efficient motion-controlled brain phenotype estimators (MoCo) using one-step estimation
 }
-\keyword{internal}

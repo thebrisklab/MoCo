@@ -8,12 +8,8 @@ we declare predictions from a given algorithm the same as another}
 \usage{
 tmp_method.CC_LS()
 }
-\value{
-A list with elements \code{require}, \code{computeCoef} and \code{computePred}, usable as a SuperLearner \code{method}.
-}
 \description{
 Temporary fix for convex combination method mean squared error
 Relative to existing implementation, we reduce the tolerance at which
 we declare predictions from a given algorithm the same as another
 }
-\keyword{internal}

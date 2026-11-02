@@ -17,4 +17,3 @@ A vector with NA values inserted to indicate the position of the seed region.
 \description{
 Add NA value back indicating seed position
 }
-\keyword{internal}
