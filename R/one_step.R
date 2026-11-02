@@ -13,9 +13,10 @@
 #'          If it represents other types of association measures:
 #'            Each (i, j) element denotes participant i's association measure between two brain regions of interest, such as the upper diagonal part of the functional connectivity matrix.
 #'            No NA values are allowed in \code{Y} in this case.
-#' @param Delta_M A binary vector of length n indicating whether motion is available and meets inclusion criteria. 
-#'          If motion meets inclusion criteria for analysis, set \code{Delta_M} = 1; otherwise, set \code{Delta_M} = 0.             
-#' @param thresh A numeric value used to threshold M to produce \code{Delta_M}. One can specify either \code{Delta_M} or thresh.
+#' @param Delta_M Required. A binary (0/1) vector of length n indicating whether motion is available and meets the motion quality control (QC) inclusion criteria.
+#'          Set \code{Delta_M} = 1 if the participant passes motion QC; otherwise, set \code{Delta_M} = 0.
+#'          Any QC definition can be used, e.g., a threshold on mean framewise displacement (\code{Delta_M = as.numeric(M < 0.2)}),
+#'          or criteria based on scrubbing or the number of remaining frames. \code{Delta_M} must be 0 when \code{M} is missing.
 #' @param Delta_Y A binary vector indicating the non-missingness and whether the brain image data \code{Y} passes quality control after preprocessing. 
 #'          Set \code{Delta_Y = 1} if \code{Y} is usable; otherwise, set \code{Delta_Y = 0}.
 #' 
@@ -53,9 +54,8 @@
 #'                   - \code{lambda_seq}: A numeric sequence of values for the regularization parameter of Lasso regression (passed to \code{haldensify}).
 #'                   - \code{num_knots}: The maximum number of knot points (i.e., bins) for any covariate for generating basis functions (passed to \code{haldensify}).
 #' 
-#' @param gamlss_options Optional GAMLSS conditional-density specification (requires gamlss and gamlss.dist); see \code{moco()}. When supplied, GAMLSS replaces the HAL/GLM fits of pMX, pMXD, pMXZ and pMXZD; each is fitted once (per training fold).
-#' @param seed Integer seed passed to \code{withr::local_seed()} before each SuperLearner (and cross-validated) fit; the caller's random-number state is restored on exit. Defaults to 1.
-#' @param ... Currently unused; included for forward compatibility.
+#' @param density_method,Delta_M_threshold,gamlss_options Motion density method, the threshold that defines \code{Delta_M}, and GAMLSS options. See \code{\link{moco}}.
+#' 
 #' @import SuperLearner 
 #' @import haldensify 
 #' 
@@ -66,12 +66,10 @@
 #'   \item{eif_mat}{A p-length list of the estimated EIF evaluated on the observations of the control and disease group, respectively.}
 #'   \item{cov_mat}{A p-length list of the estimated covariance matrix of the one-step estimators.}
 #' }
-#' @keywords internal
 
 one_step <- function(
     X, Z, A, M, Y, 
     Delta_M, 
-    thresh = NULL,
     Delta_Y,
     SL_library = c("SL.earth","SL.glmnet","SL.gam","SL.glm", "SL.glm.interaction", "SL.step","SL.step.interaction","SL.xgboost","SL.ranger","SL.mean"),
     SL_library_customize = list(
@@ -103,8 +101,10 @@ one_step <- function(
       lambda_seq = exp(seq(-1, -10, length = 100)), 
       num_knots = c(1000, 500, 250)
     ),
-    seed = 1, 
+    density_method = NULL,
+    Delta_M_threshold = NULL,
     gamlss_options = NULL,
+    seed = 1, 
     ...
 ){
   # number of participants
@@ -120,10 +120,6 @@ one_step <- function(
     # impute M to be all 1's for computation convenience
     M <- rep(1, n)
     # M[Delta_Y == 0] <- NA
-  }else if(!is.null(thresh)){
-    # if thresh is not null, collapse M into dummy variables based on truncated level thresh
-    Delta_M <- as.numeric(M < thresh)
-    Delta_M[is.na(M)] <- 0
   }
   
   # change X and Z to a dataframe if is a vector
@@ -138,6 +134,17 @@ one_step <- function(
 
   # non-missing motion index
   index_nomissingM <- which(!is.na(M))
+  
+  # motion density methods for pMX/pMXD and pMXZ/pMXZD: "hal", "glm" or "gamlss"
+  dens_method <- resolve_density_method(density_method, HAL_pMX, HAL_pMXZ)
+  if(dens_method["pMX"] == "glm" && is.null(glm_formula$pMX)){glm_formula$pMX <- "."}
+  if(dens_method["pMXZ"] == "glm" && is.null(glm_formula$pMXZ)){glm_formula$pMXZ <- "."}
+  if(any(dens_method == "gamlss")){
+    gg_check_packages()
+    gg_opts <- gg_check_options(gamlss_options)
+  }
+  density_log <- NULL
+  weight_diagnostics <- NULL
   
   # SL options
   if(is.null(SL_library)){
@@ -160,7 +167,7 @@ one_step <- function(
                          data = data.frame(A = A, X))
     gAn_1 <- stats::predict(gA_fit, type = "response")
   }else{
-    withr::local_seed(seed)
+    set.seed(seed)
     if(ncol(X) == 1){
       SL_gA <- SL_gA[SL_gA != "SL.glmnet"]
     }
@@ -184,7 +191,7 @@ one_step <- function(
       gDYn_1_A0XZ <- stats::predict(gDY_AXZ_fit, type = "response", newdata = data.frame(A = 0, X, Z))
       gDYn_1_A1XZ <- stats::predict(gDY_AXZ_fit, type = "response", newdata = data.frame(A = 1, X, Z))
     }else{
-      withr::local_seed(seed)
+      set.seed(seed)
       gDY_AXZ_fit <- SuperLearner::SuperLearner(Y = Delta_Y, X = data.frame(A, X, Z),
                                                 family = binomial(), 
                                                 SL.library = SL_gDY_AXZ,
@@ -203,7 +210,7 @@ one_step <- function(
                             data = data.frame(Delta_M = Delta_M, A, X))
       gDMn_1_A0 <- stats::predict(gDM_fit, type = "response", newdata = data.frame(A = 0, X))
     }else{
-      withr::local_seed(seed)
+      set.seed(seed)
       gDM_fit <- SuperLearner::SuperLearner(Y = Delta_M, X = data.frame(A, X),
                                             family = binomial(), 
                                             SL.library = SL_gDM,
@@ -221,7 +228,7 @@ one_step <- function(
                                  data = data.frame(Delta_Y = Delta_Y, A, X))
         gDYn_1_AX <- stats::predict(gDY_AX_fit, type = "response", newdata = data.frame(A, X))
       }else{
-        withr::local_seed(seed)
+        set.seed(seed)
         gDY_AX_fit <- SuperLearner::SuperLearner(Y = Delta_Y, X = data.frame(A, X),
                                                  family = binomial(), 
                                                  SL.library = SL_gDY_AX,
@@ -231,17 +238,7 @@ one_step <- function(
       }
     }
     
-    if(!is.null(gamlss_options)){
-      # GAMLSS: each density is fitted once; all rows and A values are predicted from that fit
-      gamlss_options <- .moco_gamlss_prepare(gamlss_options, X, Z, M)
-      dens <- .moco_gamlss_densities(
-        train = list(M = M, A = A, X = X, Z = Z, Delta_Y = Delta_Y, Delta_M = Delta_M),
-        valid = NULL, options = gamlss_options, label = "full data")
-      pMXn_A <- dens$pMXn_A_train; pMXDn_A0 <- dens$pMXDn_A0_train
-      pMXZn_A <- dens$pMXZn_A_train; pMXZn_A0 <- dens$pMXZn_A0_train; pMXZn_A1 <- dens$pMXZn_A1_train
-      pMXZDn_A <- dens$pMXZDn_A_train
-      gamlss_info <- dens$info
-    }else if(HAL_pMX){
+    if(dens_method["pMX"] == "hal"){
       # density estimation for mediator, conditioning on disease status and baseline covariates p(m|a,x)
       # estimate p(m|a,x) use highly adaptive lasso conditional density estimation method
       # use default n_bins range, use cv to choose number of bins
@@ -265,18 +262,34 @@ one_step <- function(
       ) 
       pMXDn_A0 <- rep(NA, n)
       pMXDn_A0[index_nomissingM] <- stats::predict(pMXD_fit, new_A = M[index_nomissingM], new_W = data.frame(A = 0, X)[index_nomissingM,], trim_min = 0)
+    }else if(dens_method["pMX"] == "gamlss"){
+      # GAMLSS generalized gamma densities p(m|a,x,Delta_Y=1) and p(m|0,x,Delta_M=1);
+      # pMXD is right-truncated at Delta_M_threshold when it is given
+      W <- data.frame(A, X)
+      im <- index_nomissingM
+      pMX_fit <- gg_component(M[Delta_Y == 1], W[Delta_Y == 1, , drop = FALSE], "pMX", gg_opts)
+      pMXn_A <- rep(NA, n)
+      pMXn_A[Delta_Y == 1] <- gg_density(pMX_fit, M[Delta_Y == 1], W[Delta_Y == 1, , drop = FALSE], gg_opts)
+      
+      pMXD_fit <- gg_component(M[Delta_M == 1], W[Delta_M == 1, , drop = FALSE], "pMXD", gg_opts, threshold = Delta_M_threshold)
+      pMXDn_A0 <- rep(NA, n)
+      pMXDn_A0[im] <- gg_density(pMXD_fit, M[im], data.frame(A = 0, X)[im, , drop = FALSE], gg_opts, zero_outside = TRUE)
+      density_log <- rbind(density_log, pMX_fit$log, pMXD_fit$log)
     }else{
       pMX_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMX), family = gaussian(), data = data.frame(log_M = log(M), A, X)[Delta_Y == 1,])
       pMXn_A <- rep(NA, n)
       pMXn_A[Delta_Y == 1] <- (1/M)[Delta_Y == 1] * dnorm(log(M)[Delta_Y == 1], mean = stats::predict(pMX_fit, newdata = data.frame(A, X)[Delta_Y == 1,]), sd = sd(pMX_fit$residuals)) 
       
       pMXD_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMX), family = gaussian(), data = data.frame(log_M = log(M), A, X)[Delta_M == 1,])
+      # evaluate the fitted density at every non-missing M (Delta_M = 0 participants included), 
+      # and set it to 0 outside the observed range of M among Delta_M = 1 (same rule as haldensify with trim_min = 0)
+      range_M_DM <- range(M[Delta_M == 1])
       pMXDn_A0 <- rep(NA, n)
-      # q = p(m | Delta_M = 1, A = 0, x) is evaluated with A = 0 at every observed M (no Delta_M = 0 zeroing)
-      pMXDn_A0[index_nomissingM] <- (1/M)[index_nomissingM] * dnorm(log(M)[index_nomissingM], mean = stats::predict(pMXD_fit, newdata = data.frame(A=0,X)[index_nomissingM,]), sd = sd(pMXD_fit$residuals)) 
+      pMXDn_A0[index_nomissingM] <- (1/M[index_nomissingM]) * dnorm(log(M[index_nomissingM]), mean = stats::predict(pMXD_fit, newdata = data.frame(A=0,X)[index_nomissingM,,drop=FALSE]), sd = sd(pMXD_fit$residuals))
+      pMXDn_A0[index_nomissingM][M[index_nomissingM] < range_M_DM[1] | M[index_nomissingM] > range_M_DM[2]] <- 0
     }
     
-    if(is.null(gamlss_options) && HAL_pMXZ){
+    if(dens_method["pMXZ"] == "hal"){
       # density estimation for mediator, conditioning on disease status, binary mediator, 
       # baseline covariates, and mediator-outcome confounder p(m|0,x,z)
       # use default n_bins range, use cv to choose number of bins
@@ -304,7 +317,23 @@ one_step <- function(
       # predict and set probability for M value out of the support to be 0
       pMXZDn_A <- rep(NA, n)
       pMXZDn_A[index_nomissingM] <- stats::predict(pMXZD_fit, new_A = M[index_nomissingM], new_W = data.frame(A, X, Z)[index_nomissingM,], trim_min = 0)
-    }else if(is.null(gamlss_options)){
+    }else if(dens_method["pMXZ"] == "gamlss"){
+      # GAMLSS generalized gamma densities p(m|a,x,z,Delta_Y=1) and p(m|a,x,z,Delta_M=1);
+      # pMXZD is right-truncated at Delta_M_threshold when it is given
+      WZ <- data.frame(A, X, Z)
+      dy <- Delta_Y == 1
+      im <- index_nomissingM
+      pMXZ_fit <- gg_component(M[dy], WZ[dy, , drop = FALSE], "pMXZ", gg_opts)
+      pMXZn_A0 <- pMXZn_A1 <- pMXZn_A <- rep(NA, n)
+      pMXZn_A[dy] <- gg_density(pMXZ_fit, M[dy], WZ[dy, , drop = FALSE], gg_opts)
+      pMXZn_A0[dy] <- gg_density(pMXZ_fit, M[dy], data.frame(A = 0, X, Z)[dy, , drop = FALSE], gg_opts)
+      pMXZn_A1[dy] <- gg_density(pMXZ_fit, M[dy], data.frame(A = 1, X, Z)[dy, , drop = FALSE], gg_opts)
+      
+      pMXZD_fit <- gg_component(M[Delta_M == 1], WZ[Delta_M == 1, , drop = FALSE], "pMXZD", gg_opts, threshold = Delta_M_threshold)
+      pMXZDn_A <- rep(NA, n)
+      pMXZDn_A[im] <- gg_density(pMXZD_fit, M[im], WZ[im, , drop = FALSE], gg_opts, zero_outside = TRUE)
+      density_log <- rbind(density_log, pMXZ_fit$log, pMXZD_fit$log)
+    }else{
       pMXZ_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMXZ), family = gaussian(), data = data.frame(log_M = log(M), A, X, Z)[Delta_Y == 1,])
       pMXZn_A0 <- pMXZn_A1 <- pMXZn_A <- rep(NA, n)
       pMXZn_A[Delta_Y == 1] <- (1/M)[Delta_Y == 1] * dnorm(log(M)[Delta_Y == 1], mean = stats::predict(pMXZ_fit, newdata = data.frame(A, X, Z)[Delta_Y == 1,]), sd = sd(pMXZ_fit$residuals))    
@@ -312,16 +341,26 @@ one_step <- function(
       pMXZn_A1[Delta_Y == 1] <- (1/M)[Delta_Y == 1] * dnorm(log(M)[Delta_Y == 1], mean = stats::predict(pMXZ_fit, newdata = data.frame(A = 1, X, Z)[Delta_Y == 1,]), sd = sd(pMXZ_fit$residuals))
       
       pMXZD_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMXZ), family = gaussian(), data = data.frame(log_M = log(M), A, X, Z)[Delta_M == 1,])
+      # evaluate the fitted density at every non-missing M; 0 outside the observed range of M among Delta_M = 1
+      range_M_DM <- range(M[Delta_M == 1])
       pMXZDn_A <- rep(NA, n)
-      # p(m | Delta_M = 1, a, x, z) is evaluated at the observed A at every observed M (no Delta_M = 0 zeroing)
-      pMXZDn_A[index_nomissingM] <- (1/M)[index_nomissingM] * dnorm(log(M)[index_nomissingM], mean = stats::predict(pMXZD_fit, newdata = data.frame(A, X, Z)[index_nomissingM,]), sd = sd(pMXZD_fit$residuals))
+      pMXZDn_A[index_nomissingM] <- (1/M[index_nomissingM]) * dnorm(log(M[index_nomissingM]), mean = stats::predict(pMXZD_fit, newdata = data.frame(A, X, Z)[index_nomissingM,,drop=FALSE]), sd = sd(pMXZD_fit$residuals))
+      pMXZDn_A[index_nomissingM][M[index_nomissingM] < range_M_DM[1] | M[index_nomissingM] > range_M_DM[2]] <- 0
     }
+  }
+  
+  # density-ratio weights pMXD / pMXZ that enter the efficient influence function
+  if(M_indicator){
+    weight_diagnostics <- rbind(
+      A0 = weight_summary((pMXDn_A0 / pMXZn_A0)[Delta_Y == 1 & A == 0]),
+      A1 = weight_summary((pMXDn_A0 / pMXZn_A1)[Delta_Y == 1 & A == 1])
+    )
   }
   
   # define parameters for storing results
   est <- matrix(nrow = 2, ncol = p)
-  eif_mat <- list(p)
-  cov_mat <- list(p)
+  eif_mat <- vector("list", p)
+  cov_mat <- vector("list", p)
   for(j in 1:p){
     # fit outcome regression
     mu_MXZn_A0 <- mu_MXZn_A1 <- mu_MXZn_A <- rep(NA, n)
@@ -332,7 +371,7 @@ one_step <- function(
       mu_MXZn_A1 <- stats::predict(mu_AMXZ_fit, newdata = data.frame(A = 1, M, X, Z))
       mu_MXZn_A <- stats::predict(mu_AMXZ_fit, newdata = data.frame(A, M, X, Z))
     }else{
-      withr::local_seed(seed)
+      set.seed(seed)
       mu_AMXZ_fit <- SuperLearner::SuperLearner(Y = Y[Delta_Y==1,j], X = data.frame(A, M, X, Z)[Delta_Y==1,],
                                                 family = gaussian(), 
                                                 SL.library = SL_mu_AMXZ,
@@ -353,7 +392,7 @@ one_step <- function(
         eta_AXZn_A0 <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A = 0, X, Z))
         eta_AXZn_A1 <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A = 1, X, Z))
       }else{
-        withr::local_seed(seed)
+        set.seed(seed)
         eta_AXZ_fit <- SuperLearner::SuperLearner(Y = mu_pseudo_A[Delta_M==1], X = data.frame(A, X, Z)[Delta_M==1,],
                                                   family = gaussian(),
                                                   SL.library = SL_eta_AXZ,
@@ -373,7 +412,7 @@ one_step <- function(
         eta_AXMn_A0 <- stats::predict(eta_AXM_fit, newdata = data.frame(A = 0, M, X))
         eta_AXMn_A1 <- stats::predict(eta_AXM_fit, newdata = data.frame(A = 1, M, X))
       }else if(!is.null(SL_eta_AXM)){
-        withr::local_seed(seed)
+        set.seed(seed)
         eta_AXMn_A0 <- eta_AXMn_A1 <- rep(NA, n)
         # since observations with Delta_M=0 will not be considered in the next step
         # so add restrictions here to better depict data with Delta_M=1 # [Delta_M==1]
@@ -385,10 +424,14 @@ one_step <- function(
         eta_AXMn_A0[index_nomissingM] <- stats::predict(eta_AXM_fit, type = "response", newdata = data.frame(A = 0, M, X)[index_nomissingM,])[[1]]
         eta_AXMn_A1[index_nomissingM] <- stats::predict(eta_AXM_fit, type = "response", newdata = data.frame(A = 1, M, X)[index_nomissingM,])[[1]]
       }else{
-        withr::local_seed(seed)
+        if(!requireNamespace("hal9001", quietly = TRUE)){
+          stop("Package 'hal9001' is required when no SuperLearner library or glm formula is given for eta_AXM.")
+        }
+        set.seed(seed)
+        eta_AXMn_A0 <- eta_AXMn_A1 <- rep(NA, n)
         eta_AXM_fit <- hal9001::fit_hal(X = data.frame(A, M, X)[Delta_Y == 1,], Y = mu_pseudo_A_star[Delta_Y == 1]) 
-        eta_AXMn_A0 <- stats::predict(eta_AXM_fit, new_data = data.frame(A = 0, M, X))
-        eta_AXMn_A1 <- stats::predict(eta_AXM_fit, new_data = data.frame(A = 1, M, X))
+        eta_AXMn_A0[index_nomissingM] <- stats::predict(eta_AXM_fit, new_data = data.frame(A = 0, M, X)[index_nomissingM,,drop=FALSE])
+        eta_AXMn_A1[index_nomissingM] <- stats::predict(eta_AXM_fit, new_data = data.frame(A = 1, M, X)[index_nomissingM,,drop=FALSE])
       }
     }else{
       eta_AXZn_A = mu_MXZn_A
@@ -401,7 +444,7 @@ one_step <- function(
       xi_AXn_A0 <- stats::predict(xi_fit, newdata = data.frame(A = 0, X))
       xi_AXn_A1 <- stats::predict(xi_fit, newdata = data.frame(A = 1, X))
     }else{
-      withr::local_seed(seed)
+      set.seed(seed)
       xi_fit <- SuperLearner::SuperLearner(Y = eta_AXZn_A, X = data.frame(A, X),
                                            family = gaussian(),
                                            SL.library = SL_xi_AX,
@@ -450,9 +493,10 @@ one_step <- function(
   out <- list(est = est,
               adj_association = adj_association,
               eif_mat = eif_mat,
-              cov_mat = cov_mat
+              cov_mat = cov_mat,
+              density_log = density_log,
+              weight_diagnostics = weight_diagnostics
   )
-  if(!is.null(gamlss_options) && M_indicator) out$gamlss_info <- gamlss_info
   
   return(out)
 }

@@ -13,9 +13,10 @@
 #'          If it represents other types of association measures:
 #'            Each (i, j) element denotes participant i's association measure between two brain regions of interest, such as the upper diagonal part of the functional connectivity matrix.
 #'            No NA values are allowed in \code{Y} in this case.
-#' @param Delta_M A binary vector of length n indicating whether motion is available and meets inclusion criteria. 
-#'          If motion meets inclusion criteria for analysis, set \code{Delta_M} = 1; otherwise, set \code{Delta_M} = 0.             
-#' @param thresh A numeric value used to threshold M to produce \code{Delta_M}. One can specify either \code{Delta_M} or thresh.
+#' @param Delta_M Required. A binary (0/1) vector of length n indicating whether motion is available and meets the motion quality control (QC) inclusion criteria.
+#'          Set \code{Delta_M} = 1 if the participant passes motion QC; otherwise, set \code{Delta_M} = 0.
+#'          Any QC definition can be used, e.g., a threshold on mean framewise displacement (\code{Delta_M = as.numeric(M < 0.2)}),
+#'          or criteria based on scrubbing or the number of remaining frames. \code{Delta_M} must be 0 when \code{M} is missing.
 #' @param Delta_Y A binary vector indicating the non-missingness and whether the brain image data \code{Y} passes quality control after preprocessing. 
 #'          Set \code{Delta_Y = 1} if \code{Y} is usable; otherwise, set \code{Delta_Y = 0}.
 #' 
@@ -54,26 +55,38 @@
 #'                   - \code{lambda_seq}: A numeric sequence of values for the regularization parameter of Lasso regression.
 #'                   - \code{num_knots}: The maximum number of knot points (i.e., bins) for any covariate for generating basis functions.
 #' 
-#' @param gamlss_options Optional GAMLSS conditional-density specification (requires the gamlss and gamlss.dist packages). Defaults to \code{NULL} (HAL/GLM as before).
-#'                   When supplied, GAMLSS replaces HAL/GLM for all four motion densities: pMX = p(m | a, x) and pMXZ = p(m | a, x, z) are fitted on \code{Delta_Y = 1};
-#'                   pMXD = p(m | Delta_M = 1, a, x) and pMXZD = p(m | Delta_M = 1, a, x, z) are fitted on \code{Delta_M = 1}. pMXD (at A = 0) and pMXZD (at the observed A) are evaluated at every observed M,
-#'                   with no zeroing where \code{Delta_M = 0}; pMXZ is evaluated at the observed A, A = 0 and A = 1 on \code{Delta_Y = 1}. Each density is fitted once per training fold. A list with (all optional):
-#'                   - \code{family}: a gamlss.dist family name (e.g. "LOGNO", "GG", "BCPEo"), family function or family object, or a list by role (\code{pMX}, \code{pMXD}, \code{pMXZ}, \code{pMXZD}) with \code{default}. It must be continuous on (0, Inf); default "GG". All observed M must be > 0.
-#'                   - \code{formulas}: list of \code{mu}, \code{sigma}, \code{nu}, \code{tau}, each a formula, a string, or a keyword: "linear" (A, X and, for pMXZ/pMXZD, Z entering linearly), "pb" (the same with \code{pb()} on numeric columns with at least \code{continuous_min_unique} = 10 distinct values) or "1" (intercept only). A "." expands to all available columns. Per-role lists are allowed, e.g. \code{list(mu = "pb", pMXD = list(sigma = "1"))}. Defaults: mu "linear", others "1".
-#'                   - \code{method}: gamlss fitting algorithm, e.g. "RS()" (default), "CG()", "mixed(1, 50)" (string or call).
-#'                   - \code{control}: list of \code{gamlss.control()} arguments (e.g. \code{n.cyc}, \code{c.crit}, \code{trace}); \code{n.cyc} defaults to 200 and \code{trace} to FALSE. \code{i.control}: list of \code{glim.control()} arguments.
-#'                   - \code{weights}, \code{mu.start}, \code{sigma.start}, \code{nu.start}, \code{tau.start}: scalars or length-n vectors (subset to each fold's fit rows); \code{mu.fix}, \code{sigma.fix}, \code{nu.fix}, \code{tau.fix}: logical.
-#'                   - \code{args}: named list of any further arguments forwarded to \code{gamlss::gamlss()}.
-#'                   - \code{start}: "auto" (default; Box-Cox families BCCG(o)/BCPE(o)/BCT(o) start from the LOGNO fit) or "default". \code{retry}: TRUE (default; on failure or non-convergence refit from the sigma ~ 1 fit, then with CG(), then with RS() if another method was requested) or FALSE.
-#'                   - \code{clamp}: TRUE (default; continuous covariates of prediction rows are clamped to that density's training range) or FALSE. \code{on_nonconvergence}: "stop" (default) or "warn".
-#'                   - \code{pMX}, \code{pMXD}, \code{pMXZ}, \code{pMXZD}: per-role override lists with any of the entries above, e.g. \code{pMXD = list(family = "BCTo", method = "CG()", control = list(n.cyc = 400))}.
-#'                   Per-fold, per-role fit summaries (family, formulas, deviance, AIC, convergence, method, clamping) are returned as \code{gamlss_info}.
-#' @param cross_fit Logical indicating whether to develop the estimator based on cross-fitting. Defaults to TRUE.
+#' @param density_method Method for the motion densities p(m | a, x, Delta), with Delta = Delta_Y or Delta_M, and p(m | a, x, z, Delta): 
+#'          \code{"glm"} (log-normal regression, using \code{glm_formula$pMX} and \code{glm_formula$pMXZ}, default \code{"."}),
+#'          \code{"hal"} (highly adaptive lasso, \code{haldensify}), or \code{"gamlss"} (generalized gamma GAMLSS, see \code{gamlss_options}).
+#'          A length-2 vector \code{c(pMX = , pMXZ = )} sets the two density families separately.
+#'          Defaults to \code{NULL}, which keeps the behavior of \code{HAL_pMX} and \code{HAL_pMXZ}.
+#' @param Delta_M_threshold Used only with \code{density_method = "gamlss"}. When \code{Delta_M = as.numeric(M < c)}, set \code{Delta_M_threshold = c}:
+#'          p(m | a, x, Delta_M = 1) and p(m | a, x, z, Delta_M = 1) are then fitted with a generalized gamma right-truncated at c (see \code{\link{GGtr}}),
+#'          and set to 0 for M >= c. Defaults to \code{NULL} (Delta_M is not a cut on M; an ordinary generalized gamma is fitted on the Delta_M = 1 participants
+#'          and set to 0 outside their range of M). With \code{NULL}, MoCo warns when Delta_M looks like a threshold on M.
+#' @param gamlss_options Options for \code{density_method = "gamlss"} (requires the suggested packages \code{gamlss} and \code{gamlss.dist}). Entries left out take their defaults:
+#'                   - \code{family}: \code{"GG"} (generalized gamma; the only family currently supported).
+#'                   - \code{mu}: \code{"linear"} (all covariates entered linearly, default), \code{"smooth"} (continuous covariates entered as \code{pb()} P-splines, the others linearly), or a one-sided formula.
+#'                   - \code{sigma}: \code{"linear"} (default), \code{"smooth"}, \code{"1"} (constant), \code{"A"} (group only), or a one-sided formula.
+#'                   - \code{nu}: \code{"1"} (constant nu, estimated; default) or \code{0} (nu fixed at 0, i.e. the log-normal distribution).
+#'                   - \code{smooth}: names of the continuous covariates that get \code{pb()} when \code{mu} or \code{sigma} is \code{"smooth"}.
+#'                     \code{NULL} (default) uses every numeric covariate with more than 10 distinct values.
+#'                   - \code{formula}: optional \code{list(pMX =, pMXD =, pMXZ =, pMXZD =)}, each a \code{list(mu =, sigma =, nu =)} of one-sided formulas (nu may be \code{0}); overrides the settings above for that density.
+#'                   - \code{method}: algorithms tried in order until one converges, any of \code{"RS"}, \code{"CG"}, \code{"mixed"}. Default \code{c("RS", "CG", "mixed")}.
+#'                   - \code{n.cyc}, \code{c.crit}: maximum number of outer cycles (default 500) and convergence criterion (default 0.001), passed to \code{gamlss.control}.
+#'                   - \code{nu0_fallback}: if no algorithm converges with nu estimated, refit with nu fixed at 0. Default \code{TRUE}. If that also fails, the GLM log-normal density is used for that component, with a warning.
+#'                   - \code{clamp}: clamp continuous covariates to their training range before prediction. Default \code{FALSE}.
+#'                   - \code{trace}: print the gamlss iterations. Default \code{FALSE}.
+#' 
 #' @param cv_folds Number of folds used for cross-fitting when \code{cross_fit = TRUE}. Defaults to 5.
-#' @param ... Currently unused; additional arguments are ignored.
+#' @param cross_fit Logical indicating whether to develop the estimator based on cross-fitting. Defaults to TRUE.
 #' @param test Logical indicating whether to conduct hypothesis testing based on simultaneous confidence band. Defaults to TRUE.
 #' @param fwer A vector of family-wise error rates (FWER) to control for multiple hypothesis testing. Defaults to c(0.05). Set to NULL if test is FALSE.
-#' @param seed_rng Specifies the value of seed(s) for nuisance regression calculation using super learner. Can be a vector. Defaults to value 1. 
+#' @param hypo_method Critical-value simulation: "mvn" (default) or "multiplier".
+#' @param hypo_n_sim Number of Gaussian draws for the simultaneous test.
+#' @param hypo_chunk_size Draws processed per simulation batch.
+#' @param hypo_seed Critical-value simulation seed, separate from nuisance seeds.
+#' @param seed_rng Specifies the value of seed(s) for nuisance regression calculation using super learner. Can be a vector. Defaults to value 1. When several seeds are given, the full analysis is run once per seed; the estimates and the participant-level efficient influence functions are averaged across seeds, the covariance is recomputed from the averaged efficient influence functions, and one simultaneous test is conducted across all outcomes in \code{Y}.
 #' 
 #' @import SuperLearner 
 #' @import haldensify 
@@ -84,46 +97,17 @@
 #'   \item{est}{A two times p matrix showing the one-step estimators of the control group and the disease group for each functional connectivity of interest, respectively.}
 #'   \item{adj_association}{A p-length vector showing the motion-adjusted association for each functional connectivity of interest, respectively.}
 #'   \item{z_score}{A p-length vector of z_score for each functional connectivity if \code{test} is TRUE.}
-#'   \item{fwer_critical_value}{Simultaneous confidence band based on specified FWER.}
-#'   \item{gamlss_info}{Only when \code{gamlss_options} is supplied: a data frame with one row per seed, fold and density role summarising the GAMLSS fits.}
+#'   \item{fwer_critical_value}{Critical value(s) of the simultaneous confidence band (the (1 - FWER) quantile of the maximum absolute z-statistic) for each specified FWER.}
 #'   \item{significant_regions}{A p-length vector of TRUE or FALSE, indicating significance for each functional connectivity if \code{test} is TRUE.}
+#'   \item{density_log}{With \code{density_method = "gamlss"}: one row per seed, fold and density with the algorithm used, whether nu was fixed at 0, truncation, convergence, iterations, the fitted nu, the sample size, and whether a fallback was needed. \code{NULL} otherwise.}
+#'   \item{weight_diagnostics}{One row per seed and group (A0, A1) with the number, maximum and effective-sample-size ratio of the density-ratio weights pMXD / pMXZ in the efficient influence function. MoCo warns when an effective-sample-size ratio is below 0.1.}
 #' }
 #' 
-#' @examples
-#' data(data)
-#' # Fast illustration: log-normal GLM motion densities and a small library
-#' fit <- moco(
-#'   X = data$X, Z = data$Z, A = data$A, M = data$M, Y = data$Y,
-#'   Delta_M = data$Delta_M, Delta_Y = data$Delta_Y,
-#'   SL_library = c("SL.mean", "SL.glm"),
-#'   glm_formula = list(pMX = ".", pMXZ = "."),
-#'   HAL_pMX = FALSE, HAL_pMXZ = FALSE,
-#'   cross_fit = FALSE, test = TRUE, fwer = 0.05
-#' )
-#' fit$adj_association
-#' fit$significant_regions
-#'
-#' \donttest{
-#' # GAMLSS motion densities: generalized gamma by default, log-normal for the
-#' # two densities fitted on Delta_M = 1
-#' fit_gamlss <- moco(
-#'   X = data$X, Z = data$Z, A = data$A, M = data$M, Y = data$Y,
-#'   Delta_M = data$Delta_M, Delta_Y = data$Delta_Y,
-#'   SL_library = c("SL.mean", "SL.glm"),
-#'   gamlss_options = list(
-#'     family = list(default = "GG", pMXD = "LOGNO", pMXZD = "LOGNO")
-#'   ),
-#'   cross_fit = FALSE, test = TRUE, fwer = 0.05
-#' )
-#' fit_gamlss$adj_association
-#' }
-#'
 #' @export
 
 moco <- function(
   X, Z, A, M, Y, 
   Delta_M, 
-  thresh = NULL,
   Delta_Y,
   SL_library = c("SL.earth","SL.glmnet","SL.gam","SL.glm", "SL.glm.interaction", "SL.step","SL.step.interaction","SL.xgboost","SL.ranger","SL.mean"),
   SL_library_customize = list(
@@ -149,14 +133,29 @@ moco <- function(
   HAL_pMX = TRUE,
   HAL_pMXZ = TRUE,
   HAL_options = list(max_degree = 3, lambda_seq = exp(seq(-1, -10, length = 100)), num_knots = c(1000, 500, 250)),
+  density_method = NULL,
+  Delta_M_threshold = NULL,
+  gamlss_options = NULL,
   cross_fit = TRUE,
   cv_folds = 5,
   test = TRUE,
   fwer = 0.05, 
   seed_rng = 1, 
-  gamlss_options = NULL,
+  hypo_method = "mvn",
+  hypo_n_sim = 100000L,
+  hypo_chunk_size = 1000L,
+  hypo_seed = 1,
   ...
 ){
+  
+  # arguments that were renamed or removed in this version
+  dots <- names(list(...))
+  if("thresh" %in% dots){
+    stop("The argument 'thresh' has been removed. Please define Delta_M directly, e.g., Delta_M = as.numeric(M < 0.2).")
+  }
+  if("seed_rgn" %in% dots){
+    stop("The argument 'seed_rgn' has been renamed to 'seed_rng'.")
+  }
   
   # total number of runs for handling Monte Carlo variability
   r <- length(seed_rng)
@@ -170,6 +169,48 @@ moco <- function(
   if(is.null(dim(Y))){
     Y <- as.matrix(Y)
   }
+  n <- nrow(Y)
+  
+  # check Delta_M: required for every definition of motion quality control
+  if(missing(Delta_M) || is.null(Delta_M)){
+    stop("Delta_M is required. Please provide a 0/1 vector indicating whether each participant passes motion quality control.")
+  }
+  if(length(Delta_M) != n){
+    stop("Delta_M must have length n = nrow(Y).")
+  }
+  if(any(is.na(Delta_M)) || !all(Delta_M %in% c(0, 1))){
+    stop("Delta_M must be a 0/1 vector without missing values.")
+  }
+  
+  # check Delta_Y
+  if(length(Delta_Y) != n){
+    stop("Delta_Y must have length n = nrow(Y).")
+  }
+  if(any(is.na(Delta_Y)) || !all(Delta_Y %in% c(0, 1))){
+    stop("Delta_Y must be a 0/1 vector without missing values.")
+  }
+  
+  # check M: missing motion is only allowed for participants with Delta_M = 0 and Delta_Y = 0
+  if(!is.null(M)){
+    if(length(M) != n){
+      stop("M must have length n = nrow(Y).")
+    }
+    if(any(is.na(M) & Delta_M == 1)){
+      stop("Delta_M = 1 for participants with missing M. Delta_M must be 0 when M is missing.")
+    }
+    if(any(is.na(M) & Delta_Y == 1)){
+      stop("Delta_Y = 1 for participants with missing M. Participants with usable Y must have observed M.")
+    }
+  }
+  
+  # motion density method and the threshold that defines Delta_M
+  dens_method <- resolve_density_method(density_method, HAL_pMX, HAL_pMXZ)
+  uses_gamlss <- !is.null(M) && any(dens_method == "gamlss")
+  if(uses_gamlss){
+    gg_check_packages()
+    gg_check_options(gamlss_options)
+  }
+  Delta_M_threshold <- check_Delta_M_threshold(Delta_M_threshold, M, Delta_M, uses_gamlss)
   
   # seed position
   seed_position <- which(apply(Y, 2, function(x){
@@ -178,74 +219,88 @@ moco <- function(
   
   if(length(seed_position) != 0){
     # remove NA column for subsequent calculation
-    Y <- Y[, -seed_position]
+    Y <- Y[, -seed_position, drop = FALSE]
+  }
+  
+  # check Y: participants with Delta_Y = 1 must have observed Y
+  if(any(is.na(Y[Delta_Y == 1, , drop = FALSE]))){
+    stop("Y has missing values for participants with Delta_Y = 1. Set Delta_Y = 0 for participants with unusable Y.")
   }
   
   # create matrix and vector for storing fitting results
   est <- list()
-  gamlss_info <- list()
   adj_association <- matrix(nrow = r, ncol = ncol(Y))
   
-  # create matrix and vector for storing information from hypothesis testing
-  if(test){
-    # matrix for storing z_score
-    z_score_mat <- matrix(nrow = r, ncol = ncol(Y))
-    # number of fwer under consideration
-    n_fwer <- length(fwer)
-    # vector for storing confidence band
-    fwer_critical_value <- matrix(nrow = r, ncol = n_fwer)
-  }
+  # running sum of the participant-level efficient influence functions across runs
+  eif_sum <- NULL
+  
+  # density fit log and density-ratio weight diagnostics across runs
+  density_log <- NULL
+  weight_diagnostics <- NULL
   
   for(i in 1:r){
     
     # whether to use cross-fit or not
     if(cross_fit){
       result <- one_step_cross(
-        X, Z, A, M, Y, 
-        Delta_M, 
-        thresh,
-        Delta_Y,
-        SL_library,
-        SL_library_customize,
-        glm_formula,
-        HAL_pMX,
-        HAL_pMXZ,
-        HAL_options,
+        X = X, Z = Z, A = A, M = M, Y = Y, 
+        Delta_M = Delta_M, 
+        Delta_Y = Delta_Y,
+        SL_library = SL_library,
+        SL_library_customize = SL_library_customize,
+        glm_formula = glm_formula,
+        HAL_pMX = HAL_pMX,
+        HAL_pMXZ = HAL_pMXZ,
+        HAL_options = HAL_options,
+        density_method = density_method,
+        Delta_M_threshold = Delta_M_threshold,
+        gamlss_options = gamlss_options,
         seed = seed_rng[i], 
-        cv_folds,
-        gamlss_options = gamlss_options
+        cv_folds = cv_folds
       )
     }else{
       result <- one_step(
-        X, Z, A, M, Y, 
-        Delta_M, 
-        thresh,
-        Delta_Y,
-        SL_library,
-        SL_library_customize,
-        glm_formula,
-        HAL_pMX,
-        HAL_pMXZ,
-        HAL_options,
-        seed = seed_rng[i],
-        gamlss_options = gamlss_options
+        X = X, Z = Z, A = A, M = M, Y = Y, 
+        Delta_M = Delta_M, 
+        Delta_Y = Delta_Y,
+        SL_library = SL_library,
+        SL_library_customize = SL_library_customize,
+        glm_formula = glm_formula,
+        HAL_pMX = HAL_pMX,
+        HAL_pMXZ = HAL_pMXZ,
+        HAL_options = HAL_options,
+        density_method = density_method,
+        Delta_M_threshold = Delta_M_threshold,
+        gamlss_options = gamlss_options,
+        seed = seed_rng[i]
       )
     }
     
     # store estimation results
     est <- c(est, list(result$est))
     adj_association[i,] <- result$adj_association
-    if(!is.null(result$gamlss_info)) gamlss_info[[i]] <- cbind(seed = seed_rng[i], result$gamlss_info)
-    
-    # conduct hypothesis testing based on simultaneous confidence band
-    if(test){
-      
-      hypo <- hypo_test(result, fwer = fwer)
-      
-      # store z_score and confidence band
-      z_score_mat[i,] <- hypo$z_score
-      fwer_critical_value[i,] <- hypo$fwer_critical_value
+    if(!is.null(result$density_log)){
+      density_log <- rbind(density_log, data.frame(seed = seed_rng[i], result$density_log, row.names = NULL))
     }
+    if(!is.null(result$weight_diagnostics)){
+      weight_diagnostics <- rbind(weight_diagnostics, data.frame(seed = seed_rng[i], group = rownames(result$weight_diagnostics),
+                                                                 result$weight_diagnostics, row.names = NULL))
+    }
+    
+    # accumulate participant-level efficient influence functions for hypothesis testing
+    if(test){
+      if(is.null(eif_sum)){
+        eif_sum <- result$eif_mat
+      }else{
+        eif_sum <- Map(`+`, eif_sum, result$eif_mat)
+      }
+    }
+  }
+  
+  # flag unstable density-ratio weights
+  if(!is.null(weight_diagnostics) && any(weight_diagnostics$ess_ratio < 0.1, na.rm = TRUE)){
+    warning("The effective-sample-size ratio of the density-ratio weights pMXD / pMXZ is below 0.1 for at least one group and seed ",
+            "(see weight_diagnostics). The motion density models may be too flexible or misspecified.", call. = FALSE)
   }
   
   # merge multi-run estimation results
@@ -258,43 +313,57 @@ moco <- function(
   
   # motion-controlled association
   adj_association <- colMeans(adj_association)
+  
+  if(test){
+    # average the participant-level efficient influence functions across runs,
+    # recompute their covariance, and conduct one simultaneous test across all outcomes
+    eif_avg <- lapply(eif_sum, function(x){x / r})
+    cov_avg <- lapply(eif_avg, function(x){stats::cov(x) / nrow(x)})
+    hypo <- hypo_test(
+      list(adj_association = adj_association, eif_mat = eif_avg, cov_mat = cov_avg), 
+      fwer = fwer, seed = hypo_seed, method = hypo_method,
+      n_sim = hypo_n_sim, chunk_size = hypo_chunk_size
+    )
+    
+    z_score <- hypo$z_score
+    if(length(seed_position) != 0){
+      z_score <- add_NA(z_score, seed_position)
+    }
+    fwer_critical_value <- hypo$fwer_critical_value
+    
+    # regions with significant associations
+    n_fwer <- length(fwer)
+    if(n_fwer == 1){
+      significant_regions <- (abs(z_score) > fwer_critical_value)
+    }else{
+      significant_regions <- matrix(nrow = n_fwer, ncol = length(z_score))
+      for(j in 1:n_fwer){
+        significant_regions[j,] <- (abs(z_score) > fwer_critical_value[j])
+      }
+    }
+  }
+  
   if(length(seed_position) != 0){
     adj_association <- add_NA(adj_association, seed_position)
   }
   
   if(test){
-    # calculate z_score average across runs
-    z_score <- colMeans(z_score_mat)
-    if(length(seed_position) != 0){
-      z_score <- add_NA(z_score, seed_position)
-    }
-    # calculate average confidence band
-    fwer_critical_value_avg <- colMeans(fwer_critical_value)
-    
-    # regions with significant associations
-    if(n_fwer == 1){
-      significant_regions <- (abs(z_score) > fwer_critical_value_avg)
-    }else{
-      significant_regions <- matrix(nrow = n_fwer, ncol = length(z_score))
-      for(j in 1:n_fwer){
-        significant_regions[j,] <- (abs(z_score) > fwer_critical_value_avg[j])
-      }
-    }
-    
-    out <- list(
+    return(list(
       est = est,
       adj_association = adj_association,
       z_score = z_score,
-      fwer_critical_value = fwer_critical_value_avg,
-      significant_regions = significant_regions)
-    if(length(gamlss_info)) out$gamlss_info <- do.call(rbind, gamlss_info)
-    return(out)
+      fwer_critical_value = fwer_critical_value,
+      significant_regions = significant_regions,
+      density_log = density_log,
+      weight_diagnostics = weight_diagnostics)
+    )
   }
   
-  out <- list(
+  return(list(
     est = est,
-    adj_association = adj_association)
-  if(length(gamlss_info)) out$gamlss_info <- do.call(rbind, gamlss_info)
-  return(out)
+    adj_association = adj_association,
+    density_log = density_log,
+    weight_diagnostics = weight_diagnostics)
+  )
 }
 

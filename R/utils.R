@@ -2,21 +2,18 @@
 #'
 #' @param a Either 0 or 1.
 #' @param A A binary vector of length n \code{number of participants} representing the diagnosis status.
-#' @param Delta_Y A binary vector indicating whether the brain image data \code{Y} is usable (non-missing and passes quality control).
-#' @param Delta_M A binary vector indicating whether motion is available and meets inclusion criteria.
+#' @param Delta A binary vector indicating data usability, such as whether data pass a motion criteria.
 #' @param Y A vector of continuous outcome of interest.
-#' @param gA Estimate of P(A = a | X_i), i = 1,...,n.
-#' @param gDM Estimate of P(Delta_M = 1 | A_i = 0, X_i), i = 1,...,n.
-#' @param gDY_AXZ Estimate of P(Delta_Y = 1 | A_i = a, X_i, Z_i), i = 1,...,n.
-#' @param eta_AXZ Estimate of E(mu_pseudo_A | A_i, Delta_M = 1, X_i, Z_i).
+#' @param gA Estimate of P(A = 1 | X_i), i = 1,...,n.
+#' @param gD Estimate of P(Delta = 1 | A_i, X_i), i = 1,...,n.
+#' @param eta_AXZ Estimate of E(mu_pseudo_A | A_i, Delta_i, X_i).
 #' @param eta_AXM Estimate of E(mu_pseudo_A_star | A_i, M_i, X_i).
-#' @param xi_AX Estimate of E(eta_AXZ | A_i, X_i).
+#' @param xi_AX Estimate of E(eta_AXZ | A_i, Delta_i, X_i).
 #' @param mu Estimate of E(Y| A_i, M_i, X_i, Z_i).
-#' @param pMXD Estimate of p(M | A = 0, Delta_M = 1, X_i).
+#' @param pMX Estimate of p(M | 0, Delta_i = 1, X_i).
 #' @param pMXZ Estimate of p(M | A_i, X_i, Z_i).
 #'
 #' @return An n-length vector of the estimated EIF evaluated on the observations.
-#' @keywords internal
 
 make_full_data_eif <- function(a, A, Delta_Y, Delta_M, Y, gA, gDM, gDY_AXZ, eta_AXZ, eta_AXM, xi_AX, mu, pMXD, pMXZ){
   ipw_a <- as.numeric(A == a)/gA
@@ -54,13 +51,11 @@ make_full_data_eif_easy <- function(a, A, Delta_Y, Y, gA, gDY_AXZ, xi_AX, mu) {
 #' @param vec A vector indicating the MoCo estimates, adjusted association, z-scores, or significant regions.
 #' @param seed_position Position indicator of where the seed region is.
 #' @return A vector with NA values inserted to indicate the position of the seed region.
-#' @keywords internal
 
 add_NA <- function(vec, seed_position){
-  if(seed_position == (length(vec) + 1)){
-    vec <- c(vec[1:(seed_position-1)], NA)
-  }else{
-    vec <- c(vec[1:(seed_position-1)], NA, vec[seed_position:length(vec)])
+  # insert NA at each seed position (positions refer to the original column indices of Y)
+  for(pos in sort(seed_position)){
+    vec <- append(vec, NA, after = pos - 1)
   }
   
   return(vec)
@@ -69,8 +64,6 @@ add_NA <- function(vec, seed_position){
 #' Temporary fix for convex combination method mean squared error
 #' Relative to existing implementation, we reduce the tolerance at which
 #' we declare predictions from a given algorithm the same as another
-#' @return A list with elements \code{require}, \code{computeCoef} and \code{computePred}, usable as a SuperLearner \code{method}.
-#' @keywords internal
 tmp_method.CC_LS <- function() {
   computeCoef <- function(Z, Y, libraryNames, verbose, obsWeights,
                           errorsInLibrary = NULL, ...) {
@@ -166,8 +159,6 @@ tmp_method.CC_LS <- function() {
 #' we declare predictions from a given algorithm the same as another.
 #' Note that because of the way \code{SuperLearner} is structure, one needs to
 #' install the optimization software separately.
-#' @return A list with elements \code{require}, \code{computeCoef} and \code{computePred}, usable as a SuperLearner \code{method}.
-#' @keywords internal
 tmp_method.CC_nloglik <- function() {
   computePred <- function(predY, coef, control, ...) {
     if (sum(coef != 0) == 0) {
@@ -243,7 +234,7 @@ tmp_method.CC_nloglik <- function() {
         out
       }
     )
-    if (r$status < 1 || r$status > 4) {
+    if (!inherits(r, "error") && (r$status < 1 || r$status > 4)) {
       warning(r$message)
     }
     if (!inherits(r, "error")) {
