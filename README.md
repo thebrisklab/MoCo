@@ -15,8 +15,8 @@ continuous brain phenotypes.
 ## Highlights
 
 - A single high-level function, `moco()`, supports HAL, log-normal GLM, and
-  GAMLSS models (generalized gamma, right-truncated when `Delta_M` is a
-  threshold on motion) for conditional motion densities.
+  GAMLSS models (generalized gamma, right-truncated at `Delta_M_threshold`
+  when `Delta_M` is a threshold on motion) for conditional motion densities.
 - Nuisance regressions can be estimated with Super Learner or user-specified
   GLMs.
 - Cross-fitting and repeated cross-fitting are supported; repeated seeds are
@@ -41,116 +41,79 @@ Then load the package:
 library(MoCo)
 ```
 
-Core dependencies, including `haldensify`, are installed with MoCo. The GAMLSS
-motion densities (`density_method = "gamlss"`) additionally require the
-suggested packages `gamlss` and `gamlss.dist`:
+Core dependencies, including `SuperLearner`, `haldensify`, `gamlss`, and
+`gamlss.dist`, are installed with MoCo. The default Super Learner library
+(`SL_library`) also uses `SL.earth`, `SL.gam`, `SL.glmnet`, `SL.ranger`, and
+`SL.xgboost`, whose packages are suggested rather than required. Install them
+before running `moco()` with the default library:
 
 ```r
-install.packages(c("gamlss", "gamlss.dist"))
+install.packages(c("earth", "gam", "glmnet", "ranger", "xgboost"))
 ```
 
-Packages corresponding to optional Super Learner
-wrappers—such as `glmnet`, `ranger`, and `xgboost`—are needed only when those
-learners are requested. Surface plotting additionally requires `ciftiTools`
-and Connectome Workbench.
+They are not needed when `SL_library` contains only other learners, for
+example `c("SL.mean", "SL.glm")`. Surface plotting additionally requires
+`ciftiTools` and Connectome Workbench.
 
-## Quick start
+## Description of the main function
 
-The bundled example data `moco_example` can be used for a lightweight GLM-based analysis:
-
-```r
-library(MoCo)
-data(moco_example)
-
-fit_glm <- moco(
-  X = moco_example$X,
-  Z = moco_example$Z,
-  A = moco_example$A,
-  M = moco_example$M,
-  Y = moco_example$Y,
-  Delta_M = moco_example$Delta_M,
-  Delta_Y = moco_example$Delta_Y,
-  HAL_pMX = FALSE,
-  HAL_pMXZ = FALSE,
-  glm_formula = list(pMX = ".", pMXZ = "."),
-  SL_library = c("SL.mean", "SL.glm", "SL.glm.interaction"),
-  cross_fit = TRUE,
-  cv_folds = 5,
-  seed_rng = 1,
-  test = TRUE,
-  fwer = 0.05
-)
-
-fit_glm$est
-fit_glm$adj_association
-fit_glm$z_score
-fit_glm$significant_regions
-```
-
-The main outputs are:
-
-| Output | Description |
-|---|---|
-| `est` | Adjusted outcome means for `A = 0` and `A = 1` |
-| `adj_association` | Adjusted difference, `A = 1` minus `A = 0` |
-| `z_score` | EIF-based standardized statistic for each outcome (when `test = TRUE`) |
-| `fwer_critical_value` | Simultaneous critical value for each requested FWER (when `test = TRUE`) |
-| `significant_regions` | Simultaneous-test decisions; a vector for one FWER, a matrix with one row per FWER otherwise (when `test = TRUE`) |
-| `density_log` | GAMLSS fit log, one row per seed, fold, and density (only when `density_method = "gamlss"`; `NULL` otherwise) |
-| `weight_diagnostics` | Density-ratio weights `pMXD / pMXZ` in the EIF: number, maximum, and effective-sample-size ratio, one row per seed and group |
-
-## Multiple outcomes and repeated cross-fitting
-
-For simultaneous inference, pass all outcomes in the same `Y` matrix. MoCo
-uses their joint participant-level EIF correlation structure to obtain one
-simultaneous critical value at each requested FWER.
-
-When `seed_rng` contains several seeds, MoCo runs the full analysis once per
-seed and aggregates results in the following order:
-
-1. For each seed, compute the estimates and the participant-level EIFs.
-2. Average the group-specific estimates and adjusted differences across seeds.
-3. Average the participant-level EIFs across seeds and recompute their
-   covariance.
-4. Compute the z-statistics from the averaged EIFs and run one simultaneous
-   test across all outcomes.
-
-```r
-fit_repeated <- moco(
-  X = moco_example$X,
-  Z = moco_example$Z,
-  A = moco_example$A,
-  M = moco_example$M,
-  Y = moco_example$Y,
-  Delta_M = moco_example$Delta_M,
-  Delta_Y = moco_example$Delta_Y,
-  HAL_pMX = FALSE,
-  HAL_pMXZ = FALSE,
-  glm_formula = list(pMX = ".", pMXZ = "."),
-  seed_rng = 1:10,
-  fwer = c(0.05, 0.10, 0.20)
-)
-```
-
-Within `moco()`, the simultaneous test is controlled by `hypo_method`
-(`"mvn"`, the default, or `"multiplier"`), `hypo_n_sim` (100,000 draws by
-default), `hypo_chunk_size` (draws per batch, default 1,000), and `hypo_seed`
-(Monte Carlo seed, default `1`, separate from the nuisance-fitting seeds).
-
-For one outcome, the procedure reduces to a one-dimensional EIF test. For
-multiple outcomes, `hypo_test()` simulates the maximum absolute statistic from
-their joint EIF correlation matrix. With `method = "mvn"` it draws from a
-multivariate normal distribution with that correlation; with
-`method = "multiplier"` it uses a Gaussian multiplier bootstrap of the centered
-participant-level EIFs. Both target the same single-step max-|z| critical
-value. Its `method`, `seed`, `n_sim`, and `chunk_size` arguments control the
-simulation. Use `hypo_test()` directly only when the
-estimates and participant-level EIFs have already been aggregated across
-repeated seeds and covariance has been recomputed.
-
-## Data interface
+`moco()` is the main function of MoCo. Its inputs and outputs are illustrated
+below.
 
 <img src="man/figures/input_output.png" width="750" align="center" alt="MoCo inputs and outputs"/>
+
+The full call, with the default value of every argument, is:
+
+```r
+moco(
+  X, Z, A, M, Y,
+  Delta_M,
+  Delta_Y,
+  SL_library = c(
+    "SL.earth", "SL.glmnet", "SL.gam", "SL.glm",
+    "SL.glm.interaction", "SL.step", "SL.step.interaction",
+    "SL.xgboost", "SL.ranger", "SL.mean"
+  ),
+  SL_library_customize = list(
+    gA = NULL, gDM = NULL, gDY_AX = NULL, gDY_AXZ = NULL,
+    mu_AMXZ = NULL, eta_AXZ = NULL, eta_AXM = NULL, xi_AX = NULL
+  ),
+  glm_formula = list(
+    gA = NULL, gDM = NULL, gDY_AX = NULL, gDY_AXZ = NULL,
+    mu_AMXZ = NULL, eta_AXZ = NULL, eta_AXM = NULL, xi_AX = NULL,
+    pMX = NULL, pMXZ = NULL
+  ),
+  HAL_pMX = TRUE,
+  HAL_pMXZ = TRUE,
+  HAL_options = list(
+    max_degree = 3,
+    lambda_seq = exp(seq(-1, -10, length = 100)),
+    num_knots = c(1000, 500, 250)
+  ),
+  density_method = NULL,
+  Delta_M_threshold = NULL,
+  gamlss_options = NULL,
+  cross_fit = TRUE,
+  cv_folds = 5,
+  test = TRUE,
+  fwer = 0.05,
+  seed_rng = 1,
+  hypo_method = "mvn",
+  hypo_n_sim = 100000L,
+  hypo_chunk_size = 1000L,
+  hypo_seed = 1,
+  ...
+)
+```
+
+The arguments are introduced below in the order of a typical analysis: the
+input data, the nuisance regressions, the outputs, the motion-density model,
+the simultaneous test (`test = TRUE`), and cross-fitting with multiple outcomes
+and repeated seeds. In the code below, `X`, `Z`, `A`, `M`, `Y`, `Delta_M`, and
+`Delta_Y` stand for the user's own data; the tutorial further below runs MoCo
+on the bundled example data.
+
+### Input data
 
 `moco()` uses the following data objects:
 
@@ -168,7 +131,8 @@ repeated seeds and covariance has been recomputed.
 which `Delta_Y = 0`. For a seed-based analysis, a seed-to-self outcome column
 may be entirely missing; MoCo restores that position as `NA` in its outputs.
 
-`Delta_M` is required and must be 0 when `M` is missing. A motion threshold
+`Delta_M` is required. Participants with missing `M` must have `Delta_M = 0`
+and `Delta_Y = 0`. A motion threshold
 is applied by defining `Delta_M` directly, for example
 `Delta_M = as.numeric(M < 0.2)`; the former `thresh` argument has been removed,
 and `moco()` stops with a message if it is supplied. The definitions of
@@ -187,7 +151,48 @@ When motion is unavailable, set `M = NULL` (and optionally `X = NULL`) and
 supply `Delta_M`; participants with `Delta_M = 0` are then treated as missing,
 as in Nebel et al. (2022).
 
-## Choosing a motion-density model
+### Nuisance regressions
+
+MoCo estimates its nuisance regressions with Super Learner or with
+user-specified GLMs:
+
+| Argument | Description |
+|---|---|
+| `SL_library` | Common Super Learner library for all nuisance regressions (default shown in the call above); if `NULL`, the libraries in `SL_library_customize` are used |
+| `SL_library_customize` | Separate Super Learner libraries for `gA`, `gDM`, `gDY_AX`, `gDY_AXZ`, `mu_AMXZ`, `eta_AXZ`, `eta_AXM`, and `xi_AX` |
+| `glm_formula` | Right-hand-side formulas for nuisance GLMs (and for the log-normal GLM motion densities `pMX` and `pMXZ`); `NULL` entries use Super Learner |
+
+The nuisance functions that `SL_library_customize` and `glm_formula` can
+configure separately are:
+
+| Component | Target |
+|---|---|
+| `gA` | Propensity score, `P(A = 1 | X)` |
+| `gDM` | Motion inclusion, `P(Delta_M = 1 | A, X)` |
+| `gDY_AX` | Outcome observation, `P(Delta_Y = 1 | A, X)` |
+| `gDY_AXZ` | Outcome observation, `P(Delta_Y = 1 | A, X, Z)` |
+| `mu_AMXZ` | Outcome regression, `E(Y | Delta_Y = 1, A, M, X, Z)` |
+| `eta_AXZ` | Pseudo-outcome regression conditional on `A`, `X`, and `Z` |
+| `eta_AXM` | Pseudo-outcome regression conditional on `A`, `M`, and `X` |
+| `xi_AX` | Regression of `eta_AXZ` conditional on `A` and `X` |
+| `pMX` | Log-normal GLM motion density conditional on `A` and `X` (`glm_formula` only; also used for `pMXD`) |
+| `pMXZ` | Log-normal GLM motion density conditional on `A`, `X`, and `Z` (`glm_formula` only; also used for `pMXZD`) |
+
+### Outputs
+
+`moco()` returns a list with the following elements:
+
+| Output | Description |
+|---|---|
+| `est` | Adjusted outcome means for `A = 0` and `A = 1` |
+| `adj_association` | Adjusted difference, `A = 1` minus `A = 0` |
+| `z_score` | EIF-based standardized statistic for each outcome (when `test = TRUE`) |
+| `fwer_critical_value` | Simultaneous critical value for each requested FWER (when `test = TRUE`) |
+| `significant_regions` | Simultaneous-test decisions; a vector for one FWER, a matrix with one row per FWER otherwise (when `test = TRUE`) |
+| `density_log` | GAMLSS fit log, one row per seed, fold, and density (only when `density_method = "gamlss"`; `NULL` otherwise) |
+| `weight_diagnostics` | Density-ratio weights `pMXD / pMXZ` in the EIF: number, maximum, and effective-sample-size ratio, one row per seed and group (`NULL` when `M = NULL`) |
+
+### Motion-density model
 
 MoCo estimates two conditional motion densities, each in two versions:
 
@@ -213,7 +218,7 @@ Methods may be combined, for example `HAL_pMX = TRUE` with
 although using the same method for both is generally easier to interpret and
 diagnose.
 
-### Highly adaptive lasso
+#### Highly adaptive lasso
 
 HAL is the default motion-density method. Its basis-function construction and
 regularization path can be controlled with `HAL_options`, which is passed to
@@ -221,13 +226,8 @@ regularization path can be controlled with `HAL_options`, which is passed to
 
 ```r
 fit_hal <- moco(
-  X = moco_example$X,
-  Z = moco_example$Z,
-  A = moco_example$A,
-  M = moco_example$M,
-  Y = moco_example$Y,
-  Delta_M = moco_example$Delta_M,
-  Delta_Y = moco_example$Delta_Y,
+  X = X, Z = Z, A = A, M = M, Y = Y,
+  Delta_M = Delta_M, Delta_Y = Delta_Y,
   HAL_pMX = TRUE,
   HAL_pMXZ = TRUE,
   HAL_options = list(
@@ -238,31 +238,26 @@ fit_hal <- moco(
 )
 ```
 
-### Log-normal GLM
+#### Log-normal GLM
 
-For GLM motion densities, set `HAL_pMX = FALSE` and `HAL_pMXZ = FALSE` and
-specify the right-hand side of the `pMX` and `pMXZ` models. A value of `"."`
-uses all available predictors for the corresponding density. The same formula
-is used for `pMX` and `pMXD` (and for `pMXZ` and `pMXZD`).
-`density_method = "glm"` is equivalent; the density formulas then default to
-`"."`:
+For GLM motion densities, set `density_method = "glm"`, or equivalently
+`HAL_pMX = FALSE` and `HAL_pMXZ = FALSE`. The right-hand sides of the `pMX` and
+`pMXZ` models are set with `glm_formula$pMX` and `glm_formula$pMXZ`; they
+default to `"."`, which uses all available predictors for the corresponding
+density. The same formula is used for `pMX` and `pMXD` (and for `pMXZ` and
+`pMXZD`):
 
 ```r
 fit_glm <- moco(
-  X = moco_example$X,
-  Z = moco_example$Z,
-  A = moco_example$A,
-  M = moco_example$M,
-  Y = moco_example$Y,
-  Delta_M = moco_example$Delta_M,
-  Delta_Y = moco_example$Delta_Y,
+  X = X, Z = Z, A = A, M = M, Y = Y,
+  Delta_M = Delta_M, Delta_Y = Delta_Y,
   HAL_pMX = FALSE,
   HAL_pMXZ = FALSE,
   glm_formula = list(pMX = ".", pMXZ = ".")
 )
 ```
 
-### GAMLSS
+#### GAMLSS
 
 GAMLSS is useful when a log-normal motion model is too restrictive.
 `density_method = "gamlss"` fits all four motion densities with
@@ -291,13 +286,8 @@ example, a minimum number of frames after censoring), leave
 
 ```r
 fit_gamlss <- moco(
-  X = moco_example$X,
-  Z = moco_example$Z,
-  A = moco_example$A,
-  M = moco_example$M,
-  Y = moco_example$Y,
-  Delta_M = moco_example$Delta_M,
-  Delta_Y = moco_example$Delta_Y,
+  X = X, Z = Z, A = A, M = M, Y = Y,
+  Delta_M = Delta_M, Delta_Y = Delta_Y,
   density_method = "gamlss",
   gamlss_options = list(
     mu = "linear",
@@ -311,7 +301,7 @@ fit_gamlss <- moco(
 )
 ```
 
-#### GAMLSS options
+##### GAMLSS options
 
 All entries of `gamlss_options` are optional:
 
@@ -347,13 +337,77 @@ summarizes the density-ratio weights `pMXD / pMXZ` that enter the EIF, and
 `moco()` warns when their effective-sample-size ratio is below 0.1 for either
 group.
 
-## Tutorial: an ABIDE-like seed-based analysis
+### Simultaneous inference (`test = TRUE`)
+
+When `test = TRUE` (the default), MoCo runs a simultaneous test across
+all outcomes in `Y`. It compares each |z| with one critical value, the
+(1 - FWER) quantile of the maximum |z| over the outcomes, so the family-wise
+error rate is controlled at each value in `fwer`. For one outcome, this
+reduces to the usual two-sided EIF z-test. Several levels can be requested,
+for example `fwer = c(0.05, 0.10, 0.20)`; `significant_regions` then has one
+row per level. The critical value is simulated
+from the joint correlation of the participant-level EIFs, with one of two
+methods chosen by `hypo_method`:
+
+| `hypo_method` | How the critical value is simulated | Cost per draw | When to use |
+|---|---|---|---|
+| `"mvn"` (default) | Draws from a multivariate normal with the p x p EIF correlation matrix of the outcomes | Grows with the number of outcomes p (one eigendecomposition of the p x p matrix, then p x p per draw); does not depend on n | Most analyses, when the number of outcomes is small or moderate relative to the sample size (for example, a seed with a few to a few hundred target regions) |
+| `"multiplier"` | Gaussian multiplier bootstrap: each participant's centered, standardized EIF is multiplied by an independent N(0, 1) weight | Grows with n x p; never forms the p x p matrix | Many outcomes relative to the sample size (for example, thousands of connectivity edges), where the p x p matrix is large or close to singular |
+
+Given the data, both methods simulate the same distribution, so they target
+the same critical value; only the Monte Carlo draws differ.
+
+Other controls are `hypo_n_sim` (number of draws, default 100,000),
+`hypo_chunk_size` (draws per batch, default 1,000), and `hypo_seed` (Monte
+Carlo seed, default `1`, separate from the nuisance-fitting seeds). The
+default of 100,000 draws keeps the Monte Carlo error of the critical value
+small (about 0.006) and takes seconds for typical numbers of outcomes. For
+quick exploratory runs with many outcomes, `hypo_n_sim` can be lowered (for
+example, to 10,000, with a Monte Carlo error of about 0.02); use the default
+for final results.
+
+`hypo_test()` runs the same test on its own, with arguments `method`, `seed`,
+`n_sim`, and `chunk_size`. Use it directly only when the estimates and
+participant-level EIFs have already been aggregated across repeated seeds
+and the covariance has been recomputed.
+
+### Multiple outcomes and repeated cross-fitting
+
+`cross_fit = TRUE` (the default) estimates the nuisance functions with
+`cv_folds`-fold cross-fitting (default 5); `cross_fit = FALSE` fits them on
+the full sample. `seed_rng` sets the seed or seeds for the folds and the Super
+Learner fits.
+
+For simultaneous inference, pass all outcomes in the same `Y` matrix. MoCo
+uses their joint participant-level EIF correlation structure to obtain one
+simultaneous critical value at each requested FWER.
+
+When `seed_rng` contains several seeds, MoCo runs the full analysis once per
+seed and aggregates results in the following order:
+
+1. For each seed, compute the estimates and the participant-level EIFs.
+2. Average the group-specific estimates and adjusted differences across seeds.
+3. Average the participant-level EIFs across seeds and recompute their
+   covariance.
+4. Compute the z-statistics from the averaged EIFs and run one simultaneous
+   test across all outcomes.
+
+```r
+fit_repeated <- moco(
+  X = X, Z = Z, A = A, M = M, Y = Y,
+  Delta_M = Delta_M, Delta_Y = Delta_Y,
+  density_method = "glm",
+  seed_rng = 1:10,
+  fwer = c(0.05, 0.10, 0.20)
+)
+```
+
+## Tutorial: a seed-based analysis
 
 The bundled data `moco_example` contain 400 simulated children aged 8 to 14
-years and reproduce the layout of a seed-based analysis motivated by the Autism
-Brain Imaging Data Exchange (ABIDE). The seed is the default mode network (DMN),
-and the outcomes represent its Fisher-z-transformed functional connectivity
-with networks from the Yeo seven-network parcellation.
+years in the layout of a seed-based analysis. The seed is the default mode
+network (DMN), and the outcomes represent its Fisher-z-transformed functional
+connectivity with networks from the Yeo seven-network parcellation.
 
 ```r
 library(MoCo)
@@ -382,7 +436,8 @@ The seventh column of `Y` is the seed-to-self position and is therefore
 entirely `NA`. Rows with `Delta_Y = 0` are also missing because their imaging
 outcomes are unavailable. The simulated group differences are zero for the
 first four outcomes, -0.0485 for the fifth (Limbic), and -0.0682 for the sixth
-(Frontoparietal). The generating script is installed with the package: `system.file("scripts", "moco_example.R", package = "MoCo")`.
+(Frontoparietal). The generating script is
+`data-raw/moco_example.R` in the package source (GitHub repository).
 
 All three fits below use the default Super Learner library for the nuisance
 regressions, five-fold cross-fitting, and simultaneous tests at FWER 0.05; only
@@ -391,7 +446,7 @@ the motion-density model differs.
 ### Log-normal GLM
 
 ```r
-fit_abide <- moco(
+fit_glm <- moco(
   X = moco_example$X,
   Z = moco_example$Z,
   A = moco_example$A,
@@ -413,7 +468,7 @@ second represents `A = 1`, and the structural seventh column is restored as
 `NA`:
 
 ```r
-round(fit_abide$est, 4)
+round(fit_glm$est, 4)
 # est_A0 -0.2845 -0.1102 -0.1357 -0.0008  0.1090  0.1796 NA
 # est_A1 -0.2871 -0.1572 -0.1008  0.0658  0.0236  0.1024 NA
 ```
@@ -421,17 +476,17 @@ round(fit_abide$est, 4)
 The adjusted group differences are:
 
 ```r
-round(fit_abide$adj_association, 4)
+round(fit_glm$adj_association, 4)
 # -0.0026 -0.0471  0.0349  0.0667 -0.0854 -0.0772 NA
 ```
 
 The EIF-based test results are:
 
 ```r
-round(fit_abide$z_score, 4)
+round(fit_glm$z_score, 4)
 # -0.0981 -1.5245  1.2608  2.0033 -2.7918 -2.9241 NA
 
-fit_abide$significant_regions
+fit_glm$significant_regions
 # FALSE FALSE FALSE FALSE TRUE TRUE NA
 ```
 
@@ -440,7 +495,7 @@ the skewed motion of the ASD group poorly: a few ASD children receive large
 weights, and the effective sample size of that group drops to 26%:
 
 ```r
-fit_abide$weight_diagnostics
+fit_glm$weight_diagnostics
 #   seed group   n max_weight ess_ratio
 # 1    1    A0 235      1.345     0.977
 # 2    1    A1 136     24.001     0.259
@@ -459,7 +514,7 @@ and the shape `nu` is estimated. `Delta_M` is not a cut on `M` in these data,
 so `Delta_M_threshold` is not set:
 
 ```r
-fit_abide_gamlss <- moco(
+fit_gamlss <- moco(
   X = moco_example$X,
   Z = moco_example$Z,
   A = moco_example$A,
@@ -476,17 +531,17 @@ fit_abide_gamlss <- moco(
   fwer = 0.05
 )
 
-round(fit_abide_gamlss$est, 4)
+round(fit_gamlss$est, 4)
 # est_A0 -0.2776 -0.1157 -0.1358  0.0033  0.1028  0.1740 NA
 # est_A1 -0.2676 -0.1166 -0.0962  0.0143  0.0402  0.1007 NA
 
-round(fit_abide_gamlss$adj_association, 4)
+round(fit_gamlss$adj_association, 4)
 #  0.0100 -0.0008  0.0396  0.0110 -0.0626 -0.0733 NA
 
-round(fit_abide_gamlss$z_score, 4)
+round(fit_gamlss$z_score, 4)
 #  0.4924 -0.0333  2.2241  0.4891 -2.6410 -3.1166 NA
 
-fit_abide_gamlss$significant_regions
+fit_gamlss$significant_regions
 # FALSE FALSE FALSE FALSE TRUE TRUE NA
 ```
 
@@ -495,14 +550,14 @@ here: 5 folds by 4 densities); all fits converged with `RS`, without a
 fallback, and the weights stay small in both groups:
 
 ```r
-head(fit_abide_gamlss$density_log[, c("fold", "density", "method", "truncated", "converged", "nu", "n")], 4)
+head(fit_gamlss$density_log[, c("fold", "density", "method", "truncated", "converged", "nu", "n")], 4)
 #   fold density method truncated converged      nu   n
 # 1    1     pMX     RS     FALSE      TRUE  0.3627 295
 # 2    1    pMXD     RS     FALSE      TRUE  0.1313 251
 # 3    1    pMXZ     RS     FALSE      TRUE  0.3780 295
 # 4    1   pMXZD     RS     FALSE      TRUE -0.0603 251
 
-fit_abide_gamlss$weight_diagnostics
+fit_gamlss$weight_diagnostics
 #   seed group   n max_weight ess_ratio
 # 1    1    A0 235      1.649     0.959
 # 2    1    A1 136      3.772     0.588
@@ -534,7 +589,7 @@ basis (second-order interactions, 38 penalty values, and at most 30, 10, and 5
 knots):
 
 ```r
-fit_abide_hal <- moco(
+fit_hal <- moco(
   X = moco_example$X,
   Z = moco_example$Z,
   A = moco_example$A,
@@ -555,20 +610,20 @@ fit_abide_hal <- moco(
   fwer = 0.05
 )
 
-round(fit_abide_hal$est, 4)
+round(fit_hal$est, 4)
 # est_A0 -0.2964 -0.1145 -0.1414 -0.0024  0.1092  0.1861 NA
 # est_A1 -0.2691 -0.1226 -0.1056  0.0296  0.0253  0.0986 NA
 
-round(fit_abide_hal$adj_association, 4)
+round(fit_hal$adj_association, 4)
 #  0.0273 -0.0081  0.0358  0.0321 -0.0839 -0.0875 NA
 
-round(fit_abide_hal$z_score, 4)
+round(fit_hal$z_score, 4)
 #  1.3559 -0.3329  1.9755  1.5330 -3.7638 -4.1397 NA
 
-fit_abide_hal$significant_regions
+fit_hal$significant_regions
 # FALSE FALSE FALSE FALSE TRUE TRUE NA
 
-fit_abide_hal$weight_diagnostics
+fit_hal$weight_diagnostics
 #   seed group   n max_weight ess_ratio
 # 1    1    A0 235      2.915     0.928
 # 2    1    A1 136      3.142     0.624
@@ -579,6 +634,13 @@ the run time: the GLM and GAMLSS fits each took about 14 minutes and the HAL
 fit about 21 minutes (one core each). HAL fitting time grows quickly with the
 sample size, the number of covariates, `max_degree`, and `num_knots`, so HAL
 can be slow for large samples.
+
+The three fits and the comparison below are collected in a script installed
+with the package:
+
+```r
+file.show(system.file("examples", "full_analysis.R", package = "MoCo"))
+```
 
 ### Comparison
 
@@ -629,94 +691,6 @@ The complete function documentation is available from R:
 ?GGtr
 ```
 
-<details>
-<summary><strong>Complete <code>moco()</code> interface</strong></summary>
-
-```r
-moco(
-  X, Z, A, M, Y,
-  Delta_M,
-  Delta_Y,
-  SL_library = c(
-    "SL.earth", "SL.glmnet", "SL.gam", "SL.glm",
-    "SL.glm.interaction", "SL.step", "SL.step.interaction",
-    "SL.xgboost", "SL.ranger", "SL.mean"
-  ),
-  SL_library_customize = list(
-    gA = NULL, gDM = NULL, gDY_AX = NULL, gDY_AXZ = NULL,
-    mu_AMXZ = NULL, eta_AXZ = NULL, eta_AXM = NULL, xi_AX = NULL
-  ),
-  glm_formula = list(
-    gA = NULL, gDM = NULL, gDY_AX = NULL, gDY_AXZ = NULL,
-    mu_AMXZ = NULL, eta_AXZ = NULL, eta_AXM = NULL, xi_AX = NULL,
-    pMX = NULL, pMXZ = NULL
-  ),
-  HAL_pMX = TRUE,
-  HAL_pMXZ = TRUE,
-  HAL_options = list(
-    max_degree = 3,
-    lambda_seq = exp(seq(-1, -10, length = 100)),
-    num_knots = c(1000, 500, 250)
-  ),
-  density_method = NULL,
-  Delta_M_threshold = NULL,
-  gamlss_options = NULL,
-  cross_fit = TRUE,
-  cv_folds = 5,
-  test = TRUE,
-  fwer = 0.05,
-  seed_rng = 1,
-  hypo_method = "mvn",
-  hypo_n_sim = 100000L,
-  hypo_chunk_size = 1000L,
-  hypo_seed = 1,
-  ...
-)
-```
-
-### Nuisance-model components
-
-`SL_library_customize` and `glm_formula` may configure the following nuisance
-functions separately:
-
-| Component | Target |
-|---|---|
-| `gA` | Propensity score, `P(A = 1 | X)` |
-| `gDM` | Motion inclusion, `P(Delta_M = 1 | A, X)` |
-| `gDY_AX` | Outcome observation, `P(Delta_Y = 1 | A, X)` |
-| `gDY_AXZ` | Outcome observation, `P(Delta_Y = 1 | A, X, Z)` |
-| `mu_AMXZ` | Outcome regression, `E(Y | Delta_Y = 1, A, M, X, Z)` |
-| `eta_AXZ` | Pseudo-outcome regression conditional on `A`, `X`, and `Z` |
-| `eta_AXM` | Pseudo-outcome regression conditional on `A`, `M`, and `X` |
-| `xi_AX` | Regression of `eta_AXZ` conditional on `A` and `X` |
-| `pMX` | Log-normal GLM motion density conditional on `A` and `X` (`glm_formula` only; also used for `pMXD`) |
-| `pMXZ` | Log-normal GLM motion density conditional on `A`, `X`, and `Z` (`glm_formula` only; also used for `pMXZD`) |
-
-### Other controls
-
-| Argument | Description |
-|---|---|
-| `SL_library` | Common Super Learner library for nuisance regressions; if `NULL`, the libraries in `SL_library_customize` are used |
-| `SL_library_customize` | Separate libraries for `gA`, `gDM`, `gDY_AX`, `gDY_AXZ`, `mu_AMXZ`, `eta_AXZ`, `eta_AXM`, and `xi_AX` |
-| `glm_formula` | Right-hand-side formulas for nuisance GLMs and GLM motion densities |
-| `HAL_pMX` | Whether `pMX` and `pMXD` use HAL (`TRUE`) or the log-normal GLM (`FALSE`) |
-| `HAL_pMXZ` | Whether `pMXZ` and `pMXZD` use HAL (`TRUE`) or the log-normal GLM (`FALSE`) |
-| `HAL_options` | HAL basis and regularization controls (`max_degree`, `lambda_seq`, `num_knots`) |
-| `density_method` | `"hal"`, `"glm"`, or `"gamlss"` for all four motion densities, or `c(pMX = , pMXZ = )`; `NULL` (default) uses `HAL_pMX`/`HAL_pMXZ` |
-| `Delta_M_threshold` | With `density_method = "gamlss"`: the cut `c` when `Delta_M = as.numeric(M < c)`; `pMXD` and `pMXZD` are then right-truncated at `c` |
-| `gamlss_options` | GAMLSS specification (see GAMLSS options); `NULL` (default) uses the defaults |
-| `cross_fit` | Whether to use cross-fitting |
-| `cv_folds` | Number of cross-fitting folds |
-| `seed_rng` | Nuisance-fitting and cross-fitting seed or seeds |
-| `test` | Whether to run simultaneous EIF inference |
-| `fwer` | Requested family-wise error rates |
-| `hypo_method` | Critical-value simulation: `"mvn"` (default) or `"multiplier"` |
-| `hypo_n_sim` | Number of Gaussian draws for the simultaneous test (default 100,000) |
-| `hypo_chunk_size` | Draws processed per simulation batch (default 1,000) |
-| `hypo_seed` | Critical-value simulation seed, separate from the nuisance-fitting seeds (default 1) |
-
-</details>
-
 ## Reproducibility and diagnostics
 
 - Use named columns in `X` and `Z`, especially for GAMLSS.
@@ -746,7 +720,5 @@ functions separately:
 - [Bethlehem et al. (2022)](https://doi.org/10.1038/s41586-022-04554-y):
   brain charts fitted with generalized-gamma GAMLSS, the basis of the default
   `GG` family.
-- [ABIDE](https://doi.org/10.1038/mp.2013.78): motivating neuroimaging
-  data resource for the bundled simulation.
 - [Yeo seven-network parcellation](https://doi.org/10.1152/jn.00338.2011):
   network definition used in the tutorial.
