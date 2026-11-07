@@ -3,7 +3,7 @@ Title: Motion-Controlled Estimation of Group Differences in Brain Phenotypes
 Version: 0.1.0
 Authors@R: c(
     person("Xiyan", "Tan",
-           email = "xiyan.tan@emory.edu",
+           email = "xxx@emory.edu",
            role = c("aut", "cre")),
     person("Jialu", "Ran", role = "aut"),
     person("Benjamin B.", "Risk", role = "aut"),
@@ -33,8 +33,7 @@ Imports:
     nloptr,
     quadprog,
     stats,
-    SuperLearner,
-    withr
+    SuperLearner
 Suggests:
     ciftiTools,
     earth,
@@ -48,3 +47,4 @@ LazyData: true
 URL: https://github.com/thebrisklab/MoCo
 BugReports: https://github.com/thebrisklab/MoCo/issues
 Config/roxygen2/version: 8.1.0
+RoxygenNote: 7.3.1
