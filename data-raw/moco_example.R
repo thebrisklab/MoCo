@@ -1,12 +1,6 @@
 # -------------------
 # data simulation: MoCo package example data (moco_example.rda)
 # -------------------
-# Generates the bundled MoCo example data `moco_example` (data/moco_example.rda): a
-# simulated ASD vs non-ASD seed-based functional-connectivity study of n = 400 children
-# motivated by ABIDE. The design follows the package example data of Ran et al. (2026),
-# Supplement Section 9.2 (Example_Data/Code/sim_package_data.R). Only the motion M and the
-# motion-QC indicator Delta_M are new, so the GLM, GAMLSS and HAL motion-density options of
-# moco() can be compared.
 #
 # RNG: R default (Mersenne-Twister / Inversion / Rejection).
 # seed = 1004 (data); calibration_seed = 20261001 (calibration population, n = 50,000).
