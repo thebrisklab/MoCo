@@ -99,8 +99,6 @@ moco(
   fwer = 0.05,
   seed_rng = 1,
   hypo_method = "mvn",
-  hypo_n_sim = 100000L,
-  hypo_chunk_size = 1000L,
   hypo_seed = 1,
   ...
 )
