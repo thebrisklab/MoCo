@@ -55,6 +55,8 @@
 #'                   - \code{num_knots}: The maximum number of knot points (i.e., bins) for any covariate for generating basis functions (passed to \code{haldensify}).
 #' 
 #' @param density_method,Delta_M_threshold,gamlss_options Motion density method, the threshold that defines \code{Delta_M}, and GAMLSS options. See \code{\link{moco}}.
+#' @param seed Random seed set before each SuperLearner fit (one value of \code{seed_rng} in \code{moco()}).
+#' @param ... Not used.
 #' 
 #' @import SuperLearner 
 #' @import haldensify 
@@ -176,7 +178,7 @@ one_step <- function(
                                          SL.library = SL_gA,
                                          method = tmp_method.CC_nloglik(),
                                          control = list(saveCVFitLibrary = TRUE))
-    gAn_1 <- stats::predict(gA_fit, type = "response", newdata = X)[[1]]
+    gAn_1 <- stats::predict(gA_fit, type = "response", newdata = X, onlySL = TRUE)[[1]]
   }
   
   # fit missingness indicator regression
@@ -197,9 +199,9 @@ one_step <- function(
                                                 SL.library = SL_gDY_AXZ,
                                                 method = tmp_method.CC_nloglik(),
                                                 control = list(saveCVFitLibrary = TRUE))
-      gDYn_1_AXZ <- stats::predict(gDY_AXZ_fit, type = "response", newdata = data.frame(A, X, Z))[[1]]
-      gDYn_1_A0XZ <- stats::predict(gDY_AXZ_fit, type = "response", newdata = data.frame(A = 0, X, Z))[[1]]
-      gDYn_1_A1XZ <- stats::predict(gDY_AXZ_fit, type = "response", newdata = data.frame(A = 1, X, Z))[[1]]
+      gDYn_1_AXZ <- stats::predict(gDY_AXZ_fit, type = "response", newdata = data.frame(A, X, Z), onlySL = TRUE)[[1]]
+      gDYn_1_A0XZ <- stats::predict(gDY_AXZ_fit, type = "response", newdata = data.frame(A = 0, X, Z), onlySL = TRUE)[[1]]
+      gDYn_1_A1XZ <- stats::predict(gDY_AXZ_fit, type = "response", newdata = data.frame(A = 1, X, Z), onlySL = TRUE)[[1]]
     }
   }
   
@@ -216,7 +218,7 @@ one_step <- function(
                                             SL.library = SL_gDM,
                                             method = tmp_method.CC_nloglik(),
                                             control = list(saveCVFitLibrary = TRUE))
-      gDMn_1_A0 <- stats::predict(gDM_fit, type = "response", newdata = data.frame(A = 0, X))[[1]]
+      gDMn_1_A0 <- stats::predict(gDM_fit, type = "response", newdata = data.frame(A = 0, X), onlySL = TRUE)[[1]]
     }
     
     if(sum(Delta_Y) == n){
@@ -234,7 +236,7 @@ one_step <- function(
                                                  SL.library = SL_gDY_AX,
                                                  method = tmp_method.CC_nloglik(),
                                                  control = list(saveCVFitLibrary = TRUE))
-        gDYn_1_AX <- stats::predict(gDY_AX_fit, type = "response", newdata = data.frame(A, X))[[1]]
+        gDYn_1_AX <- stats::predict(gDY_AX_fit, type = "response", newdata = data.frame(A, X), onlySL = TRUE)[[1]]
       }
     }
     
@@ -377,9 +379,9 @@ one_step <- function(
                                                 SL.library = SL_mu_AMXZ,
                                                 method = tmp_method.CC_LS(),
                                                 control = list(saveCVFitLibrary = TRUE))
-      mu_MXZn_A0[index_nomissingM] <- stats::predict(mu_AMXZ_fit, newdata = data.frame(A = 0, M, X, Z)[index_nomissingM,])[[1]]
-      mu_MXZn_A1[index_nomissingM] <- stats::predict(mu_AMXZ_fit, newdata = data.frame(A = 1, M, X, Z)[index_nomissingM,])[[1]]
-      mu_MXZn_A[index_nomissingM] <- stats::predict(mu_AMXZ_fit, newdata = data.frame(A, M, X, Z)[index_nomissingM,])[[1]]
+      mu_MXZn_A0[index_nomissingM] <- stats::predict(mu_AMXZ_fit, newdata = data.frame(A = 0, M, X, Z)[index_nomissingM,], onlySL = TRUE)[[1]]
+      mu_MXZn_A1[index_nomissingM] <- stats::predict(mu_AMXZ_fit, newdata = data.frame(A = 1, M, X, Z)[index_nomissingM,], onlySL = TRUE)[[1]]
+      mu_MXZn_A[index_nomissingM] <- stats::predict(mu_AMXZ_fit, newdata = data.frame(A, M, X, Z)[index_nomissingM,], onlySL = TRUE)[[1]]
     }
     
     if(M_indicator){
@@ -398,9 +400,9 @@ one_step <- function(
                                                   SL.library = SL_eta_AXZ,
                                                   method = tmp_method.CC_LS(),
                                                   control = list(saveCVFitLibrary = TRUE))
-        eta_AXZn_A <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A, X, Z))[[1]]
-        eta_AXZn_A0 <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A = 0, X, Z))[[1]]
-        eta_AXZn_A1 <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A = 1, X, Z))[[1]]
+        eta_AXZn_A <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A, X, Z), onlySL = TRUE)[[1]]
+        eta_AXZn_A0 <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A = 0, X, Z), onlySL = TRUE)[[1]]
+        eta_AXZn_A1 <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A = 1, X, Z), onlySL = TRUE)[[1]]
       }
       
       # fit pseudo-outcome regression for Qd, conditioning on disease status, mediator and baseline covariates
@@ -421,8 +423,8 @@ one_step <- function(
                                                   SL.library = SL_eta_AXM,
                                                   method = tmp_method.CC_LS(),
                                                   control = list(saveCVFitLibrary = TRUE))
-        eta_AXMn_A0[index_nomissingM] <- stats::predict(eta_AXM_fit, type = "response", newdata = data.frame(A = 0, M, X)[index_nomissingM,])[[1]]
-        eta_AXMn_A1[index_nomissingM] <- stats::predict(eta_AXM_fit, type = "response", newdata = data.frame(A = 1, M, X)[index_nomissingM,])[[1]]
+        eta_AXMn_A0[index_nomissingM] <- stats::predict(eta_AXM_fit, type = "response", newdata = data.frame(A = 0, M, X)[index_nomissingM,], onlySL = TRUE)[[1]]
+        eta_AXMn_A1[index_nomissingM] <- stats::predict(eta_AXM_fit, type = "response", newdata = data.frame(A = 1, M, X)[index_nomissingM,], onlySL = TRUE)[[1]]
       }else{
         if(!requireNamespace("hal9001", quietly = TRUE)){
           stop("Package 'hal9001' is required when no SuperLearner library or glm formula is given for eta_AXM.")
@@ -450,8 +452,8 @@ one_step <- function(
                                            SL.library = SL_xi_AX,
                                            method = tmp_method.CC_LS(),
                                            control = list(saveCVFitLibrary = TRUE))
-      xi_AXn_A0 <- stats::predict(xi_fit, newdata = data.frame(A = 0, X))[[1]]
-      xi_AXn_A1 <- stats::predict(xi_fit, newdata = data.frame(A = 1, X))[[1]]
+      xi_AXn_A0 <- stats::predict(xi_fit, newdata = data.frame(A = 0, X), onlySL = TRUE)[[1]]
+      xi_AXn_A1 <- stats::predict(xi_fit, newdata = data.frame(A = 1, X), onlySL = TRUE)[[1]]
     }
     
     # calculate efficient influence function

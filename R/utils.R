@@ -2,16 +2,18 @@
 #'
 #' @param a Either 0 or 1.
 #' @param A A binary vector of length n \code{number of participants} representing the diagnosis status.
-#' @param Delta A binary vector indicating data usability, such as whether data pass a motion criteria.
+#' @param Delta_Y A binary vector indicating whether the outcome \code{Y} is available and passes quality control.
+#' @param Delta_M A binary vector indicating whether motion is available and meets the motion inclusion criteria.
 #' @param Y A vector of continuous outcome of interest.
-#' @param gA Estimate of P(A = 1 | X_i), i = 1,...,n.
-#' @param gD Estimate of P(Delta = 1 | A_i, X_i), i = 1,...,n.
-#' @param eta_AXZ Estimate of E(mu_pseudo_A | A_i, Delta_i, X_i).
-#' @param eta_AXM Estimate of E(mu_pseudo_A_star | A_i, M_i, X_i).
-#' @param xi_AX Estimate of E(eta_AXZ | A_i, Delta_i, X_i).
-#' @param mu Estimate of E(Y| A_i, M_i, X_i, Z_i).
-#' @param pMX Estimate of p(M | 0, Delta_i = 1, X_i).
-#' @param pMXZ Estimate of p(M | A_i, X_i, Z_i).
+#' @param gA Estimate of P(A = a | X_i), i = 1,...,n.
+#' @param gDM Estimate of P(Delta_M = 1 | A_i = 0, X_i), i = 1,...,n.
+#' @param gDY_AXZ Estimate of P(Delta_Y = 1 | A_i, X_i, Z_i), i = 1,...,n.
+#' @param eta_AXZ Estimate of the motion-standardized mean given (A_i, X_i, Z_i).
+#' @param eta_AXM Estimate of the Z-standardized mean given (A_i, M_i, X_i).
+#' @param xi_AX Estimate of E(eta_AXZ | A_i, X_i).
+#' @param mu Estimate of E(Y | A_i, M_i, X_i, Z_i, Delta_Y = 1).
+#' @param pMXD Estimate of p(M_i | A = 0, X_i, Delta_M = 1).
+#' @param pMXZ Estimate of p(M_i | A_i, X_i, Z_i, Delta_Y = 1).
 #'
 #' @return An n-length vector of the estimated EIF evaluated on the observations.
 

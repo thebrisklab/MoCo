@@ -64,7 +64,7 @@
 #'          p(m | a, x, Delta_M = 1) and p(m | a, x, z, Delta_M = 1) are then fitted with a generalized gamma right-truncated at c (see \code{\link{GGtr}}),
 #'          and set to 0 for M >= c. Defaults to \code{NULL} (Delta_M is not a cut on M; an ordinary generalized gamma is fitted on the Delta_M = 1 participants
 #'          and set to 0 outside their range of M). With \code{NULL}, MoCo warns when Delta_M looks like a threshold on M.
-#' @param gamlss_options Options for \code{density_method = "gamlss"} (requires the suggested packages \code{gamlss} and \code{gamlss.dist}). Entries left out take their defaults:
+#' @param gamlss_options Options for \code{density_method = "gamlss"} (fitted with \code{gamlss} and \code{gamlss.dist}, which are installed with MoCo). Entries left out take their defaults:
 #'                   - \code{family}: \code{"GG"} (generalized gamma; the only family currently supported).
 #'                   - \code{mu}: \code{"linear"} (all covariates entered linearly, default), \code{"smooth"} (continuous covariates entered as \code{pb()} P-splines, the others linearly), or a one-sided formula.
 #'                   - \code{sigma}: \code{"linear"} (default), \code{"smooth"}, \code{"1"} (constant), \code{"A"} (group only), or a one-sided formula.
@@ -83,14 +83,16 @@
 #' @param test Logical indicating whether to conduct hypothesis testing based on simultaneous confidence band. Defaults to TRUE.
 #' @param fwer A vector of family-wise error rates (FWER) to control for multiple hypothesis testing. Defaults to c(0.05). Set to NULL if test is FALSE.
 #' @param hypo_method Critical-value simulation: "mvn" (default) or "multiplier".
-#' @param hypo_n_sim Number of Gaussian draws for the simultaneous test.
+#' @param hypo_n_sim Number of Monte Carlo draws for the simultaneous test. Defaults to 100000, as in the original MoCo; it can be lowered (e.g. to 10000) for quick exploratory runs with many outcomes.
 #' @param hypo_chunk_size Draws processed per simulation batch.
 #' @param hypo_seed Critical-value simulation seed, separate from nuisance seeds.
 #' @param seed_rng Specifies the value of seed(s) for nuisance regression calculation using super learner. Can be a vector. Defaults to value 1. When several seeds are given, the full analysis is run once per seed; the estimates and the participant-level efficient influence functions are averaged across seeds, the covariance is recomputed from the averaged efficient influence functions, and one simultaneous test is conducted across all outcomes in \code{Y}.
+#' @param ... Not used. Supplying the removed arguments \code{thresh} or \code{seed_rgn} gives an informative error.
 #' 
 #' @import SuperLearner 
 #' @import haldensify 
 #' @import MASS
+#' @importFrom stats binomial gaussian dnorm sd cov
 #' 
 #' @return A list with named entries 
 #' \describe{
@@ -103,6 +105,24 @@
 #'   \item{weight_diagnostics}{One row per seed and group (A0, A1) with the number, maximum and effective-sample-size ratio of the density-ratio weights pMXD / pMXZ in the efficient influence function. MoCo warns when an effective-sample-size ratio is below 0.1.}
 #' }
 #' 
+#' @examples
+#' data(moco_example)
+#' d <- moco_example
+#'
+#' # Fast example (a few seconds): one outcome (Frontoparietal) plus the
+#' # seed-to-self column, a small Super Learner library and GAMLSS motion densities
+#' fit <- moco(X = d$X, Z = d$Z, A = d$A, M = d$M, Y = d$Y[, 6:7],
+#'             Delta_M = d$Delta_M, Delta_Y = d$Delta_Y,
+#'             SL_library = c("SL.mean", "SL.glm"),
+#'             density_method = "gamlss", cv_folds = 5, seed_rng = 1)
+#' fit$adj_association
+#' fit$significant_regions
+#' fit$density_log
+#'
+#' # The full GLM, GAMLSS and HAL analysis of the README tutorial (about 50 min
+#' # in total) is in an installed script:
+#' # file.show(system.file("examples", "full_analysis.R", package = "MoCo"))
+#'
 #' @export
 
 moco <- function(

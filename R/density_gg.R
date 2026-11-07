@@ -165,6 +165,17 @@ check_Delta_M_threshold <- function(Delta_M_threshold, M, Delta_M, uses_gamlss){
 #' @param mu.link,sigma.link,nu.link Link functions, as in \code{gamlss.dist::GG}.
 #'
 #' @return A \code{gamlss.family} object that can be passed to \code{gamlss::gamlss(family = )}.
+#' @examples
+#' if (requireNamespace("gamlss", quietly = TRUE) &&
+#'     requireNamespace("gamlss.dist", quietly = TRUE)) {
+#'   # motion observed only below a cut-off of 0.2 mm
+#'   set.seed(2)
+#'   m <- gamlss.dist::rGG(500, mu = 0.12, sigma = 0.5, nu = 0.5)
+#'   m <- m[m < 0.2]
+#'   fit <- gamlss::gamlss(m ~ 1, family = GGtr(threshold = 0.2),
+#'                         control = gamlss::gamlss.control(n.cyc = 200, trace = FALSE))
+#'   c(mu = exp(coef(fit, "mu")), sigma = exp(coef(fit, "sigma")), nu = coef(fit, "nu"))
+#' }
 #' @export
 GGtr <- function(threshold, mu.link = "log", sigma.link = "log", nu.link = "identity"){
   if(missing(threshold) || !is.numeric(threshold) || length(threshold) != 1 || threshold <= 0){

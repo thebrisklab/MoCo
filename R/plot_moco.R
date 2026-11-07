@@ -9,8 +9,15 @@
 #' @param plots_path The path where the plots will be saved.
 #' @param zlim_est The z-axis limits for functional connectivity plots.
 #' @param zlim_association The z-axis limits for association plots.
-#' @return This function does not return any value. It generates and saves plots based on the provided parameters.
+#' @return Invisibly, the paths of the three PNG files written to \code{plots_path} (mean connectivity for each group and the significant associations).
 #' 
+#' @examples
+#' \dontrun{
+#' # requires the ciftiTools package and a local Connectome Workbench installation
+#' plot_moco(result = fit, wb_path = "/path/to/workbench",
+#'           template_path = "/path/to/template.dscalar.nii",
+#'           plots_path = tempdir())
+#' }
 #' @export
 
 plot_moco <- function(result, wb_path, template_path, 
@@ -19,11 +26,14 @@ plot_moco <- function(result, wb_path, template_path,
                       zlim_est = c(-0.3, 0.3), 
                       zlim_association = c(-0.1, 0.1)){
   
+  if(!requireNamespace("ciftiTools", quietly = TRUE)){
+    stop("plot_moco() requires the 'ciftiTools' package and Connectome Workbench. Install it with install.packages(\"ciftiTools\").")
+  }
   # set the path for ciftiTools workbench
-  ciftiTools.setOption('wb_path', wb_path) 
+  ciftiTools::ciftiTools.setOption('wb_path', wb_path) 
   
   # read in the parcellation
-  parc <- load_parc(parcellation)
+  parc <- ciftiTools::load_parc(parcellation)
   # convert the parcellation to a vector
   parc_vec <- c(as.matrix(parc)) 
   # change the index of components to network
@@ -46,9 +56,9 @@ plot_moco <- function(result, wb_path, template_path,
   significant_regions <- result$significant_regions
   
   # read in the template xii file
-  xii <- read_xifti(template_path)
+  xii <- ciftiTools::read_xifti(template_path)
   # replace the medial wall vertices in xii with NA
-  xii <- move_from_mwall(xii, NA)
+  xii <- ciftiTools::move_from_mwall(xii, NA)
   # visualize the results by creating a new xifti file
   # convert parc_vec (the parcel key of each vertex) 
   # to xii_seed (seed correlation of the parcel each voxel belongs to)
@@ -56,19 +66,19 @@ plot_moco <- function(result, wb_path, template_path,
   xii_A1 <- c(NA, est_A1)[parc_vec + 1]
   xii_sig <- c(NA, ifelse(significant_regions, adj_association, NA))[parc_vec + 1]
   # initialize a one-column xifti and replace its data 
-  xii1 <- select_xifti(xii, 1)
-  xii_A0 <- newdata_xifti(xii1, xii_A0)
-  xii_A1 <- newdata_xifti(xii1, xii_A1)
-  xii_sig <- newdata_xifti(xii1, xii_sig)
+  xii1 <- ciftiTools::select_xifti(xii, 1)
+  xii_A0 <- ciftiTools::newdata_xifti(xii1, xii_A0)
+  xii_A1 <- ciftiTools::newdata_xifti(xii1, xii_A1)
+  xii_sig <- ciftiTools::newdata_xifti(xii1, xii_sig)
   
-  # plot 
-  setwd(plots_path)
+  # plot (files are written to plots_path; the working directory is not changed)
+  if(!dir.exists(plots_path)) stop("plots_path does not exist: ", plots_path)
+  files <- file.path(plots_path, c("MoCo_FC_A0.png", "MoCo_FC_A1.png", "Sig_regions.png"))
   plot(xii_A0, # title = "Motion-controlled Mean Functional Connectivity A0", 
-       fname = "MoCo_FC_A0.png", zlim = zlim_est)
+       fname = files[1], zlim = zlim_est)
   plot(xii_A1, # title = "Motion-controlled Mean Functional Connectivity A1", 
-       fname = "MoCo_FC_A1.png", zlim = zlim_est)
+       fname = files[2], zlim = zlim_est)
   plot(xii_sig, # title = "Significant Motion-controlled Association", 
-       fname = "Sig_regions.png", zlim = zlim_association)
+       fname = files[3], zlim = zlim_association)
+  invisible(files)
 }
-
-

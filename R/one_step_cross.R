@@ -5,23 +5,6 @@
 #' @param train_dat A \code{list} containing the observed data used for training, with items in the order (A, X, Z, M, Y, Delta). 
 #' @param valid_dat A \code{list} containing the validation data used for prediction, with items in the order (A, X, Z, M, Y, Delta). 
 #' @param M_indicator A binary value indicating whether motion value is available.
-#' @param X A dataframe or matrix containing demographic confounders that would ideally be balanced in a randomized controlled trial.
-#' @param Z A dataframe or matrix of covariates representing brain phenotypes.
-#' @param A A binary vector of length n (number of participants), serving as a group indicator, such as diagnosis group or control group.
-#' @param M A numeric vector of length n representing continuous motion values for each participant.
-#' @param Y A matrix of dimension n x p, where n is the number of participants, and p is the number of regions of interest.
-#'          If it represents seed-based association measures:
-#'            Each (i, j) element denotes participant i's association measure between the seed region and region j.
-#'            The column representing the association measure of the seed region with itself should be filled with NA values to indicate its position.
-#'          If it represents other types of association measures:
-#'            Each (i, j) element denotes participant i's association measure between two brain regions of interest, such as the upper diagonal part of the functional connectivity matrix.
-#'            No NA values are allowed in \code{Y} in this case.
-#' @param Delta_M Required. A binary (0/1) vector of length n indicating whether motion is available and meets the motion quality control (QC) inclusion criteria.
-#'          Set \code{Delta_M} = 1 if the participant passes motion QC; otherwise, set \code{Delta_M} = 0.
-#'          Any QC definition can be used, e.g., a threshold on mean framewise displacement (\code{Delta_M = as.numeric(M < 0.2)}),
-#'          or criteria based on scrubbing or the number of remaining frames. \code{Delta_M} must be 0 when \code{M} is missing.
-#' @param Delta_Y A binary vector indicating the non-missingness and whether the brain image data \code{Y} passes quality control after preprocessing. 
-#'          Set \code{Delta_Y = 1} if \code{Y} is usable; otherwise, set \code{Delta_Y = 0}.
 #' 
 #' @param SL_library SuperLearner library for estimating nuisance regressions. 
 #'                   Defaults to c("SL.earth","SL.glmnet","SL.gam","SL.glm", "SL.glm.interaction", "SL.step","SL.step.interaction","SL.xgboost","SL.ranger","SL.mean") if not specified.
@@ -57,9 +40,10 @@
 #'                   - \code{lambda_seq}: A numeric sequence of values for the regularization parameter of Lasso regression (passed to \code{haldensify}).
 #'                   - \code{num_knots}: The maximum number of knot points (i.e., bins) for any covariate for generating basis functions (passed to \code{haldensify}).
 #' 
-#' @param cv_folds a numeric value indicates the number(s) of partitions in cross-fitting. Defaults to 5. 
 #' 
 #' @param density_method,Delta_M_threshold,gamlss_options Motion density method, the threshold that defines \code{Delta_M}, and GAMLSS options. See \code{\link{moco}}.
+#' @param seed Random seed set before each SuperLearner fit (one value of \code{seed_rng} in \code{moco()}).
+#' @param ... Not used.
 #' 
 #' @import SuperLearner 
 #' @import haldensify 
@@ -174,7 +158,7 @@ fit_mechanism <- function(
                                          SL.library = SL_gA,
                                          method = tmp_method.CC_nloglik(),
                                          control = list(saveCVFitLibrary = TRUE))
-    gAn_1 <- stats::predict(gA_fit, type = "response", newdata = valid_dat$X)[[1]]
+    gAn_1 <- stats::predict(gA_fit, type = "response", newdata = valid_dat$X, onlySL = TRUE)[[1]]
   }
   
   # fit missingness indicator regression
@@ -199,12 +183,12 @@ fit_mechanism <- function(
                                                 SL.library = SL_gDY_AXZ,
                                                 method = tmp_method.CC_nloglik(),
                                                 control = list(saveCVFitLibrary = TRUE))
-      gDYn_1_AXZ_train <- stats::predict(gDY_AXZ_fit, type = "response", newdata = data.frame(train_dat$A, train_dat$X, train_dat$Z))[[1]]
-      gDYn_1_A0XZ_train <- stats::predict(gDY_AXZ_fit, type = "response", newdata = data.frame(A = 0, train_dat$X, train_dat$Z))[[1]]
-      gDYn_1_A1XZ_train <- stats::predict(gDY_AXZ_fit, type = "response", newdata = data.frame(A = 1, train_dat$X, train_dat$Z))[[1]]
-      gDYn_1_AXZ_valid <- stats::predict(gDY_AXZ_fit, type = "response", newdata = data.frame(valid_dat$A, valid_dat$X, valid_dat$Z))[[1]]
-      gDYn_1_A0XZ_valid <- stats::predict(gDY_AXZ_fit, type = "response", newdata = data.frame(A = 0, valid_dat$X, valid_dat$Z))[[1]]
-      gDYn_1_A1XZ_valid <- stats::predict(gDY_AXZ_fit, type = "response", newdata = data.frame(A = 1, valid_dat$X, valid_dat$Z))[[1]]
+      gDYn_1_AXZ_train <- stats::predict(gDY_AXZ_fit, type = "response", newdata = data.frame(train_dat$A, train_dat$X, train_dat$Z), onlySL = TRUE)[[1]]
+      gDYn_1_A0XZ_train <- stats::predict(gDY_AXZ_fit, type = "response", newdata = data.frame(A = 0, train_dat$X, train_dat$Z), onlySL = TRUE)[[1]]
+      gDYn_1_A1XZ_train <- stats::predict(gDY_AXZ_fit, type = "response", newdata = data.frame(A = 1, train_dat$X, train_dat$Z), onlySL = TRUE)[[1]]
+      gDYn_1_AXZ_valid <- stats::predict(gDY_AXZ_fit, type = "response", newdata = data.frame(valid_dat$A, valid_dat$X, valid_dat$Z), onlySL = TRUE)[[1]]
+      gDYn_1_A0XZ_valid <- stats::predict(gDY_AXZ_fit, type = "response", newdata = data.frame(A = 0, valid_dat$X, valid_dat$Z), onlySL = TRUE)[[1]]
+      gDYn_1_A1XZ_valid <- stats::predict(gDY_AXZ_fit, type = "response", newdata = data.frame(A = 1, valid_dat$X, valid_dat$Z), onlySL = TRUE)[[1]]
     }
   }
   
@@ -221,8 +205,8 @@ fit_mechanism <- function(
                                             SL.library = SL_gDM,
                                             method = tmp_method.CC_nloglik(),
                                             control = list(saveCVFitLibrary = TRUE))
-      gDMn_1_A0_train <- stats::predict(gDM_fit, type = "response", newdata = data.frame(A = 0, train_dat$X))[[1]]
-      gDMn_1_A0_valid <- stats::predict(gDM_fit, type = "response", newdata = data.frame(A = 0, valid_dat$X))[[1]]
+      gDMn_1_A0_train <- stats::predict(gDM_fit, type = "response", newdata = data.frame(A = 0, train_dat$X), onlySL = TRUE)[[1]]
+      gDMn_1_A0_valid <- stats::predict(gDM_fit, type = "response", newdata = data.frame(A = 0, valid_dat$X), onlySL = TRUE)[[1]]
     }
     
     # fit missingness indicator regression
@@ -243,8 +227,8 @@ fit_mechanism <- function(
                                                  SL.library = SL_gDY_AX,
                                                  method = tmp_method.CC_nloglik(),
                                                  control = list(saveCVFitLibrary = TRUE))
-        gDYn_1_AX_train <- stats::predict(gDY_AX_fit, type = "response", newdata = data.frame(train_dat$A, train_dat$X))[[1]]
-        gDYn_1_AX_valid <- stats::predict(gDY_AX_fit, type = "response", newdata = data.frame(valid_dat$A, valid_dat$X))[[1]]
+        gDYn_1_AX_train <- stats::predict(gDY_AX_fit, type = "response", newdata = data.frame(train_dat$A, train_dat$X), onlySL = TRUE)[[1]]
+        gDYn_1_AX_valid <- stats::predict(gDY_AX_fit, type = "response", newdata = data.frame(valid_dat$A, valid_dat$X), onlySL = TRUE)[[1]]
       } 
     }
     
@@ -431,12 +415,12 @@ fit_mechanism <- function(
                                                 SL.library = SL_mu_AMXZ,
                                                 method = tmp_method.CC_LS(),
                                                 control = list(saveCVFitLibrary = TRUE))
-      mu_MXZn_A0_train[index_nomissingM_train] <- stats::predict(mu_AMXZ_fit, newdata = data.frame(A = 0, train_dat$M, train_dat$X, train_dat$Z)[index_nomissingM_train,])[[1]]
-      mu_MXZn_A1_train[index_nomissingM_train] <- stats::predict(mu_AMXZ_fit, newdata = data.frame(A = 1, train_dat$M, train_dat$X, train_dat$Z)[index_nomissingM_train,])[[1]]
-      mu_MXZn_A0_valid[index_nomissingM_valid] <- stats::predict(mu_AMXZ_fit, newdata = data.frame(A = 0, valid_dat$M, valid_dat$X, valid_dat$Z)[index_nomissingM_valid,])[[1]]
-      mu_MXZn_A1_valid[index_nomissingM_valid] <- stats::predict(mu_AMXZ_fit, newdata = data.frame(A = 1, valid_dat$M, valid_dat$X, valid_dat$Z)[index_nomissingM_valid,])[[1]]
-      mu_MXZn_A_train[index_nomissingM_train] <- stats::predict(mu_AMXZ_fit, newdata = data.frame(train_dat$A, train_dat$M, train_dat$X, train_dat$Z)[index_nomissingM_train,])[[1]]
-      mu_MXZn_A_valid[index_nomissingM_valid] <- stats::predict(mu_AMXZ_fit, newdata = data.frame(valid_dat$A, valid_dat$M, valid_dat$X, valid_dat$Z)[index_nomissingM_valid,])[[1]]
+      mu_MXZn_A0_train[index_nomissingM_train] <- stats::predict(mu_AMXZ_fit, newdata = data.frame(A = 0, train_dat$M, train_dat$X, train_dat$Z)[index_nomissingM_train,], onlySL = TRUE)[[1]]
+      mu_MXZn_A1_train[index_nomissingM_train] <- stats::predict(mu_AMXZ_fit, newdata = data.frame(A = 1, train_dat$M, train_dat$X, train_dat$Z)[index_nomissingM_train,], onlySL = TRUE)[[1]]
+      mu_MXZn_A0_valid[index_nomissingM_valid] <- stats::predict(mu_AMXZ_fit, newdata = data.frame(A = 0, valid_dat$M, valid_dat$X, valid_dat$Z)[index_nomissingM_valid,], onlySL = TRUE)[[1]]
+      mu_MXZn_A1_valid[index_nomissingM_valid] <- stats::predict(mu_AMXZ_fit, newdata = data.frame(A = 1, valid_dat$M, valid_dat$X, valid_dat$Z)[index_nomissingM_valid,], onlySL = TRUE)[[1]]
+      mu_MXZn_A_train[index_nomissingM_train] <- stats::predict(mu_AMXZ_fit, newdata = data.frame(train_dat$A, train_dat$M, train_dat$X, train_dat$Z)[index_nomissingM_train,], onlySL = TRUE)[[1]]
+      mu_MXZn_A_valid[index_nomissingM_valid] <- stats::predict(mu_AMXZ_fit, newdata = data.frame(valid_dat$A, valid_dat$M, valid_dat$X, valid_dat$Z)[index_nomissingM_valid,], onlySL = TRUE)[[1]]
     }
     
     if(M_indicator){
@@ -460,13 +444,13 @@ fit_mechanism <- function(
                                                   SL.library = SL_eta_AXZ,
                                                   method = tmp_method.CC_LS(),
                                                   control = list(saveCVFitLibrary = TRUE))
-        eta_AXZn_A_train <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(train_dat$A, train_dat$X, train_dat$Z))[[1]]
-        eta_AXZn_A0_train <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A = 0, train_dat$X, train_dat$Z))[[1]]
-        eta_AXZn_A1_train <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A = 1, train_dat$X, train_dat$Z))[[1]]
+        eta_AXZn_A_train <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(train_dat$A, train_dat$X, train_dat$Z), onlySL = TRUE)[[1]]
+        eta_AXZn_A0_train <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A = 0, train_dat$X, train_dat$Z), onlySL = TRUE)[[1]]
+        eta_AXZn_A1_train <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A = 1, train_dat$X, train_dat$Z), onlySL = TRUE)[[1]]
         
-        eta_AXZn_A_valid <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(valid_dat$A, valid_dat$X, valid_dat$Z))[[1]]
-        eta_AXZn_A0_valid <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A = 0, valid_dat$X, valid_dat$Z))[[1]]
-        eta_AXZn_A1_valid <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A = 1, valid_dat$X, valid_dat$Z))[[1]]
+        eta_AXZn_A_valid <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(valid_dat$A, valid_dat$X, valid_dat$Z), onlySL = TRUE)[[1]]
+        eta_AXZn_A0_valid <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A = 0, valid_dat$X, valid_dat$Z), onlySL = TRUE)[[1]]
+        eta_AXZn_A1_valid <- stats::predict(eta_AXZ_fit, type = "response", newdata = data.frame(A = 1, valid_dat$X, valid_dat$Z), onlySL = TRUE)[[1]]
       }
       
       # fit pseudo-outcome regression for Qd, conditioning on disease status, mediator and baseline covariates
@@ -492,11 +476,11 @@ fit_mechanism <- function(
                                                   SL.library = SL_eta_AXM,
                                                   method = tmp_method.CC_LS(),
                                                   control = list(saveCVFitLibrary = TRUE))
-        eta_AXMn_A0_train[index_nomissingM_train] <- stats::predict(eta_AXM_fit, newdata = data.frame(A = 0, train_dat$M, train_dat$X)[index_nomissingM_train,])[[1]]
-        eta_AXMn_A1_train[index_nomissingM_train] <- stats::predict(eta_AXM_fit, newdata = data.frame(A = 1, train_dat$M, train_dat$X)[index_nomissingM_train,])[[1]]
+        eta_AXMn_A0_train[index_nomissingM_train] <- stats::predict(eta_AXM_fit, newdata = data.frame(A = 0, train_dat$M, train_dat$X)[index_nomissingM_train,], onlySL = TRUE)[[1]]
+        eta_AXMn_A1_train[index_nomissingM_train] <- stats::predict(eta_AXM_fit, newdata = data.frame(A = 1, train_dat$M, train_dat$X)[index_nomissingM_train,], onlySL = TRUE)[[1]]
         
-        eta_AXMn_A0_valid[index_nomissingM_valid] <- stats::predict(eta_AXM_fit, newdata = data.frame(A = 0, valid_dat$M, valid_dat$X)[index_nomissingM_valid,])[[1]]
-        eta_AXMn_A1_valid[index_nomissingM_valid] <- stats::predict(eta_AXM_fit, newdata = data.frame(A = 1, valid_dat$M, valid_dat$X)[index_nomissingM_valid,])[[1]]
+        eta_AXMn_A0_valid[index_nomissingM_valid] <- stats::predict(eta_AXM_fit, newdata = data.frame(A = 0, valid_dat$M, valid_dat$X)[index_nomissingM_valid,], onlySL = TRUE)[[1]]
+        eta_AXMn_A1_valid[index_nomissingM_valid] <- stats::predict(eta_AXM_fit, newdata = data.frame(A = 1, valid_dat$M, valid_dat$X)[index_nomissingM_valid,], onlySL = TRUE)[[1]]
       }else{
         if(!requireNamespace("hal9001", quietly = TRUE)){
           stop("Package 'hal9001' is required when no SuperLearner library or glm formula is given for eta_AXM.")
@@ -529,8 +513,8 @@ fit_mechanism <- function(
                                            SL.library = SL_xi_AX,
                                            method = tmp_method.CC_LS(),
                                            control = list(saveCVFitLibrary = TRUE))
-      xi_AXn_A0 <- stats::predict(xi_fit, newdata = data.frame(A = 0, valid_dat$X))[[1]]
-      xi_AXn_A1 <- stats::predict(xi_fit, newdata = data.frame(A = 1, valid_dat$X))[[1]]
+      xi_AXn_A0 <- stats::predict(xi_fit, newdata = data.frame(A = 0, valid_dat$X), onlySL = TRUE)[[1]]
+      xi_AXn_A1 <- stats::predict(xi_fit, newdata = data.frame(A = 1, valid_dat$X), onlySL = TRUE)[[1]]
     }
     
     # calculate efficient influence function
@@ -630,6 +614,8 @@ fit_mechanism <- function(
 #' @param cv_folds a numeric value indicates the number(s) of partitions in cross-fitting. Defaults to 5. 
 #' 
 #' @param density_method,Delta_M_threshold,gamlss_options Motion density method, the threshold that defines \code{Delta_M}, and GAMLSS options. See \code{\link{moco}}.
+#' @param seed Random seed set before each SuperLearner fit (one value of \code{seed_rng} in \code{moco()}).
+#' @param ... Not used.
 #' 
 #' @import SuperLearner 
 #' @import haldensify 
