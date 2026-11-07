@@ -238,7 +238,7 @@ fit_hal <- moco(
 )
 ```
 
-#### Log-normal GLM
+#### GLM
 
 For GLM motion densities, set `density_method = "glm"`, or equivalently
 `HAL_pMX = FALSE` and `HAL_pMXZ = FALSE`. The right-hand sides of the `pMX` and
