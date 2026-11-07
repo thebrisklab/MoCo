@@ -348,7 +348,7 @@ summarizes the density-ratio weights `pMXD / pMXZ` that enter the EIF, and
 `moco()` warns when their effective-sample-size ratio is below 0.1 for either
 group.
 
-## Tutorial: an ABIDE-like seed-based analysis
+## Tutorial: a seed-based analysis
 
 The bundled data contain 400 simulated participants and reproduce the layout
 of a seed-based analysis motivated by the Autism Brain Imaging Data Exchange
@@ -594,7 +594,6 @@ truth; HAL has larger standard errors on this small sample.
 - **Log-normal GLM**: small samples or motion that is close to log-normal; fastest.
 - **GAMLSS**: large samples or skewed motion (`GG`); set `Delta_M_threshold` when `Delta_M` is a cut on motion, start with a simple `sigma` model, and check `density_log` and `weight_diagnostics` before interpreting the results.
 - **HAL**: the most flexible, with minimal distributional assumptions and the theoretical guarantees of the nonparametric estimator; slow.
-- Whichever model is used, report it with the analysis and check that the conclusions are robust to the choice.
 
 ## Function reference
 
