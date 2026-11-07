@@ -109,7 +109,7 @@ p(m | a, x, Delta_M = 1) and p(m | a, x, z, Delta_M = 1) are then fitted with a 
 and set to 0 for M >= c. Defaults to \code{NULL} (Delta_M is not a cut on M; an ordinary generalized gamma is fitted on the Delta_M = 1 participants
 and set to 0 outside their range of M). With \code{NULL}, MoCo warns when Delta_M looks like a threshold on M.}
 
-\item{gamlss_options}{Options for \code{density_method = "gamlss"} (requires the suggested packages \code{gamlss} and \code{gamlss.dist}). Entries left out take their defaults:
+\item{gamlss_options}{Options for \code{density_method = "gamlss"} (fitted with \code{gamlss} and \code{gamlss.dist}, which are installed with MoCo). Entries left out take their defaults:
 - \code{family}: \code{"GG"} (generalized gamma; the only family currently supported).
 - \code{mu}: \code{"linear"} (all covariates entered linearly, default), \code{"smooth"} (continuous covariates entered as \code{pb()} P-splines, the others linearly), or a one-sided formula.
 - \code{sigma}: \code{"linear"} (default), \code{"smooth"}, \code{"1"} (constant), \code{"A"} (group only), or a one-sided formula.
@@ -135,11 +135,13 @@ and set to 0 outside their range of M). With \code{NULL}, MoCo warns when Delta_
 
 \item{hypo_method}{Critical-value simulation: "mvn" (default) or "multiplier".}
 
-\item{hypo_n_sim}{Number of Gaussian draws for the simultaneous test.}
+\item{hypo_n_sim}{Number of Monte Carlo draws for the simultaneous test. Defaults to 100000, as in the original MoCo; it can be lowered (e.g. to 10000) for quick exploratory runs with many outcomes.}
 
 \item{hypo_chunk_size}{Draws processed per simulation batch.}
 
 \item{hypo_seed}{Critical-value simulation seed, separate from nuisance seeds.}
+
+\item{...}{Not used. Supplying the removed arguments \code{thresh} or \code{seed_rgn} gives an informative error.}
 }
 \value{
 A list with named entries
@@ -158,4 +160,23 @@ Non-parametric efficient motion-controlled brain phenotype estimators
 }
 \details{
 Compute non-parametric efficient motion-controlled brain phenotype estimators (MoCo)
+}
+\examples{
+data(moco_example)
+d <- moco_example
+
+# Fast example (a few seconds): one outcome (Frontoparietal) plus the
+# seed-to-self column, a small Super Learner library and GAMLSS motion densities
+fit <- moco(X = d$X, Z = d$Z, A = d$A, M = d$M, Y = d$Y[, 6:7],
+            Delta_M = d$Delta_M, Delta_Y = d$Delta_Y,
+            SL_library = c("SL.mean", "SL.glm"),
+            density_method = "gamlss", cv_folds = 5, seed_rng = 1)
+fit$adj_association
+fit$significant_regions
+fit$density_log
+
+# The full GLM, GAMLSS and HAL analysis of the README tutorial (about 50 min
+# in total) is in an installed script:
+# file.show(system.file("examples", "full_analysis.R", package = "MoCo"))
+
 }

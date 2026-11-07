@@ -30,8 +30,16 @@ plot_moco(
 \item{zlim_association}{The z-axis limits for association plots.}
 }
 \value{
-This function does not return any value. It generates and saves plots based on the provided parameters.
+Invisibly, the paths of the three PNG files written to \code{plots_path} (mean connectivity for each group and the significant associations).
 }
 \description{
 This function plots motion-controlled mean functional connectivity example results using the provided data and parameters.
+}
+\examples{
+\dontrun{
+# requires the ciftiTools package and a local Connectome Workbench installation
+plot_moco(result = fit, wb_path = "/path/to/workbench",
+          template_path = "/path/to/template.dscalar.nii",
+          plots_path = tempdir())
+}
 }

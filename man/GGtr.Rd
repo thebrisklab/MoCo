@@ -27,3 +27,15 @@ p(m | a, x, z, Delta_M = 1) when \code{Delta_M = 1(M < threshold)}. The construc
 \eqn{\log F(c)}, computed numerically, and the GG expected information is used as the working weight.
 The threshold is written into the family functions, so the object is self-contained.
 }
+\examples{
+if (requireNamespace("gamlss", quietly = TRUE) &&
+    requireNamespace("gamlss.dist", quietly = TRUE)) {
+  # motion observed only below a cut-off of 0.2 mm
+  set.seed(2)
+  m <- gamlss.dist::rGG(500, mu = 0.12, sigma = 0.5, nu = 0.5)
+  m <- m[m < 0.2]
+  fit <- gamlss::gamlss(m ~ 1, family = GGtr(threshold = 0.2),
+                        control = gamlss::gamlss.control(n.cyc = 200, trace = FALSE))
+  c(mu = exp(coef(fit, "mu")), sigma = exp(coef(fit, "sigma")), nu = coef(fit, "nu"))
+}
+}

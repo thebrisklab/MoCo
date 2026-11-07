@@ -70,31 +70,9 @@ Defaults to \code{TRUE}. If set to \code{FALSE}, please specify the \code{pMXZ} 
 
 \item{density_method, Delta_M_threshold, gamlss_options}{Motion density method, the threshold that defines \code{Delta_M}, and GAMLSS options. See \code{\link{moco}}.}
 
-\item{X}{A dataframe or matrix containing demographic confounders that would ideally be balanced in a randomized controlled trial.}
+\item{seed}{Random seed set before each SuperLearner fit (one value of \code{seed_rng} in \code{moco()}).}
 
-\item{Z}{A dataframe or matrix of covariates representing brain phenotypes.}
-
-\item{A}{A binary vector of length n (number of participants), serving as a group indicator, such as diagnosis group or control group.}
-
-\item{M}{A numeric vector of length n representing continuous motion values for each participant.}
-
-\item{Y}{A matrix of dimension n x p, where n is the number of participants, and p is the number of regions of interest.
-If it represents seed-based association measures:
-Each (i, j) element denotes participant i's association measure between the seed region and region j.
-The column representing the association measure of the seed region with itself should be filled with NA values to indicate its position.
-If it represents other types of association measures:
-Each (i, j) element denotes participant i's association measure between two brain regions of interest, such as the upper diagonal part of the functional connectivity matrix.
-No NA values are allowed in \code{Y} in this case.}
-
-\item{Delta_M}{Required. A binary (0/1) vector of length n indicating whether motion is available and meets the motion quality control (QC) inclusion criteria.
-Set \code{Delta_M} = 1 if the participant passes motion QC; otherwise, set \code{Delta_M} = 0.
-Any QC definition can be used, e.g., a threshold on mean framewise displacement (\code{Delta_M = as.numeric(M < 0.2)}),
-or criteria based on scrubbing or the number of remaining frames. \code{Delta_M} must be 0 when \code{M} is missing.}
-
-\item{Delta_Y}{A binary vector indicating the non-missingness and whether the brain image data \code{Y} passes quality control after preprocessing.
-Set \code{Delta_Y = 1} if \code{Y} is usable; otherwise, set \code{Delta_Y = 0}.}
-
-\item{cv_folds}{a numeric value indicates the number(s) of partitions in cross-fitting. Defaults to 5.}
+\item{...}{Not used.}
 }
 \value{
 A list with named entries

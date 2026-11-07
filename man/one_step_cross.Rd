@@ -91,7 +91,11 @@ Defaults to \code{TRUE}. If set to \code{FALSE}, please specify the \code{pMXZ} 
 
 \item{density_method, Delta_M_threshold, gamlss_options}{Motion density method, the threshold that defines \code{Delta_M}, and GAMLSS options. See \code{\link{moco}}.}
 
+\item{seed}{Random seed set before each SuperLearner fit (one value of \code{seed_rng} in \code{moco()}).}
+
 \item{cv_folds}{a numeric value indicates the number(s) of partitions in cross-fitting. Defaults to 5.}
+
+\item{...}{Not used.}
 }
 \value{
 A list with named entries

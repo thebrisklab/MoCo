@@ -91,6 +91,10 @@ Defaults to \code{TRUE}. If set to \code{FALSE}, please specify the \code{pMXZ} 
 - \code{num_knots}: The maximum number of knot points (i.e., bins) for any covariate for generating basis functions (passed to \code{haldensify}).}
 
 \item{density_method, Delta_M_threshold, gamlss_options}{Motion density method, the threshold that defines \code{Delta_M}, and GAMLSS options. See \code{\link{moco}}.}
+
+\item{seed}{Random seed set before each SuperLearner fit (one value of \code{seed_rng} in \code{moco()}).}
+
+\item{...}{Not used.}
 }
 \value{
 A list with named entries
