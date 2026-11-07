@@ -1,6 +1,6 @@
 # MoCo: **Mo**tion-**Co**ntrolled Brain-Phenotype Differences Between Groups
 
-<img src="fig/MoCo.png" width="120" align="right" alt="MoCo logo"/>
+<img src="man/figures/MoCo.png" width="120" align="right" alt="MoCo logo"/>
 
 > Nonparametric estimation of group-specific brain-phenotype means and group
 > differences while accounting for motion-related selection.
@@ -56,20 +56,20 @@ and Connectome Workbench.
 
 ## Quick start
 
-The bundled example data can be used for a lightweight GLM-based analysis:
+The bundled example data `moco_example` can be used for a lightweight GLM-based analysis:
 
 ```r
 library(MoCo)
-data(data)
+data(moco_example)
 
 fit_glm <- moco(
-  X = data$X,
-  Z = data$Z,
-  A = data$A,
-  M = data$M,
-  Y = data$Y,
-  Delta_M = data$Delta_M,
-  Delta_Y = data$Delta_Y,
+  X = moco_example$X,
+  Z = moco_example$Z,
+  A = moco_example$A,
+  M = moco_example$M,
+  Y = moco_example$Y,
+  Delta_M = moco_example$Delta_M,
+  Delta_Y = moco_example$Delta_Y,
   HAL_pMX = FALSE,
   HAL_pMXZ = FALSE,
   glm_formula = list(pMX = ".", pMXZ = "."),
@@ -117,13 +117,13 @@ seed and aggregates results in the following order:
 
 ```r
 fit_repeated <- moco(
-  X = data$X,
-  Z = data$Z,
-  A = data$A,
-  M = data$M,
-  Y = data$Y,
-  Delta_M = data$Delta_M,
-  Delta_Y = data$Delta_Y,
+  X = moco_example$X,
+  Z = moco_example$Z,
+  A = moco_example$A,
+  M = moco_example$M,
+  Y = moco_example$Y,
+  Delta_M = moco_example$Delta_M,
+  Delta_Y = moco_example$Delta_Y,
   HAL_pMX = FALSE,
   HAL_pMXZ = FALSE,
   glm_formula = list(pMX = ".", pMXZ = "."),
@@ -150,7 +150,7 @@ repeated seeds and covariance has been recomputed.
 
 ## Data interface
 
-<img src="fig/input_output.png" width="750" align="center" alt="MoCo inputs and outputs"/>
+<img src="man/figures/input_output.png" width="750" align="center" alt="MoCo inputs and outputs"/>
 
 `moco()` uses the following data objects:
 
@@ -221,13 +221,13 @@ regularization path can be controlled with `HAL_options`, which is passed to
 
 ```r
 fit_hal <- moco(
-  X = data$X,
-  Z = data$Z,
-  A = data$A,
-  M = data$M,
-  Y = data$Y,
-  Delta_M = data$Delta_M,
-  Delta_Y = data$Delta_Y,
+  X = moco_example$X,
+  Z = moco_example$Z,
+  A = moco_example$A,
+  M = moco_example$M,
+  Y = moco_example$Y,
+  Delta_M = moco_example$Delta_M,
+  Delta_Y = moco_example$Delta_Y,
   HAL_pMX = TRUE,
   HAL_pMXZ = TRUE,
   HAL_options = list(
@@ -249,13 +249,13 @@ is used for `pMX` and `pMXD` (and for `pMXZ` and `pMXZD`).
 
 ```r
 fit_glm <- moco(
-  X = data$X,
-  Z = data$Z,
-  A = data$A,
-  M = data$M,
-  Y = data$Y,
-  Delta_M = data$Delta_M,
-  Delta_Y = data$Delta_Y,
+  X = moco_example$X,
+  Z = moco_example$Z,
+  A = moco_example$A,
+  M = moco_example$M,
+  Y = moco_example$Y,
+  Delta_M = moco_example$Delta_M,
+  Delta_Y = moco_example$Delta_Y,
   HAL_pMX = FALSE,
   HAL_pMXZ = FALSE,
   glm_formula = list(pMX = ".", pMXZ = ".")
@@ -291,15 +291,14 @@ example, a minimum number of frames after censoring), leave
 
 ```r
 fit_gamlss <- moco(
-  X = data$X,
-  Z = data$Z,
-  A = data$A,
-  M = data$M,
-  Y = data$Y,
-  Delta_M = data$Delta_M,
-  Delta_Y = data$Delta_Y,
+  X = moco_example$X,
+  Z = moco_example$Z,
+  A = moco_example$A,
+  M = moco_example$M,
+  Y = moco_example$Y,
+  Delta_M = moco_example$Delta_M,
+  Delta_Y = moco_example$Delta_Y,
   density_method = "gamlss",
-  Delta_M_threshold = 0.2,
   gamlss_options = list(
     mu = "linear",
     sigma = "1",
@@ -348,54 +347,59 @@ summarizes the density-ratio weights `pMXD / pMXZ` that enter the EIF, and
 `moco()` warns when their effective-sample-size ratio is below 0.1 for either
 group.
 
-## Tutorial: a seed-based analysis
+## Tutorial: an ABIDE-like seed-based analysis
 
-The bundled data contain 400 simulated participants and reproduce the layout
-of a seed-based analysis motivated by the Autism Brain Imaging Data Exchange
-(ABIDE). The seed is the default mode network (DMN), and the outcomes represent
-its Fisher-z-transformed functional connectivity with networks from the Yeo
-seven-network parcellation.
+The bundled data `moco_example` contain 400 simulated children aged 8 to 14
+years and reproduce the layout of a seed-based analysis motivated by the Autism
+Brain Imaging Data Exchange (ABIDE). The seed is the default mode network (DMN),
+and the outcomes represent its Fisher-z-transformed functional connectivity
+with networks from the Yeo seven-network parcellation.
 
 ```r
 library(MoCo)
-data(data)
-str(data)
+data(moco_example)
+str(moco_example)
 ```
 
 The simulated objects are:
 
-- `A`: diagnostic group, coded 1 for ASD and 0 for non-ASD;
-- `M`: mean framewise displacement;
-- `Delta_M`: motion inclusion, with high motion defined in the simulation as
-  mean FD greater than 0.2;
-- `Delta_Y`: imaging-data availability and quality;
+- `A`: diagnostic group, coded 1 for ASD (153 children) and 0 for non-ASD;
+- `M`: mean framewise displacement (mm), generated from a generalized gamma
+  distribution whose location and spread are larger in ASD, at higher ADOS
+  scores and at younger ages, so motion in the ASD group is higher and more
+  right-skewed than log-normal;
+- `Delta_M`: motion inclusion; the probability of passing motion quality
+  control falls smoothly with `M` (it is not a fixed cut-off), and 79% of
+  children pass (88% non-ASD, 65% ASD);
+- `Delta_Y`: imaging-data availability and quality (93% available);
 - `X`: sex, age, and handedness;
 - `Z`: ADOS, full-scale IQ, stimulant medication, and nonstimulant medication;
-- `Y`: an `n` by 7 functional-connectivity matrix.
+- `Y`: an `n` by 7 functional-connectivity matrix with columns Visual,
+  Somatomotor, DorsalAttention, VentralAttention, Limbic, Frontoparietal, and
+  Default.
 
 The seventh column of `Y` is the seed-to-self position and is therefore
 entirely `NA`. Rows with `Delta_Y = 0` are also missing because their imaging
 outcomes are unavailable. The simulated group differences are zero for the
-first four outcomes, -0.0485 for the fifth, and -0.0682 for the sixth.
+first four outcomes, -0.0485 for the fifth (Limbic), and -0.0682 for the sixth
+(Frontoparietal). The generating script is installed with the package: `system.file("scripts", "moco_example.R", package = "MoCo")`.
+
+All three fits below use the default Super Learner library for the nuisance
+regressions, five-fold cross-fitting, and simultaneous tests at FWER 0.05; only
+the motion-density model differs.
 
 ### Log-normal GLM
 
-For a fast illustration, fit log-normal GLM motion densities and a compact
-Super Learner library:
-
 ```r
 fit_abide <- moco(
-  X = data$X,
-  Z = data$Z,
-  A = data$A,
-  M = data$M,
-  Y = data$Y,
-  Delta_M = data$Delta_M,
-  Delta_Y = data$Delta_Y,
-  SL_library = c("SL.mean", "SL.glm", "SL.glm.interaction"), 
-  glm_formula = list(pMX = ".", pMXZ = "."),
-  HAL_pMX = FALSE,
-  HAL_pMXZ = FALSE,
+  X = moco_example$X,
+  Z = moco_example$Z,
+  A = moco_example$A,
+  M = moco_example$M,
+  Y = moco_example$Y,
+  Delta_M = moco_example$Delta_M,
+  Delta_Y = moco_example$Delta_Y,
+  density_method = "glm",
   cross_fit = TRUE,
   cv_folds = 5,
   seed_rng = 1,
@@ -410,25 +414,36 @@ second represents `A = 1`, and the structural seventh column is restored as
 
 ```r
 round(fit_abide$est, 4)
-# est_A0 -0.2191 -0.1640 -0.1819  0.0528  0.0399  0.0862 NA
-# est_A1 -0.2192 -0.1617 -0.1809  0.0491 -0.0079  0.0167 NA
+# est_A0 -0.2845 -0.1102 -0.1357 -0.0008  0.1090  0.1796 NA
+# est_A1 -0.2871 -0.1572 -0.1008  0.0658  0.0236  0.1024 NA
 ```
 
 The adjusted group differences are:
 
 ```r
 round(fit_abide$adj_association, 4)
-# -0.0001  0.0024  0.0010 -0.0037 -0.0478 -0.0696 NA
+# -0.0026 -0.0471  0.0349  0.0667 -0.0854 -0.0772 NA
 ```
 
 The EIF-based test results are:
 
 ```r
 round(fit_abide$z_score, 4)
-# -0.0052  0.0879  0.0404 -0.1538 -1.9283 -3.3178 NA
+# -0.0981 -1.5245  1.2608  2.0033 -2.7918 -2.9241 NA
 
 fit_abide$significant_regions
-# FALSE FALSE FALSE FALSE FALSE TRUE NA
+# FALSE FALSE FALSE FALSE TRUE TRUE NA
+```
+
+The density-ratio weights `pMXD / pMXZ` show that the log-normal model fits
+the skewed motion of the ASD group poorly: a few ASD children receive large
+weights, and the effective sample size of that group drops to 26%:
+
+```r
+fit_abide$weight_diagnostics
+#   seed group   n max_weight ess_ratio
+# 1    1    A0 235      1.345     0.977
+# 2    1    A1 136     24.001     0.259
 ```
 
 The numerical output above is illustrative; results may vary slightly with R,
@@ -436,27 +451,24 @@ dependency, and numerical-optimization versions.
 
 ### GAMLSS
 
-The same analysis with GAMLSS motion densities replaces `HAL_pMX`,
-`HAL_pMXZ`, and the density formulas in `glm_formula` with
-`density_method = "gamlss"`. In the simulation `Delta_M = 1` exactly when
-`M < 0.2`, so `Delta_M_threshold = 0.2` fits the two densities on
-`Delta_M = 1` (`pMXD`, `pMXZD`) with a `GG` right-truncated at 0.2. All
-covariates enter the location linearly, and the scale is constant because the
-sample is small:
+The same analysis with GAMLSS motion densities uses
+`density_method = "gamlss"` and a generalized gamma (`GG`) distribution. Age
+(`X2`) and IQ (`Z2`) enter the location through penalized splines `pb()` and
+the other covariates linearly; the scale depends linearly on all covariates,
+and the shape `nu` is estimated. `Delta_M` is not a cut on `M` in these data,
+so `Delta_M_threshold` is not set:
 
 ```r
 fit_abide_gamlss <- moco(
-  X = data$X,
-  Z = data$Z,
-  A = data$A,
-  M = data$M,
-  Y = data$Y,
-  Delta_M = data$Delta_M,
-  Delta_Y = data$Delta_Y,
-  SL_library = c("SL.mean", "SL.glm", "SL.glm.interaction"),
+  X = moco_example$X,
+  Z = moco_example$Z,
+  A = moco_example$A,
+  M = moco_example$M,
+  Y = moco_example$Y,
+  Delta_M = moco_example$Delta_M,
+  Delta_Y = moco_example$Delta_Y,
   density_method = "gamlss",
-  Delta_M_threshold = 0.2,
-  gamlss_options = list(mu = "linear", sigma = "1", nu = "1"),
+  gamlss_options = list(mu = "smooth", smooth = c("X2", "Z2"), sigma = "linear"),
   cross_fit = TRUE,
   cv_folds = 5,
   seed_rng = 1,
@@ -465,82 +477,76 @@ fit_abide_gamlss <- moco(
 )
 
 round(fit_abide_gamlss$est, 4)
-# est_A0 -0.2167 -0.1620 -0.1732  0.0514  0.0465  0.0866 NA
-# est_A1 -0.2121 -0.1481 -0.1700  0.0734  0.0020  0.0252 NA
+# est_A0 -0.2776 -0.1157 -0.1358  0.0033  0.1028  0.1740 NA
+# est_A1 -0.2676 -0.1166 -0.0962  0.0143  0.0402  0.1007 NA
 
 round(fit_abide_gamlss$adj_association, 4)
-#  0.0046  0.0139  0.0032  0.0220 -0.0445 -0.0615 NA
+#  0.0100 -0.0008  0.0396  0.0110 -0.0626 -0.0733 NA
 
 round(fit_abide_gamlss$z_score, 4)
-#  0.1422  0.4984  0.1020  0.6123 -1.9095 -2.9246 NA
+#  0.4924 -0.0333  2.2241  0.4891 -2.6410 -3.1166 NA
 
 fit_abide_gamlss$significant_regions
-# FALSE FALSE FALSE FALSE FALSE TRUE NA
+# FALSE FALSE FALSE FALSE TRUE TRUE NA
 ```
 
 The fit of each density in each fold is recorded in `density_log` (20 rows
 here: 5 folds by 4 densities); all fits converged with `RS`, without a
-fallback:
+fallback, and the weights stay small in both groups:
 
 ```r
 head(fit_abide_gamlss$density_log[, c("fold", "density", "method", "truncated", "converged", "nu", "n")], 4)
 #   fold density method truncated converged      nu   n
-# 1    1     pMX     RS     FALSE      TRUE  0.0110 297
-# 2    1    pMXD     RS      TRUE      TRUE -0.9506 198
-# 3    1    pMXZ     RS     FALSE      TRUE -0.0596 297
-# 4    1   pMXZD     RS      TRUE      TRUE  1.4645 198
+# 1    1     pMX     RS     FALSE      TRUE  0.3627 295
+# 2    1    pMXD     RS     FALSE      TRUE  0.1313 251
+# 3    1    pMXZ     RS     FALSE      TRUE  0.3780 295
+# 4    1   pMXZD     RS     FALSE      TRUE -0.0603 251
 
 fit_abide_gamlss$weight_diagnostics
 #   seed group   n max_weight ess_ratio
-# 1    1    A0 243      2.100     0.658
-# 2    1    A1 129     18.904     0.263
+# 1    1    A0 235      1.649     0.959
+# 2    1    A1 136      3.772     0.588
 ```
 
 Other models are set in the same list, globally or per density. For example,
-`nu = 0` with `sigma = "1"` gives essentially the log-normal GLM above, and
-`mu = "smooth"` adds penalized splines `pb()` for the continuous covariates in
-the location model (not run):
+`sigma = "A"` lets the scale differ by group only, which is more stable when
+one group is small, and `nu = 0` with `sigma = "1"` gives essentially the
+log-normal GLM above (not run):
 
 ```r
 gamlss_options = list(
   mu = "smooth", smooth = c("X2", "Z2"),
-  sigma = "1", nu = "1",
+  sigma = "A", nu = "1",
   n.cyc = 500
 )
 ```
 
-GAMLSS models such as `GG` are better suited to large samples with skewed
-motion. On small samples, or when the `Delta_M = 1` subsample is small or
-truncated, flexible models can fail to converge or move the estimates
-noticeably. On this example, the default `sigma = "linear"` (scale depending
-on all covariates) produced density-ratio weights above 600 and estimates far
-from the truth, and `moco()` warned about the low effective sample size.
-Omitting `Delta_M_threshold` had the same effect. Check `density_log` and
+A covariate-dependent scale can extrapolate in a small group. In 100
+simulated data sets of this design, `sigma = "linear"` gave extreme weights in
+about 1 in 10, and `sigma = "A"` removed them. Check `density_log` and
 `weight_diagnostics` before interpreting the results.
 
 ### HAL
 
-The same analysis with HAL motion densities uses `HAL_pMX = TRUE` and
-`HAL_pMXZ = TRUE`. The default `HAL_options` are computationally heavy; this
-example uses a lighter basis (second-order interactions, 50 penalty values,
-and at most 50 and 25 knots for main terms and interactions):
+The same analysis with HAL motion densities uses `density_method = "hal"`. The
+default `HAL_options` are computationally heavy; this example uses a lighter
+basis (second-order interactions, 38 penalty values, and at most 30, 10, and 5
+knots):
 
 ```r
 fit_abide_hal <- moco(
-  X = data$X,
-  Z = data$Z,
-  A = data$A,
-  M = data$M,
-  Y = data$Y,
-  Delta_M = data$Delta_M,
-  Delta_Y = data$Delta_Y,
-  SL_library = c("SL.mean", "SL.glm", "SL.glm.interaction"),
-  HAL_pMX = TRUE,
-  HAL_pMXZ = TRUE,
+  X = moco_example$X,
+  Z = moco_example$Z,
+  A = moco_example$A,
+  M = moco_example$M,
+  Y = moco_example$Y,
+  Delta_M = moco_example$Delta_M,
+  Delta_Y = moco_example$Delta_Y,
+  density_method = "hal",
   HAL_options = list(
     max_degree = 2,
-    lambda_seq = exp(seq(-1, -10, length = 50)),
-    num_knots = c(50, 25)
+    lambda_seq = exp(seq(-1, -10, length = 40))[1:38],
+    num_knots = c(30, 10, 5)
   ),
   cross_fit = TRUE,
   cv_folds = 5,
@@ -550,50 +556,67 @@ fit_abide_hal <- moco(
 )
 
 round(fit_abide_hal$est, 4)
-# est_A0 -0.2196 -0.1687 -0.1705  0.0443  0.0486  0.0947 NA
-# est_A1 -0.2343 -0.1445 -0.1855  0.0458  0.0017  0.0235 NA
+# est_A0 -0.2964 -0.1145 -0.1414 -0.0024  0.1092  0.1861 NA
+# est_A1 -0.2691 -0.1226 -0.1056  0.0296  0.0253  0.0986 NA
 
 round(fit_abide_hal$adj_association, 4)
-# -0.0147  0.0242 -0.0150  0.0016 -0.0470 -0.0712 NA
+#  0.0273 -0.0081  0.0358  0.0321 -0.0839 -0.0875 NA
 
 round(fit_abide_hal$z_score, 4)
-# -0.5617  0.7729 -0.6339  0.0616 -1.9324 -3.0359 NA
+#  1.3559 -0.3329  1.9755  1.5330 -3.7638 -4.1397 NA
 
 fit_abide_hal$significant_regions
-# FALSE FALSE FALSE FALSE FALSE TRUE NA
+# FALSE FALSE FALSE FALSE TRUE TRUE NA
+
+fit_abide_hal$weight_diagnostics
+#   seed group   n max_weight ess_ratio
+# 1    1    A0 235      2.915     0.928
+# 2    1    A1 136      3.142     0.624
 ```
 
-This fit took about 13 minutes on a laptop, compared with about 5 seconds for
-the GLM fit; the GAMLSS fit takes about 2.5 times as long as the GLM fit. HAL fitting time grows quickly with the sample size,
-the number of covariates, `max_degree`, and `num_knots`, so HAL can be slow for
-large samples.
+With the default Super Learner library, the nuisance regressions take most of
+the run time: the GLM and GAMLSS fits each took about 14 minutes and the HAL
+fit about 21 minutes (one core each). HAL fitting time grows quickly with the
+sample size, the number of covariates, `max_degree`, and `num_knots`, so HAL
+can be slow for large samples.
 
 ### Comparison
 
-Adjusted associations (`adj_association`), z-statistics, and simultaneous
-tests at FWER 0.05 for the three motion-density models on the example data
-(seed 1, five folds):
+Adjusted associations (`adj_association`), z-statistics, simultaneous tests at
+FWER 0.05, and the accuracy and stability of the density-ratio weights for the
+three motion-density models on the example data (seed 1, five folds):
 
-| Outcome | Truth | GLM | GAMLSS (truncated GG) | HAL |
+| Outcome | Truth | GLM | GAMLSS (GG, smooth mu, linear sigma) | HAL |
 |---|---|---|---|---|
-| 1 | 0 | -0.0001 (z = -0.01) | 0.0046 (0.14) | -0.0147 (-0.56) |
-| 2 | 0 | 0.0024 (0.09) | 0.0139 (0.50) | 0.0242 (0.77) |
-| 3 | 0 | 0.0010 (0.04) | 0.0032 (0.10) | -0.0150 (-0.63) |
-| 4 | 0 | -0.0037 (-0.15) | 0.0220 (0.61) | 0.0016 (0.06) |
-| 5 | -0.0485 | -0.0478 (-1.93) | -0.0445 (-1.91) | -0.0470 (-1.93) |
-| 6 | -0.0682 | **-0.0696 (-3.32)** | **-0.0615 (-2.92)** | **-0.0712 (-3.04)** |
-| Critical value | | 2.595 | 2.569 | 2.606 |
-| Run time | | 5 s | about 2.5 × GLM | 13 min |
+| 1 Visual | 0 | -0.0026 (z = -0.10) | 0.0100 (0.49) | 0.0273 (1.36) |
+| 2 Somatomotor | 0 | -0.0471 (-1.52) | -0.0008 (-0.03) | -0.0081 (-0.33) |
+| 3 Dorsal attention | 0 | 0.0349 (1.26) | 0.0396 (2.22) | 0.0358 (1.98) |
+| 4 Ventral attention | 0 | 0.0667 (2.00) | 0.0110 (0.49) | 0.0321 (1.53) |
+| 5 Limbic | -0.0485 | **-0.0854 (-2.79)** | **-0.0626 (-2.64)** | **-0.0839 (-3.76)** |
+| 6 Frontoparietal | -0.0682 | **-0.0772 (-2.92)** | **-0.0733 (-3.12)** | **-0.0875 (-4.14)** |
+| Critical value | | 2.583 | 2.580 | 2.582 |
+| RMSE (six outcomes) | | 0.039 | 0.018 | 0.028 |
+| Largest weight, ASD | | 24.0 | 3.8 | 3.1 |
+| ESS ratio, ASD | | 0.26 | 0.59 | 0.62 |
+| Approximate density fit time | | a few seconds | about 20 s | about 7-8 min |
+| Total run time | | 14 min | 14 min | 21 min |
 
-Bold marks outcomes significant at FWER 0.05. All three models detect the
-sixth outcome only and estimate the fifth and sixth differences close to the
-truth; HAL has larger standard errors on this small sample.
+Bold marks outcomes significant at FWER 0.05. Total run time is for the whole `moco()` call with the default Super Learner library; the approximate density fit time is the extra time each density model adds, estimated from the differences in total run time and from runs of the same design with a compact library (`SL.mean`, `SL.glm`, `SL.glm.interaction`). All three models detect the
+fifth and sixth outcomes and no null outcome. GAMLSS is the most accurate and,
+like HAL, keeps the density-ratio weights small; the log-normal GLM gives one
+ASD child a weight of 24, which pulls the estimates away from the truth, most
+visibly for the null fourth outcome (0.067). GAMLSS takes about the same time
+as GLM.
 
 ### Which method?
 
-- **Log-normal GLM**: small samples or motion that is close to log-normal; fastest.
-- **GAMLSS**: large samples or skewed motion (`GG`); set `Delta_M_threshold` when `Delta_M` is a cut on motion, start with a simple `sigma` model, and check `density_log` and `weight_diagnostics` before interpreting the results.
+- **Log-normal GLM**: motion that is close to log-normal; fastest.
+- **GAMLSS**: skewed or heteroscedastic motion (`GG`); as accurate as HAL at
+  close to GLM cost. Set `Delta_M_threshold` when `Delta_M` is a cut on motion,
+  start with a simple `sigma` model (`"A"` or `"1"`) when a group is small, and
+  check `density_log` and `weight_diagnostics` before interpreting the results.
 - **HAL**: the most flexible, with minimal distributional assumptions and the theoretical guarantees of the nonparametric estimator; slow.
+- Whichever model is used, report it with the analysis and check that the conclusions are robust to the choice.
 
 ## Function reference
 
@@ -720,10 +743,10 @@ functions separately:
   conditional-density estimation.
 - [gamlss](https://github.com/gamlss-dev/gamlss): generalized additive models
   for location, scale, and shape.
-- [Bethlehem et al. (2022)](https://www.nature.com/articles/s41586-022-04554-y):
+- [Bethlehem et al. (2022)](https://doi.org/10.1038/s41586-022-04554-y):
   brain charts fitted with generalized-gamma GAMLSS, the basis of the default
   `GG` family.
-- [ABIDE](https://www.nature.com/articles/mp201378): motivating neuroimaging
+- [ABIDE](https://doi.org/10.1038/mp.2013.78): motivating neuroimaging
   data resource for the bundled simulation.
 - [Yeo seven-network parcellation](https://doi.org/10.1152/jn.00338.2011):
   network definition used in the tutorial.
