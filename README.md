@@ -332,9 +332,7 @@ summarizes the density-ratio weights `pMXD / pMXZ` that enter the EIF, and
 `moco()` warns when their effective-sample-size ratio is below 0.1 for either
 group.
 
-### Simultaneous inference (`test = TRUE`)
-
-## Simultaneous inference
+### Simultaneous inference
 
 When `test = TRUE` (the default), MoCo performs a simultaneous test across
 the outcomes in `Y`, excluding all-`NA` seed-to-self columns. For each
