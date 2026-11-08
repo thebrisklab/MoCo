@@ -62,7 +62,9 @@ below.
 
 <img src="man/figures/input_output.png" width="750" align="center" alt="MoCo inputs and outputs"/>
 
-The full call, with the default value of every argument, is:
+The full call, with the default value of every argument, is shown below.
+`gamlss_options` defaults to `NULL`, which uses the basic GAMLSS settings
+shown; its other entries are described under GAMLSS options.
 
 ```r
 moco(
@@ -80,19 +82,23 @@ moco(
   ),
   glm_formula = list(
     gA = NULL, gDM = NULL, gDY_AX = NULL, gDY_AXZ = NULL,
-    mu_AMXZ = NULL, eta_AXZ = NULL, eta_AXM = NULL, xi_AX = NULL,
-    pMX = NULL, pMXZ = NULL
+    mu_AMXZ = NULL, eta_AXZ = NULL, eta_AXM = NULL, xi_AX = NULL
   ),
-  HAL_pMX = TRUE,
-  HAL_pMXZ = TRUE,
+  density_method = "hal",
   HAL_options = list(
     max_degree = 3,
     lambda_seq = exp(seq(-1, -10, length = 100)),
     num_knots = c(1000, 500, 250)
   ),
-  density_method = NULL,
+  glm_options = list(pMX = ".", pMXZ = "."),
   Delta_M_threshold = NULL,
-  gamlss_options = NULL,
+  gamlss_options = list(
+    family = "GG",
+    mu = "linear",
+    sigma = "linear",
+    nu = "1",
+    smooth = NULL
+  ),
   cross_fit = TRUE,
   cv_folds = 5,
   test = TRUE,
@@ -160,23 +166,21 @@ user-specified GLMs:
 |---|---|
 | `SL_library` | Common Super Learner library for all nuisance regressions (default shown in the call above); if `NULL`, the libraries in `SL_library_customize` are used |
 | `SL_library_customize` | Separate Super Learner libraries for `gA`, `gDM`, `gDY_AX`, `gDY_AXZ`, `mu_AMXZ`, `eta_AXZ`, `eta_AXM`, and `xi_AX` |
-| `glm_formula` | Right-hand-side formulas for nuisance GLMs (and for the log-normal GLM motion densities `pMX` and `pMXZ`); `NULL` entries use Super Learner |
+| `glm_formula` | Right-hand-side formulas for nuisance GLMs; `NULL` entries use Super Learner (the GLM motion densities are set with `glm_options`, see Motion-density model) |
 
 The nuisance functions that `SL_library_customize` and `glm_formula` can
 configure separately are:
 
 | Component | Target |
 |---|---|
-| `gA` | Propensity score, `P(A = 1 | X)` |
-| `gDM` | Motion inclusion, `P(Delta_M = 1 | A, X)` |
-| `gDY_AX` | Outcome observation, `P(Delta_Y = 1 | A, X)` |
-| `gDY_AXZ` | Outcome observation, `P(Delta_Y = 1 | A, X, Z)` |
-| `mu_AMXZ` | Outcome regression, `E(Y | Delta_Y = 1, A, M, X, Z)` |
-| `eta_AXZ` | Pseudo-outcome regression conditional on `A`, `X`, and `Z` |
-| `eta_AXM` | Pseudo-outcome regression conditional on `A`, `M`, and `X` |
-| `xi_AX` | Regression of `eta_AXZ` conditional on `A` and `X` |
-| `pMX` | Log-normal GLM motion density conditional on `A` and `X` (`glm_formula` only; also used for `pMXD`) |
-| `pMXZ` | Log-normal GLM motion density conditional on `A`, `X`, and `Z` (`glm_formula` only; also used for `pMXZD`) |
+| `gA` | Propensity score, `P(A = 1 \| X)` |
+| `gDM` | Motion inclusion, `P(Delta_M = 1 \| A, X)` |
+| `gDY_AX` | Outcome observation, `P(Delta_Y = 1 \| A, X)` |
+| `gDY_AXZ` | Outcome observation, `P(Delta_Y = 1 \| A, X, Z)` |
+| `mu_AMXZ` | Outcome regression, `E(Y \| Delta_Y = 1, A, M, X, Z)` |
+| `eta_AXZ` | Pseudo-outcome regression, `E(mu_AMXZ * pMXD / pMXZD \| Delta_M = 1, A, X, Z)` |
+| `eta_AXM` | Pseudo-outcome regression, `E(mu_AMXZ * (pMX / pMXZ) * (gDY_AX / gDY_AXZ) \| Delta_Y = 1, A, M, X)` |
+| `xi_AX` | Regression of `eta_AXZ` on group and baseline covariates, `E(eta_AXZ \| A, X)` |
 
 ### Outputs
 
@@ -201,35 +205,38 @@ MoCo estimates two conditional motion densities, each in two versions:
 - `pMXD` and `pMXZD`: the same densities among participants with
   `Delta_M = 1`, fitted on `Delta_M = 1` and evaluated at every observed `M`.
 
-Choose their estimators with `density_method` (`"hal"`, `"glm"`, or
-`"gamlss"`), or with the switches `HAL_pMX` and `HAL_pMXZ`. `HAL_pMX`
-controls `pMX` and `pMXD`; `HAL_pMXZ` controls `pMXZ` and `pMXZD`. The
-default `density_method = NULL` keeps the `HAL_pMX`/`HAL_pMXZ` behavior; a
-supplied `density_method` overrides them.
+The estimator of all four densities is chosen with `density_method`, and
+each method has its own options:
 
-| Method | Configuration | Use case |
-|---|---|---|
-| HAL | `HAL_pMX = TRUE`, `HAL_pMXZ = TRUE` (default), or `density_method = "hal"` | Flexible conditional-density estimation with minimal distributional structure (slower, nonparametric) |
-| GLM | `HAL_pMX = FALSE`, `HAL_pMXZ = FALSE` and `glm_formula$pMX`/`pMXZ`, or `density_method = "glm"` | Parsimonious log-normal motion-density model (faster, but most restrictive parametric assumptions)|
-| GAMLSS | `density_method = "gamlss"`, with `gamlss_options` and `Delta_M_threshold` | Flexible distributional regression for positive motion values (faster than HAL, semiparametric)|
+| `density_method` | Densities fitted with | Options | Use case |
+|---|---|---|---|
+| `"hal"` (default) | Highly adaptive lasso, `haldensify::haldensify()` | `HAL_options` | Flexible conditional-density estimation with minimal distributional structure (slower, nonparametric) |
+| `"glm"` | Log-normal GLM, a linear model for `log(M)` | `glm_options` | Parsimonious log-normal motion-density model (faster, but most restrictive parametric assumptions) |
+| `"gamlss"` | Generalized gamma GAMLSS, `gamlss::gamlss()` | `gamlss_options`, `Delta_M_threshold` | Flexible distributional regression for positive motion values (faster than HAL, semiparametric) |
 
-Methods may be combined, for example `HAL_pMX = TRUE` with
-`HAL_pMXZ = FALSE`, or `density_method = c(pMX = "hal", pMXZ = "gamlss")`,
-although using the same method for both is generally easier to interpret and
-diagnose.
+Options for a method that is not used are ignored, with a message. Upper or
+lower case is accepted (`"HAL"` or `"hal"`). A different method can be used
+for each pair with a named vector, for example
+`density_method = c(pMX = "hal", pMXZ = "gamlss")` (the first entry for `pMX`
+and `pMXD`, the second for `pMXZ` and `pMXZD`), although using the same method
+for both is generally easier to interpret and diagnose.
+
+The former switches `HAL_pMX` and `HAL_pMXZ` and the entries
+`glm_formula$pMX` and `glm_formula$pMXZ` are deprecated. Older scripts that
+use them still run: `moco()` translates them to `density_method` and
+`glm_options` and gives a warning.
 
 #### Highly adaptive lasso
 
-HAL is the default motion-density method. Its basis-function construction and
-regularization path can be controlled with `HAL_options`, which is passed to
-`haldensify::haldensify()`:
+HAL is the default motion-density method (`density_method = "hal"`). Its
+basis-function construction and regularization path are controlled with
+`HAL_options`, which is passed to `haldensify::haldensify()`:
 
 ```r
 fit_hal <- moco(
   X = X, Z = Z, A = A, M = M, Y = Y,
   Delta_M = Delta_M, Delta_Y = Delta_Y,
-  HAL_pMX = TRUE,
-  HAL_pMXZ = TRUE,
+  density_method = "hal",
   HAL_options = list(
     max_degree = 3,
     lambda_seq = exp(seq(-1, -10, length = 100)),
@@ -240,20 +247,18 @@ fit_hal <- moco(
 
 #### Log-normal GLM
 
-For GLM motion densities, set `density_method = "glm"`, or equivalently
-`HAL_pMX = FALSE` and `HAL_pMXZ = FALSE`. The right-hand sides of the `pMX` and
-`pMXZ` models are set with `glm_formula$pMX` and `glm_formula$pMXZ`; they
-default to `"."`, which uses all available predictors for the corresponding
-density. The same formula is used for `pMX` and `pMXD` (and for `pMXZ` and
-`pMXZD`):
+For log-normal GLM motion densities, set `density_method = "glm"`. The
+right-hand sides of the models for `log(M)` are set with `glm_options`:
+`pMX` for `pMX` and `pMXD` (predictors `A` and `X`), and `pMXZ` for `pMXZ`
+and `pMXZD` (predictors `A`, `X`, and `Z`). Both default to `"."`, which uses
+all available predictors:
 
 ```r
 fit_glm <- moco(
   X = X, Z = Z, A = A, M = M, Y = Y,
   Delta_M = Delta_M, Delta_Y = Delta_Y,
-  HAL_pMX = FALSE,
-  HAL_pMXZ = FALSE,
-  glm_formula = list(pMX = ".", pMXZ = ".")
+  density_method = "glm",
+  glm_options = list(pMX = ".", pMXZ = ".")
 )
 ```
 
