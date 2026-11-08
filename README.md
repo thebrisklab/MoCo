@@ -15,8 +15,7 @@ continuous brain phenotypes.
 ## Highlights
 
 - A single high-level function, `moco()`, supports HAL, log-normal GLM, and
-  GAMLSS models (generalized gamma, right-truncated at `Delta_M_threshold`
-  when `Delta_M` is a threshold on motion) for conditional motion densities.
+  GAMLSS models (generalized gamma) for conditional motion densities.
 - Nuisance regressions can be estimated with Super Learner or user-specified
   GLMs.
 - Cross-fitting and repeated cross-fitting are supported; repeated seeds are
@@ -148,7 +147,7 @@ The motion densities conditional on `Delta_M = 1` are fitted on the
 participants with `Delta_M = 1` and evaluated at every observed `M`, including
 participants with `Delta_M = 0`. Outside the range of `M` among the
 `Delta_M = 1` training participants the density is set to zero (GLM, HAL, and
-untruncated GAMLSS). With `density_method = "gamlss"` and
+GAMLSS). With `density_method = "gamlss"` and
 `Delta_M_threshold = c`, the densities are right-truncated at `c` and are zero
 for `M >= c`. `Delta_M` need not be determined by `M` alone (for example, a
 minimum number of frames after censoring).
@@ -215,16 +214,7 @@ each method has its own options:
 | `"gamlss"` | Generalized gamma GAMLSS, `gamlss::gamlss()` | `gamlss_options`, `Delta_M_threshold` | Flexible distributional regression for positive motion values (faster than HAL, semiparametric) |
 
 Options for a method that is not used are ignored, with a message. Upper or
-lower case is accepted (`"HAL"` or `"hal"`). A different method can be used
-for each pair with a named vector, for example
-`density_method = c(pMX = "hal", pMXZ = "gamlss")` (the first entry for `pMX`
-and `pMXD`, the second for `pMXZ` and `pMXZD`), although using the same method
-for both is generally easier to interpret and diagnose.
-
-The former switches `HAL_pMX` and `HAL_pMXZ` and the entries
-`glm_formula$pMX` and `glm_formula$pMXZ` are deprecated. Older scripts that
-use them still run: `moco()` translates them to `density_method` and
-`glm_options` and gives a warning.
+lower case is accepted (`"HAL"` or `"hal"`). 
 
 #### Highly adaptive lasso
 
@@ -264,7 +254,7 @@ fit_glm <- moco(
 
 #### GAMLSS
 
-GAMLSS is useful when a log-normal motion model is too restrictive.
+GAMLSS is flexible and useful when a log-normal motion model is too restrictive.
 `density_method = "gamlss"` fits all four motion densities with
 `gamlss::gamlss()`, once per training fold, using the generalized gamma (`GG`)
 family. `GG` has a location (`mu`), a scale (`sigma`), and a shape (`nu`)
@@ -282,7 +272,7 @@ while every `Delta_M = 1` participant has lower motion than every
 ```
 Delta_M looks like a threshold on M: every participant with Delta_M = 1 has M <= 0.1989 and every
 participant with Delta_M = 0 and observed M has M >= 0.2001. If Delta_M = as.numeric(M < c), set
-Delta_M_threshold = c so that pMXD and pMXZD are fitted with a right-truncated GG. ...
+Delta_M_threshold = c...
 ```
 
 When `Delta_M` is a quality-control rule that is not a cut on `M` (for
@@ -296,7 +286,7 @@ fit_gamlss <- moco(
   density_method = "gamlss",
   gamlss_options = list(
     mu = "linear",
-    sigma = "1",
+    sigma = "linear",
     nu = "1"
   ),
   cross_fit = TRUE,
@@ -356,7 +346,7 @@ methods chosen by `hypo_method`:
 
 | `hypo_method` | How the critical value is simulated | Cost per draw | When to use |
 |---|---|---|---|
-| `"mvn"` (default) | Draws from a multivariate normal with the p x p EIF correlation matrix of the outcomes | Grows with the number of outcomes p (one eigendecomposition of the p x p matrix, then p x p per draw); does not depend on n | Most analyses, when the number of outcomes is small or moderate relative to the sample size (for example, a seed with a few to a few hundred target regions) |
+| `"mvn"` (default) | Draws from a multivariate normal with the p x p EIF correlation matrix of the outcomes | Grows with the number of outcomes p (one eigendecomposition of the p x p matrix, then p x p per draw); does not depend on n | Most analyses, when the number of outcomes is small or moderate relative to the sample size|
 | `"multiplier"` | Gaussian multiplier bootstrap: each participant's centered, standardized EIF is multiplied by an independent N(0, 1) weight | Grows with n x p; never forms the p x p matrix | Many outcomes relative to the sample size (for example, thousands of connectivity edges), where the p x p matrix is large or close to singular |
 
 Given the data, both methods simulate the same distribution, so they target
@@ -364,14 +354,7 @@ the same critical value; only the Monte Carlo draws differ.
 
 Other controls are `hypo_n_sim` (number of draws, default 100,000),
 `hypo_chunk_size` (draws per batch, default 1,000), and `hypo_seed` (Monte
-Carlo seed, default `1`, separate from the nuisance-fitting seeds). The
-default of 100,000 draws keeps the Monte Carlo error of the critical value
-small (about 0.006) and takes seconds for typical numbers of outcomes. For
-quick exploratory runs with many outcomes, `hypo_n_sim` can be lowered (for
-example, to 10,000, with a Monte Carlo error of about 0.02); use the default
-for final results.
-
-`hypo_test()` runs the same test on its own, with arguments `method`, `seed`,
+Carlo seed, default `1`, separate from the nuisance-fitting seeds). `hypo_test()` runs the same test on its own, with arguments `method`, `seed`,
 `n_sim`, and `chunk_size`. Use it directly only when the estimates and
 participant-level EIFs have already been aggregated across repeated seeds
 and the covariance has been recomputed.
@@ -695,24 +678,22 @@ The complete function documentation is available from R:
 ?plot_moco
 ?GGtr
 ```
-
 ## Reproducibility and diagnostics
 
-- Use named columns in `X` and `Z`, especially for GAMLSS.
-- Save analysis-cohort IDs and preserve their order across outcomes and seeds.
-- Define `Delta_M` and `Delta_Y` explicitly in the analysis script.
-- Use the same outcome family when comparing simultaneous tests across methods.
-- Save the R version, package versions, learner library, fold count, and seeds.
-- Examine GAMLSS convergence and distributional diagnostics before interpreting
-  GAMLSS-based results, and report how many fits used a fallback
-  (`density_log$fallback`, `density_log$method`, and `density_log$nu_fixed`).
-- Check positivity: summarise the propensities (`gA`, `gDM`, `gDY_AXZ`) and the
-  density ratios used in the influence function (`weight_diagnostics`),
-  including participants with `Delta_M = 0`, at whose motion values the
-  `Delta_M = 1` densities are also evaluated.
-- In distributed analyses, save estimates and participant-level EIFs for every
-  outcome and seed, then aggregate them before calculating covariance and test
-  statistics.
+- Use named columns in `X` and `Z`, and explicitly define `Delta_M`
+  and `Delta_Y`.
+- Record the analysis cohort, participant order, R/package versions,
+  learner libraries, fold count and seeds.
+- Inspect GAMLSS convergence and distributional fit. Report optimizer
+  changes and fixed-shape or GLM fallbacks using `density_log`.
+- Assess positivity and weight stability. `weight_diagnostics`
+  summarizes EIF density-ratio factors; propensity estimates and
+  complete EIF contributions require additional diagnostics.
+- When comparing simultaneous tests, use the same participants,
+  outcome set and FWER level.
+- For distributed analyses, preserve participant alignment across
+  outcomes and seeds. Aggregate estimates and participant-level EIFs
+  before recomputing covariance and conducting one joint test.
 
 ## Related software and resources
 
@@ -727,3 +708,15 @@ The complete function documentation is available from R:
   `GG` family.
 - [Yeo seven-network parcellation](https://doi.org/10.1152/jn.00338.2011):
   network definition used in the tutorial.
+
+## Citation
+
+If you use MoCo, please cite the package and its methodological paper:
+
+Ran J, Shultz S, Risk BB, Benkeser D (2026).
+Nonparametric motion control in functional connectivity studies in
+children with autism spectrum disorder.
+Biometrics, 82(2), ujag099.
+https://doi.org/10.1093/biomtc/ujag099
+
+Run `citation("MoCo")` for citation details.
