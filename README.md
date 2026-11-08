@@ -334,30 +334,56 @@ group.
 
 ### Simultaneous inference (`test = TRUE`)
 
-When `test = TRUE` (the default), MoCo runs a simultaneous test across
-all outcomes in `Y`. It compares each |z| with one critical value, the
-(1 - FWER) quantile of the maximum |z| over the outcomes, so the family-wise
-error rate is controlled at each value in `fwer`. For one outcome, this
-reduces to the usual two-sided EIF z-test. Several levels can be requested,
-for example `fwer = c(0.05, 0.10, 0.20)`; `significant_regions` then has one
-row per level. The critical value is simulated
-from the joint correlation of the participant-level EIFs, with one of two
-methods chosen by `hypo_method`:
+## Simultaneous inference
 
-| `hypo_method` | How the critical value is simulated | Cost per draw | When to use |
+When `test = TRUE` (the default), MoCo performs a simultaneous test across
+the outcomes in `Y`, excluding all-`NA` seed-to-self columns. For each
+requested FWER level, it compares every absolute z-statistic with a common
+critical value: the simulated `(1 - FWER)` quantile of the maximum absolute
+component of a zero-mean Gaussian vector.
+
+This procedure provides asymptotic family-wise error-rate control under
+the required regularity conditions, with additional Monte Carlo
+approximation error. For one outcome, it approximates the usual two-sided
+EIF-based z-test.
+
+Several levels can be requested, for example,
+`fwer = c(0.05, 0.10, 0.20)`. In that case, `significant_regions` has one
+row per requested level, in the supplied order.
+
+The Gaussian correlation matrix is estimated from the participant-level
+EIF differences between the two group means. The simulation method is
+selected using `hypo_method`:
+
+| `hypo_method` | Critical-value simulation | Computational cost | Typical use |
 |---|---|---|---|
-| `"mvn"` (default) | Draws from a multivariate normal with the p x p EIF correlation matrix of the outcomes | Grows with the number of outcomes p (one eigendecomposition of the p x p matrix, then p x p per draw); does not depend on n | Most analyses, when the number of outcomes is small or moderate relative to the sample size|
-| `"multiplier"` | Gaussian multiplier bootstrap: each participant's centered, standardized EIF is multiplied by an independent N(0, 1) weight | Grows with n x p; never forms the p x p matrix | Many outcomes relative to the sample size (for example, thousands of connectivity edges), where the p x p matrix is large or close to singular |
+| `"mvn"` (default) | Simulates a multivariate normal vector with the estimated contrast-EIF correlation matrix. | Setup: approximately O(np² + p³); each draw: O(p²). Forms a p × p matrix. | Usually preferable when the number of outcomes is modest relative to the sample size. |
+| `"multiplier"` | Sums centered contrast EIFs, scaled to unit column norm, using independent standard-normal participant weights. Within each draw, the same participant weights are shared across outcomes. | Each draw: O(np). Avoids forming the p × p correlation matrix. | Useful when the outcome dimension makes the correlation matrix or its decomposition expensive, particularly when p is large relative to n. |
 
-Given the data, both methods simulate the same distribution, so they target
-the same critical value; only the Monte Carlo draws differ.
+Here, `n` is the number of participants and `p` is the number of tested
+outcomes.
 
-Other controls are `hypo_n_sim` (number of draws, default 100,000),
-`hypo_chunk_size` (draws per batch, default 1,000), and `hypo_seed` (Monte
-Carlo seed, default `1`, separate from the nuisance-fitting seeds). `hypo_test()` runs the same test on its own, with arguments `method`, `seed`,
-`n_sim`, and `chunk_size`. Use it directly only when the estimates and
-participant-level EIFs have already been aggregated across repeated seeds
-and the covariance has been recomputed.
+Conditional on the supplied EIFs, both methods target the same Gaussian
+distribution, up to numerical precision. Their finite Monte Carlo critical
+values can differ.
+
+Additional controls are:
+
+- `hypo_n_sim`: number of simulation draws; default `100000`.
+- `hypo_chunk_size`: draws processed per batch; default `1000`.
+- `hypo_seed`: simulation seed; default `1`, separate from nuisance-fitting
+  seeds. Changing the simulation method or chunk size can change the
+  finite Monte Carlo result, even with the same seed.
+
+The `hypo_test()` uses arguments `method`, `seed`, `n_sim`,
+and `chunk_size`. It accepts results from a single fitted run or
+appropriately aggregated repeated runs. For repeated runs, first average
+the estimates and participant-aligned EIFs, recompute the covariance from
+the averaged EIFs, and then conduct one joint test.
+
+FWER control applies to the outcomes tested jointly. Running separate
+one-outcome tests does not provide FWER control across the combined
+outcome set.
 
 ### Multiple outcomes and repeated cross-fitting
 
