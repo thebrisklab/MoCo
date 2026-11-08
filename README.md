@@ -431,12 +431,13 @@ The simulated objects are:
 
 - `A`: diagnostic group, coded 1 for ASD (153 children) and 0 for non-ASD;
 - `M`: mean framewise displacement (mm), generated from a generalized gamma
-  distribution whose location and spread are larger in ASD, at higher ADOS
-  scores and at younger ages, so motion in the ASD group is higher and more
-  right-skewed than log-normal;
+  distribution (shape `nu = 1`) whose location and spread depend on all
+  covariates in `X` and `Z`: they are larger in ASD, at higher ADOS scores and
+  at younger ages, and smaller at higher IQ and in medicated children, so
+  motion in the ASD group is higher and more variable;
 - `Delta_M`: motion inclusion; the probability of passing motion quality
   control falls smoothly with `M` (it is not a fixed cut-off), and 79% of
-  children pass (88% non-ASD, 65% ASD);
+  children pass (86% non-ASD, 68% ASD);
 - `Delta_Y`: imaging-data availability and quality (93% available);
 - `X`: sex, age, and handedness;
 - `Z`: ADOS, full-scale IQ, stimulant medication, and nonstimulant medication;
@@ -481,38 +482,43 @@ second represents `A = 1`, and the structural seventh column is restored as
 
 ```r
 round(fit_glm$est, 4)
-# est_A0 -0.2845 -0.1102 -0.1357 -0.0008  0.1090  0.1796 NA
-# est_A1 -0.2871 -0.1572 -0.1008  0.0658  0.0236  0.1024 NA
+# est_A0 -0.2743 -0.1178 -0.1402  0.0062  0.1025  0.1675 NA
+# est_A1 -0.2731 -0.1710 -0.1267  0.0447  0.0234  0.0907 NA
 ```
 
 The adjusted group differences are:
 
 ```r
 round(fit_glm$adj_association, 4)
-# -0.0026 -0.0471  0.0349  0.0667 -0.0854 -0.0772 NA
+#  0.0012 -0.0532  0.0135  0.0385 -0.0791 -0.0768 NA
 ```
 
 The EIF-based test results are:
 
 ```r
 round(fit_glm$z_score, 4)
-# -0.0981 -1.5245  1.2608  2.0033 -2.7918 -2.9241 NA
+#  0.0566 -1.7130  0.6710  1.8463 -3.3666 -3.3470 NA
 
 fit_glm$significant_regions
 # FALSE FALSE FALSE FALSE TRUE TRUE NA
 ```
 
-The density-ratio weights `pMXD / pMXZ` show that the log-normal model fits
-the skewed motion of the ASD group poorly: a few ASD children receive large
-weights, and the effective sample size of that group drops to 26%:
+The density-ratio weights `pMXD / pMXZ` stay moderate (largest ASD weight
+4.3, effective-sample-size ratio 0.68), so the misfit of the log-normal model
+does not show in the weights here. It shows in accuracy instead: the GLM
+estimates for the fifth outcome and for the null second and fourth outcomes
+are the furthest from the truth of the three models (see the Comparison
+below):
 
 ```r
 fit_glm$weight_diagnostics
 #   seed group   n max_weight ess_ratio
-# 1    1    A0 235      1.345     0.977
-# 2    1    A1 136     24.001     0.259
+# 1    1    A0 235      1.419     0.978
+# 2    1    A1 136      4.317     0.682
 ```
 
+The numerical output above is illustrative; results may vary slightly with R,
+dependency, and numerical-optimization versions.
 
 ### GAMLSS
 
@@ -542,14 +548,14 @@ fit_gamlss <- moco(
 )
 
 round(fit_gamlss$est, 4)
-# est_A0 -0.2776 -0.1157 -0.1358  0.0033  0.1028  0.1740 NA
-# est_A1 -0.2676 -0.1166 -0.0962  0.0143  0.0402  0.1007 NA
+# est_A0 -0.2732 -0.1213 -0.1388  0.0102  0.0991  0.1703 NA
+# est_A1 -0.2550 -0.1178 -0.1010  0.0238  0.0325  0.0978 NA
 
 round(fit_gamlss$adj_association, 4)
-#  0.0100 -0.0008  0.0396  0.0110 -0.0626 -0.0733 NA
+#  0.0182  0.0035  0.0378  0.0135 -0.0666 -0.0725 NA
 
 round(fit_gamlss$z_score, 4)
-#  0.4924 -0.0333  2.2241  0.4891 -2.6410 -3.1166 NA
+#  0.9260  0.1415  2.1058  0.6583 -2.8082 -3.2036 NA
 
 fit_gamlss$significant_regions
 # FALSE FALSE FALSE FALSE TRUE TRUE NA
@@ -557,20 +563,21 @@ fit_gamlss$significant_regions
 
 The fit of each density in each fold is recorded in `density_log` (20 rows
 here: 5 folds by 4 densities); all fits converged with `RS`, without a
-fallback, and the weights stay small in both groups:
+fallback, the estimated shape `nu` is close to its true value of 1, and the
+weights stay small in both groups:
 
 ```r
 head(fit_gamlss$density_log[, c("fold", "density", "method", "truncated", "converged", "nu", "n")], 4)
 #   fold density method truncated converged      nu   n
-# 1    1     pMX     RS     FALSE      TRUE  0.3627 295
-# 2    1    pMXD     RS     FALSE      TRUE  0.1313 251
-# 3    1    pMXZ     RS     FALSE      TRUE  0.3780 295
-# 4    1   pMXZD     RS     FALSE      TRUE -0.0603 251
+# 1    1     pMX     RS     FALSE      TRUE  0.8082 295
+# 2    1    pMXD     RS     FALSE      TRUE  0.8798 252
+# 3    1    pMXZ     RS     FALSE      TRUE  0.9092 295
+# 4    1   pMXZD     RS     FALSE      TRUE  0.7565 252
 
 fit_gamlss$weight_diagnostics
 #   seed group   n max_weight ess_ratio
-# 1    1    A0 235      1.649     0.959
-# 2    1    A1 136      3.772     0.588
+# 1    1    A0 235      2.250     0.945
+# 2    1    A1 136      2.715     0.617
 ```
 
 Other models are set in the same list, globally or per density. For example,
@@ -586,8 +593,9 @@ gamlss_options = list(
 )
 ```
 
-A covariate-dependent scale can extrapolate in a small group. Check `density_log` and
-`weight_diagnostics` before interpreting the results.
+A covariate-dependent scale can extrapolate in a small group and give a few
+extreme weights; `sigma = "A"` is more stable in that case. Check
+`density_log` and `weight_diagnostics` before interpreting the results.
 
 ### HAL
 
@@ -619,27 +627,27 @@ fit_hal <- moco(
 )
 
 round(fit_hal$est, 4)
-# est_A0 -0.2964 -0.1145 -0.1414 -0.0024  0.1092  0.1861 NA
-# est_A1 -0.2691 -0.1226 -0.1056  0.0296  0.0253  0.0986 NA
+# est_A0 -0.2802 -0.1168 -0.1427  0.0065  0.1018  0.1726 NA
+# est_A1 -0.2581 -0.1224 -0.1031  0.0261  0.0306  0.0965 NA
 
 round(fit_hal$adj_association, 4)
-#  0.0273 -0.0081  0.0358  0.0321 -0.0839 -0.0875 NA
+#  0.0221 -0.0055  0.0396  0.0197 -0.0712 -0.0761 NA
 
 round(fit_hal$z_score, 4)
-#  1.3559 -0.3329  1.9755  1.5330 -3.7638 -4.1397 NA
+#  1.1548 -0.2360  2.2415  1.0484 -3.3579 -3.4402 NA
 
 fit_hal$significant_regions
 # FALSE FALSE FALSE FALSE TRUE TRUE NA
 
 fit_hal$weight_diagnostics
 #   seed group   n max_weight ess_ratio
-# 1    1    A0 235      2.915     0.928
-# 2    1    A1 136      3.142     0.624
+# 1    1    A0 235      1.868     0.944
+# 2    1    A1 136      2.828     0.668
 ```
 
 With the default Super Learner library, the nuisance regressions take most of
-the run time: the GLM and GAMLSS fits each took about 14 minutes and the HAL
-fit about 21 minutes (one core each). HAL fitting time grows quickly with the
+the run time: the GLM and GAMLSS fits each took about 17 minutes and the HAL
+fit about 25 minutes (one core each, three fits run at the same time). HAL fitting time grows quickly with the
 sample size, the number of covariates, `max_degree`, and `num_knots`, so HAL
 can be slow for large samples.
 
@@ -658,25 +666,25 @@ three motion-density models on the example data (seed 1, five folds):
 
 | Outcome | Truth | GLM | GAMLSS (GG, smooth mu, linear sigma) | HAL |
 |---|---|---|---|---|
-| 1 Visual | 0 | -0.0026 (z = -0.10) | 0.0100 (0.49) | 0.0273 (1.36) |
-| 2 Somatomotor | 0 | -0.0471 (-1.52) | -0.0008 (-0.03) | -0.0081 (-0.33) |
-| 3 Dorsal attention | 0 | 0.0349 (1.26) | 0.0396 (2.22) | 0.0358 (1.98) |
-| 4 Ventral attention | 0 | 0.0667 (2.00) | 0.0110 (0.49) | 0.0321 (1.53) |
-| 5 Limbic | -0.0485 | **-0.0854 (-2.79)** | **-0.0626 (-2.64)** | **-0.0839 (-3.76)** |
-| 6 Frontoparietal | -0.0682 | **-0.0772 (-2.92)** | **-0.0733 (-3.12)** | **-0.0875 (-4.14)** |
-| Critical value | | 2.583 | 2.580 | 2.582 |
-| RMSE (six outcomes) | | 0.039 | 0.018 | 0.028 |
-| Largest weight, ASD | | 24.0 | 3.8 | 3.1 |
-| ESS ratio, ASD | | 0.26 | 0.59 | 0.62 |
-| Approximate density fit time | | a few seconds | about 20 s | about 7-8 min |
-| Total run time | | 14 min | 14 min | 21 min |
+| 1 Visual | 0 | 0.0012 (z = 0.06) | 0.0182 (0.93) | 0.0221 (1.15) |
+| 2 Somatomotor | 0 | -0.0532 (-1.71) | 0.0035 (0.14) | -0.0055 (-0.24) |
+| 3 Dorsal attention | 0 | 0.0135 (0.67) | 0.0378 (2.11) | 0.0396 (2.24) |
+| 4 Ventral attention | 0 | 0.0385 (1.85) | 0.0135 (0.66) | 0.0197 (1.05) |
+| 5 Limbic | -0.0485 | **-0.0791 (-3.37)** | **-0.0666 (-2.81)** | **-0.0712 (-3.36)** |
+| 6 Frontoparietal | -0.0682 | **-0.0768 (-3.35)** | **-0.0725 (-3.20)** | **-0.0761 (-3.44)** |
+| Critical value | | 2.600 | 2.586 | 2.588 |
+| RMSE (six outcomes) | | 0.030 | 0.020 | 0.023 |
+| Largest weight, ASD | | 4.3 | 2.7 | 2.8 |
+| ESS ratio, ASD | | 0.68 | 0.62 | 0.67 |
+| Approximate density fit time | | a few seconds | about 10 s | about 11 min |
+| Total run time | | 17 min | 17 min | 25 min |
 
 Bold marks outcomes significant at FWER 0.05. Total run time is for the whole `moco()` call with the default Super Learner library; the approximate density fit time is the extra time each density model adds, estimated from the differences in total run time and from runs of the same design with a compact library (`SL.mean`, `SL.glm`, `SL.glm.interaction`). All three models detect the
-fifth and sixth outcomes and no null outcome. GAMLSS is the most accurate and,
-like HAL, keeps the density-ratio weights small; the log-normal GLM gives one
-ASD child a weight of 24, which pulls the estimates away from the truth, most
-visibly for the null fourth outcome (0.067). GAMLSS takes about the same time
-as GLM.
+fifth and sixth outcomes and no null outcome. GAMLSS is the most accurate,
+followed by HAL; the log-normal GLM is the least accurate, most visibly for
+the fifth outcome (-0.079 against a truth of -0.048) and the null second
+outcome (-0.053), although its weights stay moderate. GAMLSS takes about the
+same time as GLM, while HAL adds about 11 minutes of density fitting.
 
 ### Which method?
 
