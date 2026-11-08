@@ -41,13 +41,10 @@
 #'                    - \code{eta_AXZ}: GLM formula for estimating E(mu_AMXZ pMXD / pMXZD | A, X, Z, Delta_M = 1).                
 #'                    - \code{eta_AXM}: GLM formula for estimating E(mu_AMXZ pMX/pMXZ gDY_AX/gDY_AXZ | A, M, X, Delta_Y = 1).
 #'                    - \code{xi_AX}: GLM formula for estimating E(eta_AXZ | A, X).
-#'                    - \code{pMX}: GLM formula for estimating p(m | a, x, Delta_Y = 1) and p(m | a, x, Delta_M = 1), assuming M follows a log normal distribution.
-#'                    - \code{pMXZ}: GLM formula for estimating p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M = 1), assuming M follows a log normal distribution.
 #'                    
-#' @param HAL_pMX Specifies whether to estimate p(m | a, x, Delta_Y = 1) and p(m | a, x, Delta_M=1) using the highly adaptive lasso conditional density estimation method. 
-#' Defaults to \code{TRUE}. If set to \code{FALSE}, please specify the \code{pMX} option in \code{glm_formula}, such as \code{pMX = "."}.
-#' @param HAL_pMXZ Specifies whether to estimate p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M=1) using the highly adaptive lasso conditional density estimation method. 
-#' Defaults to \code{TRUE}. If set to \code{FALSE}, please specify the \code{pMXZ} option in \code{glm_formula}, such as \code{pMXZ = "."}.
+#' @param glm_options Right-hand sides of the log-normal GLM motion densities, used only when \code{density_method = "glm"}:
+#'                   - \code{pMX}: formula for p(m | a, x, Delta_Y = 1) and p(m | a, x, Delta_M = 1). Default \code{"."} (all of \code{A} and \code{X}).
+#'                   - \code{pMXZ}: formula for p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M = 1). Default \code{"."} (all of \code{A}, \code{X} and \code{Z}).
 #'  
 #' @param HAL_options Additional options for highly adaptive lasso (HAL) method.
 #'                   - \code{max_degree}: The highest order of interaction terms for generating basis functions (passed to \code{haldensify}).
@@ -92,18 +89,15 @@ one_step <- function(
       mu_AMXZ = NULL,
       eta_AXZ = NULL,
       eta_AXM = NULL,
-      xi_AX = NULL,
-      pMX = NULL,
-      pMXZ = NULL
+      xi_AX = NULL
     ),
-    HAL_pMX = TRUE,
-    HAL_pMXZ = TRUE,
     HAL_options = list(
       max_degree = 3, 
       lambda_seq = exp(seq(-1, -10, length = 100)), 
       num_knots = c(1000, 500, 250)
     ),
-    density_method = NULL,
+    glm_options = list(pMX = ".", pMXZ = "."),
+    density_method = "hal",
     Delta_M_threshold = NULL,
     gamlss_options = NULL,
     seed = 1, 
@@ -138,9 +132,8 @@ one_step <- function(
   index_nomissingM <- which(!is.na(M))
   
   # motion density methods for pMX/pMXD and pMXZ/pMXZD: "hal", "glm" or "gamlss"
-  dens_method <- resolve_density_method(density_method, HAL_pMX, HAL_pMXZ)
-  if(dens_method["pMX"] == "glm" && is.null(glm_formula$pMX)){glm_formula$pMX <- "."}
-  if(dens_method["pMXZ"] == "glm" && is.null(glm_formula$pMXZ)){glm_formula$pMXZ <- "."}
+  dens_method <- resolve_density_method(density_method)
+  glm_options <- check_glm_options(glm_options)
   if(any(dens_method == "gamlss")){
     gg_check_packages()
     gg_opts <- gg_check_options(gamlss_options)
@@ -278,11 +271,11 @@ one_step <- function(
       pMXDn_A0[im] <- gg_density(pMXD_fit, M[im], data.frame(A = 0, X)[im, , drop = FALSE], gg_opts, zero_outside = TRUE)
       density_log <- rbind(density_log, pMX_fit$log, pMXD_fit$log)
     }else{
-      pMX_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMX), family = gaussian(), data = data.frame(log_M = log(M), A, X)[Delta_Y == 1,])
+      pMX_fit <- stats::glm(paste0("log_M ~ ", glm_options$pMX), family = gaussian(), data = data.frame(log_M = log(M), A, X)[Delta_Y == 1,])
       pMXn_A <- rep(NA, n)
       pMXn_A[Delta_Y == 1] <- (1/M)[Delta_Y == 1] * dnorm(log(M)[Delta_Y == 1], mean = stats::predict(pMX_fit, newdata = data.frame(A, X)[Delta_Y == 1,]), sd = sd(pMX_fit$residuals)) 
       
-      pMXD_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMX), family = gaussian(), data = data.frame(log_M = log(M), A, X)[Delta_M == 1,])
+      pMXD_fit <- stats::glm(paste0("log_M ~ ", glm_options$pMX), family = gaussian(), data = data.frame(log_M = log(M), A, X)[Delta_M == 1,])
       # evaluate the fitted density at every non-missing M (Delta_M = 0 participants included), 
       # and set it to 0 outside the observed range of M among Delta_M = 1 (same rule as haldensify with trim_min = 0)
       range_M_DM <- range(M[Delta_M == 1])
@@ -336,13 +329,13 @@ one_step <- function(
       pMXZDn_A[im] <- gg_density(pMXZD_fit, M[im], WZ[im, , drop = FALSE], gg_opts, zero_outside = TRUE)
       density_log <- rbind(density_log, pMXZ_fit$log, pMXZD_fit$log)
     }else{
-      pMXZ_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMXZ), family = gaussian(), data = data.frame(log_M = log(M), A, X, Z)[Delta_Y == 1,])
+      pMXZ_fit <- stats::glm(paste0("log_M ~ ", glm_options$pMXZ), family = gaussian(), data = data.frame(log_M = log(M), A, X, Z)[Delta_Y == 1,])
       pMXZn_A0 <- pMXZn_A1 <- pMXZn_A <- rep(NA, n)
       pMXZn_A[Delta_Y == 1] <- (1/M)[Delta_Y == 1] * dnorm(log(M)[Delta_Y == 1], mean = stats::predict(pMXZ_fit, newdata = data.frame(A, X, Z)[Delta_Y == 1,]), sd = sd(pMXZ_fit$residuals))    
       pMXZn_A0[Delta_Y == 1] <- (1/M)[Delta_Y == 1] * dnorm(log(M)[Delta_Y == 1], mean = stats::predict(pMXZ_fit, newdata = data.frame(A = 0, X, Z)[Delta_Y == 1,]), sd = sd(pMXZ_fit$residuals))
       pMXZn_A1[Delta_Y == 1] <- (1/M)[Delta_Y == 1] * dnorm(log(M)[Delta_Y == 1], mean = stats::predict(pMXZ_fit, newdata = data.frame(A = 1, X, Z)[Delta_Y == 1,]), sd = sd(pMXZ_fit$residuals))
       
-      pMXZD_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMXZ), family = gaussian(), data = data.frame(log_M = log(M), A, X, Z)[Delta_M == 1,])
+      pMXZD_fit <- stats::glm(paste0("log_M ~ ", glm_options$pMXZ), family = gaussian(), data = data.frame(log_M = log(M), A, X, Z)[Delta_M == 1,])
       # evaluate the fitted density at every non-missing M; 0 outside the observed range of M among Delta_M = 1
       range_M_DM <- range(M[Delta_M == 1])
       pMXZDn_A <- rep(NA, n)

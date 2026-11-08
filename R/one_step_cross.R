@@ -27,13 +27,10 @@
 #'                    - \code{eta_AXZ}: GLM formula for estimating E(mu_AMXZ pMXD / pMXZD | A, X, Z, Delta_M = 1).                
 #'                    - \code{eta_AXM}: GLM formula for estimating E(mu_AMXZ pMX/pMXZ gDY_AX/gDY_AXZ | A, M, X, Delta_Y = 1).
 #'                    - \code{xi_AX}: GLM formula for estimating E(eta_AXZ | A, X).
-#'                    - \code{pMX}: GLM formula for estimating p(m | a, x, Delta_Y = 1) and p(m | a, x, Delta_M = 1), assuming M follows a normal distribution.
-#'                    - \code{pMXZ}: GLM formula for estimating p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M = 1), assuming M follows a normal distribution.
 #'                    
-#' @param HAL_pMX Specifies whether to estimate p(m | a, x, Delta_Y = 1) and p(m | a, x, Delta_M=1) using the highly adaptive lasso conditional density estimation method. 
-#' Defaults to \code{TRUE}. If set to \code{FALSE}, please specify the \code{pMX} option in \code{glm_formula}, such as \code{pMX = "."}.
-#' @param HAL_pMXZ Specifies whether to estimate p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M=1) using the highly adaptive lasso conditional density estimation method. 
-#' Defaults to \code{TRUE}. If set to \code{FALSE}, please specify the \code{pMXZ} option in \code{glm_formula}, such as \code{pMXZ = "."}.
+#' @param glm_options Right-hand sides of the log-normal GLM motion densities, used only when \code{density_method = "glm"}:
+#'                   - \code{pMX}: formula for p(m | a, x, Delta_Y = 1) and p(m | a, x, Delta_M = 1). Default \code{"."} (all of \code{A} and \code{X}).
+#'                   - \code{pMXZ}: formula for p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M = 1). Default \code{"."} (all of \code{A}, \code{X} and \code{Z}).
 #'  
 #' @param HAL_options Additional options for highly adaptive lasso (HAL) method.
 #'                   - \code{max_degree}: The highest order of interaction terms for generating basis functions (passed to \code{haldensify}).
@@ -81,18 +78,15 @@ fit_mechanism <- function(
       mu_AMXZ = NULL,
       eta_AXZ = NULL,
       eta_AXM = NULL,
-      xi_AX = NULL,
-      pMX = NULL,
-      pMXZ = NULL
+      xi_AX = NULL
     ),
-    HAL_pMX = TRUE,
-    HAL_pMXZ = TRUE,
     HAL_options = list(
       max_degree = 3, 
       lambda_seq = exp(seq(-1, -10, length = 100)), 
       num_knots = c(1000, 500, 250)
     ),
-    density_method = NULL,
+    glm_options = list(pMX = ".", pMXZ = "."),
+    density_method = "hal",
     Delta_M_threshold = NULL,
     gamlss_options = NULL,
     seed = 1, 
@@ -118,9 +112,8 @@ fit_mechanism <- function(
   index_nomissingM_valid <- which(!is.na(M_valid))
   
   # motion density methods for pMX/pMXD and pMXZ/pMXZD: "hal", "glm" or "gamlss"
-  dens_method <- resolve_density_method(density_method, HAL_pMX, HAL_pMXZ)
-  if(dens_method["pMX"] == "glm" && is.null(glm_formula$pMX)){glm_formula$pMX <- "."}
-  if(dens_method["pMXZ"] == "glm" && is.null(glm_formula$pMXZ)){glm_formula$pMXZ <- "."}
+  dens_method <- resolve_density_method(density_method)
+  glm_options <- check_glm_options(glm_options)
   if(any(dens_method == "gamlss")){
     gg_check_packages()
     gg_opts <- gg_check_options(gamlss_options)
@@ -281,13 +274,13 @@ fit_mechanism <- function(
       pMXDn_A0_valid[iv] <- gg_density(pMXD_fit, M_valid[iv], data.frame(A = 0, valid_dat$X)[iv, , drop = FALSE], gg_opts, zero_outside = TRUE)
       density_log <- rbind(density_log, pMX_fit$log, pMXD_fit$log)
     }else{
-      pMX_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMX), family = gaussian(), data = data.frame(log_M = log(M_train), train_dat$A, train_dat$X)[Delta_Y_train == 1,])
+      pMX_fit <- stats::glm(paste0("log_M ~ ", glm_options$pMX), family = gaussian(), data = data.frame(log_M = log(M_train), train_dat$A, train_dat$X)[Delta_Y_train == 1,])
       pMXn_A_train <- rep(NA, n_train)
       pMXn_A_valid <- rep(NA, n_valid)
       pMXn_A_train[Delta_Y_train == 1] <- (1/M_train)[Delta_Y_train == 1] * dnorm(log(M_train)[Delta_Y_train == 1], mean = stats::predict(pMX_fit, newdata = data.frame(train_dat$A, train_dat$X)[Delta_Y_train == 1,]), sd = sd(pMX_fit$residuals)) 
       pMXn_A_valid[Delta_Y_valid == 1] <- (1/M_valid)[Delta_Y_valid == 1] * dnorm(log(M_valid)[Delta_Y_valid == 1], mean = stats::predict(pMX_fit, newdata = data.frame(valid_dat$A, valid_dat$X)[Delta_Y_valid == 1,]), sd = sd(pMX_fit$residuals))
       
-      pMXD_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMX), family = gaussian(), data = data.frame(log_M = log(M_train), train_dat$A, train_dat$X)[Delta_M_train == 1,])
+      pMXD_fit <- stats::glm(paste0("log_M ~ ", glm_options$pMX), family = gaussian(), data = data.frame(log_M = log(M_train), train_dat$A, train_dat$X)[Delta_M_train == 1,])
       # evaluate the fitted density at every non-missing M (Delta_M = 0 participants included), 
       # and set it to 0 outside the observed range of M among Delta_M = 1 in the training data (same rule as haldensify with trim_min = 0)
       range_M_DM <- range(M_train[Delta_M_train == 1])
@@ -360,7 +353,7 @@ fit_mechanism <- function(
       pMXZDn_A_valid[iv] <- gg_density(pMXZD_fit, M_valid[iv], WZ_valid[iv, , drop = FALSE], gg_opts, zero_outside = TRUE)
       density_log <- rbind(density_log, pMXZ_fit$log, pMXZD_fit$log)
     }else{
-      pMXZ_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMXZ), family = gaussian(), data = data.frame(log_M = log(M_train), train_dat$A, train_dat$X, train_dat$Z)[Delta_Y_train == 1,])
+      pMXZ_fit <- stats::glm(paste0("log_M ~ ", glm_options$pMXZ), family = gaussian(), data = data.frame(log_M = log(M_train), train_dat$A, train_dat$X, train_dat$Z)[Delta_Y_train == 1,])
       pMXZn_A0_train <- pMXZn_A1_train <- pMXZn_A_train <- rep(NA, n_train)
       pMXZn_A_train[Delta_Y_train==1] <- (1/M_train)[Delta_Y_train==1] * dnorm(log(M_train)[Delta_Y_train==1], mean = stats::predict(pMXZ_fit, newdata = data.frame(train_dat$A, train_dat$X, train_dat$Z)[Delta_Y_train==1, ]), sd = sd(pMXZ_fit$residuals))
       pMXZn_A0_train[Delta_Y_train==1] <- (1/M_train)[Delta_Y_train==1] * dnorm(log(M_train)[Delta_Y_train==1], mean = stats::predict(pMXZ_fit, newdata = data.frame(A = 0, train_dat$X, train_dat$Z)[Delta_Y_train==1, ]), sd = sd(pMXZ_fit$residuals))
@@ -370,7 +363,7 @@ fit_mechanism <- function(
       pMXZn_A0_valid[Delta_Y_valid==1] <- (1/M_valid)[Delta_Y_valid==1] * dnorm(log(M_valid)[Delta_Y_valid==1], mean = stats::predict(pMXZ_fit, newdata = data.frame(A = 0, valid_dat$X, valid_dat$Z)[Delta_Y_valid==1, ]), sd = sd(pMXZ_fit$residuals))
       pMXZn_A1_valid[Delta_Y_valid==1] <- (1/M_valid)[Delta_Y_valid==1] * dnorm(log(M_valid)[Delta_Y_valid==1], mean = stats::predict(pMXZ_fit, newdata = data.frame(A = 1, valid_dat$X, valid_dat$Z)[Delta_Y_valid==1, ]), sd = sd(pMXZ_fit$residuals))      
       
-      pMXZD_fit <- stats::glm(paste0("log_M ~ ", glm_formula$pMXZ), family = gaussian(), data = data.frame(log_M = log(M_train), train_dat$A, train_dat$X, train_dat$Z)[Delta_M_train == 1,])
+      pMXZD_fit <- stats::glm(paste0("log_M ~ ", glm_options$pMXZ), family = gaussian(), data = data.frame(log_M = log(M_train), train_dat$A, train_dat$X, train_dat$Z)[Delta_M_train == 1,])
       # evaluate the fitted density at every non-missing M; 0 outside the observed range of M among Delta_M = 1 in the training data
       range_M_DM <- range(M_train[Delta_M_train == 1])
       it <- index_nomissingM_train
@@ -598,13 +591,10 @@ fit_mechanism <- function(
 #'                    - \code{mu_AMXZ}: GLM formula for estimating the outcome regression E(Y | A, M, X, Z).
 #'                    - \code{xi_AX}: GLM formula for estimating E(eta_AXZ | A=a, X).
 #'                    - \code{eta_AXM}: GLM formula for estimating E(Q * p / r | A=a, M, X).
-#'                    - \code{pMX}: GLM formula for estimating p(m | a, x) and p(m | a, x, Delta_M = 1), assuming M follows a normal distribution.
-#'                    - \code{pMXZ}: GLM formula for estimating p(m | a, x, z) and p(m | a, x, z, Delta_M = 1), assuming M follows a normal distribution.
 #'                    
-#' @param HAL_pMX Specifies whether to estimate p(m | a, x, Delta_Y = 1) and p(m | a, x, Delta_M=1) using the highly adaptive lasso conditional density estimation method. 
-#' Defaults to \code{TRUE}. If set to \code{FALSE}, please specify the \code{pMX} option in \code{glm_formula}, such as \code{pMX = "."}.
-#' @param HAL_pMXZ Specifies whether to estimate p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M=1) using the highly adaptive lasso conditional density estimation method. 
-#' Defaults to \code{TRUE}. If set to \code{FALSE}, please specify the \code{pMXZ} option in \code{glm_formula}, such as \code{pMXZ = "."}.
+#' @param glm_options Right-hand sides of the log-normal GLM motion densities, used only when \code{density_method = "glm"}:
+#'                   - \code{pMX}: formula for p(m | a, x, Delta_Y = 1) and p(m | a, x, Delta_M = 1). Default \code{"."} (all of \code{A} and \code{X}).
+#'                   - \code{pMXZ}: formula for p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M = 1). Default \code{"."} (all of \code{A}, \code{X} and \code{Z}).
 #'  
 #' @param HAL_options Additional options for highly adaptive lasso (HAL) method.
 #'                   - \code{max_degree}: The highest order of interaction terms for generating basis functions (passed to \code{haldensify}).
@@ -652,14 +642,11 @@ one_step_cross <- function(
       mu_AMXZ = NULL,
       eta_AXZ = NULL,
       eta_AXM = NULL,
-      xi_AX = NULL,
-      pMX = NULL,
-      pMXZ = NULL
+      xi_AX = NULL
     ),
-    HAL_pMX = TRUE,
-    HAL_pMXZ = TRUE,
     HAL_options = list(max_degree = 3, lambda_seq = exp(seq(-1, -10, length = 100)), num_knots = c(1000, 500, 250)),
-    density_method = NULL,
+    glm_options = list(pMX = ".", pMXZ = "."),
+    density_method = "hal",
     Delta_M_threshold = NULL,
     gamlss_options = NULL,
     seed = 1, 
@@ -715,9 +702,8 @@ one_step_cross <- function(
       SL_library = SL_library,
       SL_library_customize = SL_library_customize,
       glm_formula = glm_formula,
-      HAL_pMX = HAL_pMX,
-      HAL_pMXZ = HAL_pMXZ,
       HAL_options = HAL_options,
+      glm_options = glm_options,
       density_method = density_method,
       Delta_M_threshold = Delta_M_threshold,
       gamlss_options = gamlss_options,

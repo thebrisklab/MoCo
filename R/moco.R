@@ -41,25 +41,22 @@
 #'                    - \code{eta_AXZ}: GLM formula for estimating E(mu_AMXZ pMXD / pMXZD | A, X, Z, Delta_M = 1).                
 #'                    - \code{eta_AXM}: GLM formula for estimating E(mu_AMXZ pMX/pMXZ gDY_AX/gDY_AXZ | A, M, X, Delta_Y = 1).
 #'                    - \code{xi_AX}: GLM formula for estimating E(eta_AXZ | A, X).
-#'                    - \code{pMX}: GLM formula for estimating p(m | a, x, Delta_Y = 1) and p(m | a, x, Delta_M = 1), assuming M follows a log normal distribution.
-#'                    - \code{pMXZ}: GLM formula for estimating p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M = 1), assuming M follows a log normal distribution.
 #'                    
-#' @param HAL_pMX Specifies whether to estimate p(m | a, x, Delta_Y = 1) and p(m | a, x, Delta_M=1) using the highly adaptive lasso conditional density estimation method. 
-#' Defaults to \code{TRUE}. If set to \code{FALSE}, please specify the \code{pMX} option in \code{glm_formula}, such as \code{pMX = "."}.
-#' @param HAL_pMXZ Specifies whether to estimate p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M=1) using the highly adaptive lasso conditional density estimation method. 
-#' Defaults to \code{TRUE}. If set to \code{FALSE}, please specify the \code{pMXZ} option in \code{glm_formula}, such as \code{pMXZ = "."}.
-#'  
-#' 
-#' @param HAL_options Additional options for highly adaptive lasso (HAL) method. These will be passed to the haldensify function in the haldensify package.
+#' @param density_method Method for the motion densities p(m | a, x, Delta) and p(m | a, x, z, Delta), with Delta = Delta_Y or Delta_M:
+#'          \code{"hal"} (default; highly adaptive lasso, \code{haldensify}, controlled by \code{HAL_options}),
+#'          \code{"glm"} (log-normal regression, controlled by \code{glm_options}), or
+#'          \code{"gamlss"} (generalized gamma GAMLSS, controlled by \code{gamlss_options} and \code{Delta_M_threshold}).
+#'          Upper or lower case is accepted. A length-2 vector \code{c(pMX = , pMXZ = )} sets the two density pairs separately.
+#'          Options for a method that is not used are ignored, with a message. The former arguments \code{HAL_pMX} and
+#'          \code{HAL_pMXZ} are deprecated: when supplied, they are translated to \code{density_method} with a warning.
+#' @param HAL_options Options for \code{density_method = "hal"}, passed to \code{haldensify::haldensify()}:
 #'                   - \code{max_degree}: The highest order of interaction terms for generating basis functions.
 #'                   - \code{lambda_seq}: A numeric sequence of values for the regularization parameter of Lasso regression.
 #'                   - \code{num_knots}: The maximum number of knot points (i.e., bins) for any covariate for generating basis functions.
-#' 
-#' @param density_method Method for the motion densities p(m | a, x, Delta), with Delta = Delta_Y or Delta_M, and p(m | a, x, z, Delta): 
-#'          \code{"glm"} (log-normal regression, using \code{glm_formula$pMX} and \code{glm_formula$pMXZ}, default \code{"."}),
-#'          \code{"hal"} (highly adaptive lasso, \code{haldensify}), or \code{"gamlss"} (generalized gamma GAMLSS, see \code{gamlss_options}).
-#'          A length-2 vector \code{c(pMX = , pMXZ = )} sets the two density families separately.
-#'          Defaults to \code{NULL}, which keeps the behavior of \code{HAL_pMX} and \code{HAL_pMXZ}.
+#' @param glm_options Right-hand sides of the log-normal GLM motion densities, used only when \code{density_method = "glm"}:
+#'                   - \code{pMX}: formula for p(m | a, x, Delta_Y = 1) and p(m | a, x, Delta_M = 1). Default \code{"."} (all of \code{A} and \code{X}).
+#'                   - \code{pMXZ}: formula for p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M = 1). Default \code{"."} (all of \code{A}, \code{X} and \code{Z}).
+#'          The former entries \code{glm_formula$pMX} and \code{glm_formula$pMXZ} are deprecated: when supplied, they are moved to \code{glm_options} with a warning.
 #' @param Delta_M_threshold Used only with \code{density_method = "gamlss"}. When \code{Delta_M = as.numeric(M < c)}, set \code{Delta_M_threshold = c}:
 #'          p(m | a, x, Delta_M = 1) and p(m | a, x, z, Delta_M = 1) are then fitted with a generalized gamma right-truncated at c (see \code{\link{GGtr}}),
 #'          and set to 0 for M >= c. Defaults to \code{NULL} (Delta_M is not a cut on M; an ordinary generalized gamma is fitted on the Delta_M = 1 participants
@@ -87,7 +84,7 @@
 #' @param hypo_chunk_size Draws processed per simulation batch.
 #' @param hypo_seed Critical-value simulation seed, separate from nuisance seeds.
 #' @param seed_rng Specifies the value of seed(s) for nuisance regression calculation using super learner. Can be a vector. Defaults to value 1. When several seeds are given, the full analysis is run once per seed; the estimates and the participant-level efficient influence functions are averaged across seeds, the covariance is recomputed from the averaged efficient influence functions, and one simultaneous test is conducted across all outcomes in \code{Y}.
-#' @param ... Not used. Supplying the removed arguments \code{thresh} or \code{seed_rgn} gives an informative error.
+#' @param ... Used only for the deprecated \code{HAL_pMX} and \code{HAL_pMXZ} (see \code{density_method}). Supplying the removed arguments \code{thresh} or \code{seed_rgn} gives an informative error.
 #' 
 #' @import SuperLearner 
 #' @import haldensify 
@@ -147,13 +144,10 @@ moco <- function(
                      mu_AMXZ = NULL,
                      eta_AXZ = NULL,
                      eta_AXM = NULL,
-                     xi_AX = NULL,
-                     pMX = NULL,
-                     pMXZ = NULL),
-  HAL_pMX = TRUE,
-  HAL_pMXZ = TRUE,
+                     xi_AX = NULL),
+  density_method = "hal",
   HAL_options = list(max_degree = 3, lambda_seq = exp(seq(-1, -10, length = 100)), num_knots = c(1000, 500, 250)),
-  density_method = NULL,
+  glm_options = list(pMX = ".", pMXZ = "."),
   Delta_M_threshold = NULL,
   gamlss_options = NULL,
   cross_fit = TRUE,
@@ -168,14 +162,48 @@ moco <- function(
   ...
 ){
   
+  # which density options the user supplied (recorded before any of them is changed)
+  density_method_given <- !missing(density_method)
+  HAL_options_given <- !missing(HAL_options)
+  glm_options_given <- !missing(glm_options)
+  
   # arguments that were renamed or removed in this version
-  dots <- names(list(...))
+  dot_args <- list(...)
+  dots <- names(dot_args)
   if("thresh" %in% dots){
     stop("The argument 'thresh' has been removed. Please define Delta_M directly, e.g., Delta_M = as.numeric(M < 0.2).")
   }
   if("seed_rgn" %in% dots){
     stop("The argument 'seed_rgn' has been renamed to 'seed_rng'.")
   }
+  
+  # deprecated HAL_pMX / HAL_pMXZ: translated to density_method
+  if(any(c("HAL_pMX", "HAL_pMXZ") %in% dots)){
+    if(!density_method_given){
+      hal_pMX <- if(is.null(dot_args[["HAL_pMX"]])) TRUE else isTRUE(dot_args[["HAL_pMX"]])
+      hal_pMXZ <- if(is.null(dot_args[["HAL_pMXZ"]])) TRUE else isTRUE(dot_args[["HAL_pMXZ"]])
+      density_method <- c(pMX = if(hal_pMX) "hal" else "glm", pMXZ = if(hal_pMXZ) "hal" else "glm")
+      warning("HAL_pMX and HAL_pMXZ are deprecated; please use density_method. They were translated to density_method = c(pMX = \"",
+              density_method[["pMX"]], "\", pMXZ = \"", density_method[["pMXZ"]], "\").", call. = FALSE)
+      density_method_given <- TRUE
+    }else{
+      warning("HAL_pMX and HAL_pMXZ are deprecated and are ignored because density_method is given.", call. = FALSE)
+    }
+  }
+  
+  # deprecated glm_formula$pMX / glm_formula$pMXZ: moved to glm_options
+  if(!is.null(glm_formula[["pMX"]]) || !is.null(glm_formula[["pMXZ"]])){
+    if(!glm_options_given){
+      glm_options <- list(pMX = glm_formula[["pMX"]], pMXZ = glm_formula[["pMXZ"]])
+      warning("glm_formula$pMX and glm_formula$pMXZ are deprecated; please use glm_options. They were moved to glm_options.", call. = FALSE)
+      glm_options_given <- TRUE
+    }else{
+      warning("glm_formula$pMX and glm_formula$pMXZ are deprecated and are ignored because glm_options is given.", call. = FALSE)
+    }
+  }
+  glm_formula[["pMX"]] <- NULL
+  glm_formula[["pMXZ"]] <- NULL
+  glm_options <- check_glm_options(glm_options)
   
   # total number of runs for handling Monte Carlo variability
   r <- length(seed_rng)
@@ -224,7 +252,18 @@ moco <- function(
   }
   
   # motion density method and the threshold that defines Delta_M
-  dens_method <- resolve_density_method(density_method, HAL_pMX, HAL_pMXZ)
+  dens_method <- resolve_density_method(density_method)
+  if(!is.null(M)){
+    if(HAL_options_given && !any(dens_method == "hal")){
+      message("HAL_options is only used by density_method = \"hal\"; it is ignored here.")
+    }
+    if(glm_options_given && !any(dens_method == "glm")){
+      message("glm_options is only used by density_method = \"glm\"; it is ignored here.")
+    }
+    if(!is.null(gamlss_options) && !any(dens_method == "gamlss")){
+      message("gamlss_options is only used by density_method = \"gamlss\"; it is ignored here.")
+    }
+  }
   uses_gamlss <- !is.null(M) && any(dens_method == "gamlss")
   if(uses_gamlss){
     gg_check_packages()
@@ -269,10 +308,9 @@ moco <- function(
         SL_library = SL_library,
         SL_library_customize = SL_library_customize,
         glm_formula = glm_formula,
-        HAL_pMX = HAL_pMX,
-        HAL_pMXZ = HAL_pMXZ,
         HAL_options = HAL_options,
-        density_method = density_method,
+        glm_options = glm_options,
+        density_method = dens_method,
         Delta_M_threshold = Delta_M_threshold,
         gamlss_options = gamlss_options,
         seed = seed_rng[i], 
@@ -286,10 +324,9 @@ moco <- function(
         SL_library = SL_library,
         SL_library_customize = SL_library_customize,
         glm_formula = glm_formula,
-        HAL_pMX = HAL_pMX,
-        HAL_pMXZ = HAL_pMXZ,
         HAL_options = HAL_options,
-        density_method = density_method,
+        glm_options = glm_options,
+        density_method = dens_method,
         Delta_M_threshold = Delta_M_threshold,
         gamlss_options = gamlss_options,
         seed = seed_rng[i]

@@ -90,14 +90,17 @@ gg_check_packages <- function(){
 }
 
 # resolve density_method into one method for pMX/pMXD and one for pMXZ/pMXZD
-resolve_density_method <- function(density_method, HAL_pMX, HAL_pMXZ){
+resolve_density_method <- function(density_method){
   if(is.null(density_method)){
-    return(c(pMX = if(HAL_pMX) "hal" else "glm", pMXZ = if(HAL_pMXZ) "hal" else "glm"))
+    density_method <- "hal"
   }
+  nms <- names(density_method)
   if(!is.character(density_method) || !(length(density_method) %in% c(1, 2)) ||
-     !all(density_method %in% c("glm", "hal", "gamlss"))){
-    stop("density_method must be \"glm\", \"hal\" or \"gamlss\", or a length-2 vector c(pMX = , pMXZ = ) of these.")
+     !all(tolower(density_method) %in% c("glm", "hal", "gamlss"))){
+    stop("density_method must be \"hal\", \"glm\" or \"gamlss\", or a length-2 vector c(pMX = , pMXZ = ) of these.")
   }
+  density_method <- tolower(density_method)
+  names(density_method) <- nms
   if(length(density_method) == 1){
     density_method <- rep(density_method, 2)
   }
@@ -106,6 +109,27 @@ resolve_density_method <- function(density_method, HAL_pMX, HAL_pMXZ){
   }
   names(density_method) <- c("pMX", "pMXZ")
   density_method
+}
+
+# fill in and check the right-hand sides of the log-normal GLM motion densities
+check_glm_options <- function(glm_options){
+  out <- list(pMX = ".", pMXZ = ".")
+  if(is.null(glm_options)){
+    return(out)
+  }
+  if(!is.list(glm_options) || (length(glm_options) > 0 && is.null(names(glm_options))) ||
+     !all(names(glm_options) %in% c("pMX", "pMXZ"))){
+    stop("glm_options must be a list with entries pMX and/or pMXZ, e.g. list(pMX = \".\", pMXZ = \".\").")
+  }
+  for(nm in names(glm_options)){
+    if(!is.null(glm_options[[nm]])){
+      if(!is.character(glm_options[[nm]]) || length(glm_options[[nm]]) != 1){
+        stop("glm_options$", nm, " must be one character string, the right-hand side of the formula (e.g. \".\").")
+      }
+      out[[nm]] <- glm_options[[nm]]
+    }
+  }
+  out
 }
 
 # check Delta_M_threshold, and warn when Delta_M looks like a cut on M but no threshold is given
