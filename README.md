@@ -489,8 +489,6 @@ fit_glm$weight_diagnostics
 # 2    1    A1 136     24.001     0.259
 ```
 
-The numerical output above is illustrative; results may vary slightly with R,
-dependency, and numerical-optimization versions.
 
 ### GAMLSS
 
@@ -564,9 +562,7 @@ gamlss_options = list(
 )
 ```
 
-A covariate-dependent scale can extrapolate in a small group. In 100
-simulated data sets of this design, `sigma = "linear"` gave extreme weights in
-about 1 in 10, and `sigma = "A"` removed them. Check `density_log` and
+A covariate-dependent scale can extrapolate in a small group. Check `density_log` and
 `weight_diagnostics` before interpreting the results.
 
 ### HAL
