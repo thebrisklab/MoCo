@@ -5,8 +5,8 @@
 ## compares the results with the simulated truth.
 ##
 ## Run time: with the default Super Learner library and five-fold cross-fitting,
-## the GLM and GAMLSS fits each take about 14 minutes and the HAL fit about
-## 21 minutes on one core (about 50 minutes in total). It is not run during
+## the GLM and GAMLSS fits each take about 17 minutes and the HAL fit about
+## 25 minutes on one core (about 1 hour in total). It is not run during
 ## package checks; the examples in ?moco use a small, fast case instead.
 ##
 ## Open this file with
