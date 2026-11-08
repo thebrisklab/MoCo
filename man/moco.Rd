@@ -17,12 +17,11 @@ moco(
   SL_library_customize = list(gA = NULL, gDM = NULL, gDY_AX = NULL, gDY_AXZ = NULL,
     mu_AMXZ = NULL, eta_AXZ = NULL, eta_AXM = NULL, xi_AX = NULL),
   glm_formula = list(gA = NULL, gDM = NULL, gDY_AX = NULL, gDY_AXZ = NULL, mu_AMXZ =
-    NULL, eta_AXZ = NULL, eta_AXM = NULL, xi_AX = NULL, pMX = NULL, pMXZ = NULL),
-  HAL_pMX = TRUE,
-  HAL_pMXZ = TRUE,
+    NULL, eta_AXZ = NULL, eta_AXM = NULL, xi_AX = NULL),
+  density_method = "hal",
   HAL_options = list(max_degree = 3, lambda_seq = exp(seq(-1, -10, length = 100)),
     num_knots = c(1000, 500, 250)),
-  density_method = NULL,
+  glm_options = list(pMX = ".", pMXZ = "."),
   Delta_M_threshold = NULL,
   gamlss_options = NULL,
   cross_fit = TRUE,
@@ -83,26 +82,25 @@ Defaults to c("SL.earth","SL.glmnet","SL.gam","SL.glm", "SL.glm.interaction", "S
 - \code{mu_AMXZ}: GLM formula for estimating the outcome regression E(Y | Delta_Y = 1, A, M, X, Z).
 - \code{eta_AXZ}: GLM formula for estimating E(mu_AMXZ pMXD / pMXZD | A, X, Z, Delta_M = 1).
 - \code{eta_AXM}: GLM formula for estimating E(mu_AMXZ pMX/pMXZ gDY_AX/gDY_AXZ | A, M, X, Delta_Y = 1).
-- \code{xi_AX}: GLM formula for estimating E(eta_AXZ | A, X).
-- \code{pMX}: GLM formula for estimating p(m | a, x, Delta_Y = 1) and p(m | a, x, Delta_M = 1), assuming M follows a log normal distribution.
-- \code{pMXZ}: GLM formula for estimating p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M = 1), assuming M follows a log normal distribution.}
+- \code{xi_AX}: GLM formula for estimating E(eta_AXZ | A, X).}
 
-\item{HAL_pMX}{Specifies whether to estimate p(m | a, x, Delta_Y = 1) and p(m | a, x, Delta_M=1) using the highly adaptive lasso conditional density estimation method.
-Defaults to \code{TRUE}. If set to \code{FALSE}, please specify the \code{pMX} option in \code{glm_formula}, such as \code{pMX = "."}.}
+\item{density_method}{Method for the motion densities p(m | a, x, Delta) and p(m | a, x, z, Delta), with Delta = Delta_Y or Delta_M:
+\code{"hal"} (default; highly adaptive lasso, \code{haldensify}, controlled by \code{HAL_options}),
+\code{"glm"} (log-normal regression, controlled by \code{glm_options}), or
+\code{"gamlss"} (generalized gamma GAMLSS, controlled by \code{gamlss_options} and \code{Delta_M_threshold}).
+Upper or lower case is accepted. A length-2 vector \code{c(pMX = , pMXZ = )} sets the two density pairs separately.
+Options for a method that is not used are ignored, with a message. The former arguments \code{HAL_pMX} and
+\code{HAL_pMXZ} are deprecated: when supplied, they are translated to \code{density_method} with a warning.}
 
-\item{HAL_pMXZ}{Specifies whether to estimate p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M=1) using the highly adaptive lasso conditional density estimation method.
-Defaults to \code{TRUE}. If set to \code{FALSE}, please specify the \code{pMXZ} option in \code{glm_formula}, such as \code{pMXZ = "."}.}
-
-\item{HAL_options}{Additional options for highly adaptive lasso (HAL) method. These will be passed to the haldensify function in the haldensify package.
+\item{HAL_options}{Options for \code{density_method = "hal"}, passed to \code{haldensify::haldensify()}:
 - \code{max_degree}: The highest order of interaction terms for generating basis functions.
 - \code{lambda_seq}: A numeric sequence of values for the regularization parameter of Lasso regression.
 - \code{num_knots}: The maximum number of knot points (i.e., bins) for any covariate for generating basis functions.}
 
-\item{density_method}{Method for the motion densities p(m | a, x, Delta), with Delta = Delta_Y or Delta_M, and p(m | a, x, z, Delta):
-\code{"glm"} (log-normal regression, using \code{glm_formula$pMX} and \code{glm_formula$pMXZ}, default \code{"."}),
-\code{"hal"} (highly adaptive lasso, \code{haldensify}), or \code{"gamlss"} (generalized gamma GAMLSS, see \code{gamlss_options}).
-A length-2 vector \code{c(pMX = , pMXZ = )} sets the two density families separately.
-Defaults to \code{NULL}, which keeps the behavior of \code{HAL_pMX} and \code{HAL_pMXZ}.}
+\item{glm_options}{Right-hand sides of the log-normal GLM motion densities, used only when \code{density_method = "glm"}:
+- \code{pMX}: formula for p(m | a, x, Delta_Y = 1) and p(m | a, x, Delta_M = 1). Default \code{"."} (all of \code{A} and \code{X}).
+- \code{pMXZ}: formula for p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M = 1). Default \code{"."} (all of \code{A}, \code{X} and \code{Z}).
+The former entries \code{glm_formula$pMX} and \code{glm_formula$pMXZ} are deprecated: when supplied, they are moved to \code{glm_options} with a warning.}
 
 \item{Delta_M_threshold}{Used only with \code{density_method = "gamlss"}. When \code{Delta_M = as.numeric(M < c)}, set \code{Delta_M_threshold = c}:
 p(m | a, x, Delta_M = 1) and p(m | a, x, z, Delta_M = 1) are then fitted with a generalized gamma right-truncated at c (see \code{\link{GGtr}}),
@@ -141,7 +139,7 @@ and set to 0 outside their range of M). With \code{NULL}, MoCo warns when Delta_
 
 \item{hypo_seed}{Critical-value simulation seed, separate from nuisance seeds.}
 
-\item{...}{Not used. Supplying the removed arguments \code{thresh} or \code{seed_rgn} gives an informative error.}
+\item{...}{Used only for the deprecated \code{HAL_pMX} and \code{HAL_pMXZ} (see \code{density_method}). Supplying the removed arguments \code{thresh} or \code{seed_rgn} gives an informative error.}
 }
 \value{
 A list with named entries

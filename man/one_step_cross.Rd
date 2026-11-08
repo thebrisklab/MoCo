@@ -17,13 +17,11 @@ one_step_cross(
   SL_library_customize = list(gA = NULL, gDM = NULL, gDY_AX = NULL, gDY_AXZ = NULL,
     mu_AMXZ = NULL, eta_AXZ = NULL, eta_AXM = NULL, xi_AX = NULL),
   glm_formula = list(gA = NULL, gDM = NULL, gDY_X = NULL, gDY_AX = NULL, gDY_AXZ = NULL,
-    mu_AMXZ = NULL, eta_AXZ = NULL, eta_AXM = NULL, xi_AX = NULL, pMX = NULL, pMXZ =
-    NULL),
-  HAL_pMX = TRUE,
-  HAL_pMXZ = TRUE,
+    mu_AMXZ = NULL, eta_AXZ = NULL, eta_AXM = NULL, xi_AX = NULL),
   HAL_options = list(max_degree = 3, lambda_seq = exp(seq(-1, -10, length = 100)),
     num_knots = c(1000, 500, 250)),
-  density_method = NULL,
+  glm_options = list(pMX = ".", pMXZ = "."),
+  density_method = "hal",
   Delta_M_threshold = NULL,
   gamlss_options = NULL,
   seed = 1,
@@ -74,20 +72,16 @@ Defaults to c("SL.earth","SL.glmnet","SL.gam","SL.glm", "SL.glm.interaction", "S
 - \code{gD}: GLM formula for estimating the probability P(Delta_M = 1 | A, X).
 - \code{mu_AMXZ}: GLM formula for estimating the outcome regression E(Y | A, M, X, Z).
 - \code{xi_AX}: GLM formula for estimating E(eta_AXZ | A=a, X).
-- \code{eta_AXM}: GLM formula for estimating E(Q * p / r | A=a, M, X).
-- \code{pMX}: GLM formula for estimating p(m | a, x) and p(m | a, x, Delta_M = 1), assuming M follows a normal distribution.
-- \code{pMXZ}: GLM formula for estimating p(m | a, x, z) and p(m | a, x, z, Delta_M = 1), assuming M follows a normal distribution.}
-
-\item{HAL_pMX}{Specifies whether to estimate p(m | a, x, Delta_Y = 1) and p(m | a, x, Delta_M=1) using the highly adaptive lasso conditional density estimation method.
-Defaults to \code{TRUE}. If set to \code{FALSE}, please specify the \code{pMX} option in \code{glm_formula}, such as \code{pMX = "."}.}
-
-\item{HAL_pMXZ}{Specifies whether to estimate p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M=1) using the highly adaptive lasso conditional density estimation method.
-Defaults to \code{TRUE}. If set to \code{FALSE}, please specify the \code{pMXZ} option in \code{glm_formula}, such as \code{pMXZ = "."}.}
+- \code{eta_AXM}: GLM formula for estimating E(Q * p / r | A=a, M, X).}
 
 \item{HAL_options}{Additional options for highly adaptive lasso (HAL) method.
 - \code{max_degree}: The highest order of interaction terms for generating basis functions (passed to \code{haldensify}).
 - \code{lambda_seq}: A numeric sequence of values for the regularization parameter of Lasso regression (passed to \code{haldensify}).
 - \code{num_knots}: The maximum number of knot points (i.e., bins) for any covariate for generating basis functions (passed to \code{haldensify}).}
+
+\item{glm_options}{Right-hand sides of the log-normal GLM motion densities, used only when \code{density_method = "glm"}:
+- \code{pMX}: formula for p(m | a, x, Delta_Y = 1) and p(m | a, x, Delta_M = 1). Default \code{"."} (all of \code{A} and \code{X}).
+- \code{pMXZ}: formula for p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M = 1). Default \code{"."} (all of \code{A}, \code{X} and \code{Z}).}
 
 \item{density_method, Delta_M_threshold, gamlss_options}{Motion density method, the threshold that defines \code{Delta_M}, and GAMLSS options. See \code{\link{moco}}.}
 
