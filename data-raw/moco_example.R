@@ -1,6 +1,12 @@
 # -------------------
 # data simulation: MoCo package example data (moco_example.rda)
 # -------------------
+# Generates the bundled MoCo example data `moco_example` (data/moco_example.rda): a
+# simulated ASD vs non-ASD seed-based functional-connectivity study of n = 400 children
+# motivated by ABIDE. The design follows the package example data of Ran et al. (2026),
+# Supplement Section 9.2 (Example_Data/Code/sim_package_data.R). Only the motion M and the
+# motion-QC indicator Delta_M are new, so the GLM, GAMLSS and HAL motion-density options of
+# moco() can be compared.
 #
 # RNG: R default (Mersenne-Twister / Inversion / Rejection).
 # seed = 1004 (data); calibration_seed = 20261001 (calibration population, n = 50,000).
@@ -16,25 +22,27 @@
 #  (4) n = 400 and the true group differences.
 #
 # Changes from the original package example:
-#  (1) Motion M (mean FD, mm) is generalized gamma, M ~ GG(mu, sigma, nu = 0.5)
-#      (gamlss.dist parameterization), instead of log-normal. With a = (X2 - 10.5)/2 and
-#      q = (Z2 - 110)/15:
-#        log mu    = b0 + 0.15 A + 0.08 X1 - 0.05 X3 - 0.25 a + 0.12 a^2 + 0.12 Z1/12 - 0.15 tanh(q)
-#        log sigma = g0 + 0.30 A + 0.15 Z1/12 - 0.15 a
+#  (1) Motion M (mean FD, mm) is generalized gamma, M ~ GG(mu, sigma, nu = 1)
+#      (gamlss.dist parameterization), instead of log-normal; mu and sigma depend on all
+#      X and Z. With a = (X2 - 10.5)/2 and q = (Z2 - 110)/15:
+#        log mu    = b0 + 0.15 A + 0.08 X1 - 0.05 X3 - 0.25 a + 0.12 a^2 + 0.12 Z1/12
+#                       - 0.15 tanh(q) - 0.10 Z3 - 0.05 Z4
+#        log sigma = g0 + 0.30 A + 0.05 X1 - 0.05 X3 - 0.15 a + 0.15 Z1/12
+#                       - 0.05 tanh(q) - 0.10 Z3 - 0.05 Z4
 #      More, and more variable, motion in ASD, at higher ADOS and at younger ages, and less
-#      at higher IQ (Nebel et al. 2022, NeuroImage); no direct medication effect (stimulants
-#      are usually withheld before scanning; Rubia et al. 2014, Biol Psychiatry).
+#      at higher IQ (Nebel et al. 2022, NeuroImage); medicated children move slightly less
+#      (illustrative effects).
 #      g0 and b0 are calibrated so that the population q95 / median of M is 0.55 / 0.18 mm.
 #  (2) Delta_M (1 = usable motion) is probabilistic instead of a cut (M < 0.2):
 #        P(Delta_M = 1) = 0.05 + 0.90 expit(c0 - 2.8 log(M / 0.2) - 0.20 A + 0.10 a),
-#      with c0 calibrated to 80% usable in the population (about 85% non-ASD and 71% ASD;
+#      with c0 calibrated to 80% usable in the population (about 84% non-ASD and 73% ASD;
 #      84% TD and 72% ASD under lenient QC in Nebel et al. 2022). Delta_M is independent of
 #      Y given (M, A, X, Z), as MoCo assumes.
 #  (3) The random-number stream differs (seed 1004; M is drawn before Delta_Y), so the
 #      realized X, A, Z and Y are not those of the original data.rda.
 #
-# Realized data (seed = 1004): 153 ASD; Delta_M = 1 for 79% (88% non-ASD, 65% ASD);
-# Delta_Y = 1 for 93%; median M 0.17 mm (non-ASD) and 0.23 mm (ASD).
+# Realized data (seed = 1004): 153 ASD; Delta_M = 1 for 79% (86% non-ASD, 68% ASD);
+# Delta_Y = 1 for 93%; median M 0.16 mm (non-ASD) and 0.22 mm (ASD).
 #
 # True group differences (A = 1 minus A = 0) for outcomes 1-7:
 #   0, 0, 0, 0, -0.04845, -0.06815, NA
@@ -63,7 +71,7 @@ b_DY <- c(1.98369441015941, -0.114997589466419, -0.0574406338144264, 0.037981721
 # -------------------
 # design settings
 # -------------------
-design <- list(nu = 0.5,               # GG shape of the motion distribution
+design <- list(nu = 1,                 # GG shape of the motion distribution
                target_median = 0.18,   # population median of M (mm)
                target_q95 = 0.55,      # population 95th percentile of M (mm)
                target_QC = 0.80,       # population proportion with Delta_M = 1
@@ -98,8 +106,8 @@ covariates <- function(n){
 # linear predictors of log mu and log sigma of M (without intercepts) and of the QC model
 predictors <- function(w){
   a <- (w$X2 - 10.5)/2; q <- (w$Z2 - 110)/15
-  list(mu = 0.15*w$A + 0.08*w$X1 - 0.05*w$X3 - 0.25*a + 0.12*a^2 + 0.12*w$Z1/12 - 0.15*tanh(q),
-       sigma = 0.30*w$A + 0.15*w$Z1/12 - 0.15*a,
+  list(mu = 0.15*w$A + 0.08*w$X1 - 0.05*w$X3 - 0.25*a + 0.12*a^2 + 0.12*w$Z1/12 - 0.15*tanh(q) - 0.10*w$Z3 - 0.05*w$Z4,
+       sigma = 0.30*w$A + 0.05*w$X1 - 0.05*w$X3 - 0.15*a + 0.15*w$Z1/12 - 0.05*tanh(q) - 0.10*w$Z3 - 0.05*w$Z4,
        QC = if(!is.null(w$M)) -2.8*log(w$M/0.2) - 0.20*w$A + 0.10*a)
 }
 # bounded logistic probability of usable motion
