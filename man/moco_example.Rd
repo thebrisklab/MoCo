@@ -29,7 +29,7 @@ analysis of autism spectrum disorder (ASD), motivated by the Autism Brain
 Imaging Data Exchange (ABIDE). The seed is the default mode network, and the
 outcomes are its Fisher-z connectivity with six Yeo networks. Head motion is
 generated from a generalized gamma distribution whose location and spread depend
-on diagnosis, age and ADOS, and motion usability is probabilistic in mean
+on all baseline and post-diagnosis covariates, and motion usability is probabilistic in mean
 framewise displacement, so the GLM, HAL and GAMLSS density options of
 \code{\link[=moco]{moco()}} can be compared.
 }
