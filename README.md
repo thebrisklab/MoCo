@@ -105,6 +105,8 @@ moco(
   fwer = 0.05,
   seed_rng = 1,
   hypo_method = "mvn",
+  hypo_n_sim = 100000L,
+  hypo_chunk_size = 1000L,
   hypo_seed = 1,
   ...
 )
@@ -362,7 +364,12 @@ the same critical value; only the Monte Carlo draws differ.
 
 Other controls are `hypo_n_sim` (number of draws, default 100,000),
 `hypo_chunk_size` (draws per batch, default 1,000), and `hypo_seed` (Monte
-Carlo seed, default `1`, separate from the nuisance-fitting seeds).
+Carlo seed, default `1`, separate from the nuisance-fitting seeds). The
+default of 100,000 draws keeps the Monte Carlo error of the critical value
+small (about 0.006) and takes seconds for typical numbers of outcomes. For
+quick exploratory runs with many outcomes, `hypo_n_sim` can be lowered (for
+example, to 10,000, with a Monte Carlo error of about 0.02); use the default
+for final results.
 
 `hypo_test()` runs the same test on its own, with arguments `method`, `seed`,
 `n_sim`, and `chunk_size`. Use it directly only when the estimates and
@@ -394,7 +401,7 @@ seed and aggregates results in the following order:
 fit_repeated <- moco(
   X = X, Z = Z, A = A, M = M, Y = Y,
   Delta_M = Delta_M, Delta_Y = Delta_Y,
-  density_method = "gamlss",
+  density_method = "glm",
   seed_rng = 1:10,
   fwer = c(0.05, 0.10, 0.20)
 )
