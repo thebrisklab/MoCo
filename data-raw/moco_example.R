@@ -4,7 +4,7 @@
 # Generates the bundled MoCo example data `moco_example` (data/moco_example.rda): a
 # simulated ASD vs non-ASD seed-based functional-connectivity study of n = 400 children
 # motivated by ABIDE. The design follows the package example data of Ran et al. (2026),
-# Supplement Section 9.2 (Example_Data/Code/sim_package_data.R). Only the motion M and the
+# Supplement Section 9.2. Only the motion M and the
 # motion-QC indicator Delta_M are new, so the GLM, GAMLSS and HAL motion-density options of
 # moco() can be compared.
 #
@@ -12,7 +12,6 @@
 # seed = 1004 (data); calibration_seed = 20261001 (calibration population, n = 50,000).
 # Requires gamlss.dist (qGG, rGG). Run from the package root.
 #
-# Same as the original package example (sim_package_data.R):
 #  (1) X, A and Z: distributions and coefficients.
 #  (2) Delta_Y: the logistic model in X1, X2, X3, Z1-Z4 (b_DY; the Z4 coefficient is set
 #      to exactly 0, it was 8e-17).
@@ -20,9 +19,7 @@
 #      columns 1, 2, 3, 5, 4, 6, so the A effects are in outcomes 5 and 6), Y[Delta_Y == 0, ]
 #      = NA, and a 7th all-NA seed-to-self column (DMN with itself).
 #  (4) n = 400 and the true group differences.
-#
-# Changes from the original package example:
-#  (1) Motion M (mean FD, mm) is generalized gamma, M ~ GG(mu, sigma, nu = 1)
+#  (5) Motion M (mean FD, mm) is generalized gamma, M ~ GG(mu, sigma, nu = 1)
 #      (gamlss.dist parameterization), instead of log-normal; mu and sigma depend on all
 #      X and Z. With a = (X2 - 10.5)/2 and q = (Z2 - 110)/15:
 #        log mu    = b0 + 0.15 A + 0.08 X1 - 0.05 X3 - 0.25 a + 0.12 a^2 + 0.12 Z1/12
@@ -33,12 +30,12 @@
 #      at higher IQ (Nebel et al. 2022, NeuroImage); medicated children move slightly less
 #      (illustrative effects).
 #      g0 and b0 are calibrated so that the population q95 / median of M is 0.55 / 0.18 mm.
-#  (2) Delta_M (1 = usable motion) is probabilistic instead of a cut (M < 0.2):
+#  (6) Delta_M (1 = usable motion) is probabilistic instead of a cut (M < 0.2):
 #        P(Delta_M = 1) = 0.05 + 0.90 expit(c0 - 2.8 log(M / 0.2) - 0.20 A + 0.10 a),
 #      with c0 calibrated to 80% usable in the population (about 84% non-ASD and 73% ASD;
 #      84% TD and 72% ASD under lenient QC in Nebel et al. 2022). Delta_M is independent of
 #      Y given (M, A, X, Z), as MoCo assumes.
-#  (3) The random-number stream differs (seed 1004; M is drawn before Delta_Y), so the
+#  (7) The random-number stream differs (seed 1004; M is drawn before Delta_Y), so the
 #      realized X, A, Z and Y are not those of the original data.rda.
 #
 # Realized data (seed = 1004): 153 ASD; Delta_M = 1 for 79% (86% non-ASD, 68% ASD);
