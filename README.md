@@ -311,7 +311,6 @@ All entries of `gamlss_options` are optional:
 | `method` | Fitting algorithms tried in order until one converges, any of `"RS"`, `"CG"`, `"mixed"`; default `c("RS", "CG", "mixed")` |
 | `n.cyc`, `c.crit` | Maximum number of outer cycles (default 500) and convergence criterion (default 0.001), passed to `gamlss.control()` |
 | `nu0_fallback` | `TRUE` (default): if no algorithm converges with `nu` estimated, refit with `nu` fixed at 0 |
-| `clamp` | `FALSE` (default); `TRUE` clamps the continuous covariates of prediction rows to each density's training range |
 | `trace` | `FALSE` (default); `TRUE` prints the gamlss iterations |
 
 For example, `gamlss_options = list(mu = "smooth", smooth = c("X2", "Z2"))`
