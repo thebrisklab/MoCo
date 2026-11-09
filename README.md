@@ -560,11 +560,6 @@ gamlss_options = list(
 )
 ```
 
-A covariate-dependent scale can extrapolate in a small group and give a few
-extreme weights; `sigma = "A"` is more stable in that case. Check for
-convergence and low effective-sample-size warnings before interpreting the
-results.
-
 ### HAL
 
 The same analysis with HAL motion densities uses `density_method = "hal"`. The
