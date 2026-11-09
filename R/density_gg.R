@@ -16,7 +16,7 @@
 gg_default_options <- function(){
   list(
     family = "GG",
-    mu = "linear",
+    mu = "smooth",
     sigma = "linear",
     nu = "1",
     smooth = NULL,
@@ -25,7 +25,6 @@ gg_default_options <- function(){
     n.cyc = 500,
     c.crit = 0.001,
     nu0_fallback = TRUE,
-    clamp = FALSE,
     trace = FALSE
   )
 }
@@ -371,10 +370,6 @@ gg_component <- function(m, W, label, opts, threshold = NULL){
   forms <- gg_formulas(W, label, opts)
   family <- if(is.null(threshold)) gamlss.dist::GG() else GGtr(threshold)
 
-  # numeric covariate ranges, used for clamping
-  num_cols <- names(W)[vapply(W, function(x) is.numeric(x) && length(unique(x)) > 2, logical(1))]
-  ranges <- lapply(W[num_cols], range, na.rm = TRUE)
-
   attempts <- lapply(opts$method, function(a) list(algo = a, nu_fixed = forms$nu_fixed))
   if(!forms$nu_fixed && isTRUE(opts$nu0_fallback)){
     attempts <- c(attempts, list(list(algo = "RS", nu_fixed = TRUE), list(algo = "CG", nu_fixed = TRUE)))
@@ -389,7 +384,7 @@ gg_component <- function(m, W, label, opts, threshold = NULL){
                             iterations = fit$iter, nu = mean(fit$nu.fv), n = nrow(dat),
                             fallback = (att$algo != opts$method[1] || att$nu_fixed != forms$nu_fixed),
                             note = paste(messages, collapse = "; "), stringsAsFactors = FALSE)
-      return(list(type = "gg", fit = fit, data = dat, threshold = threshold, ranges = ranges,
+      return(list(type = "gg", fit = fit, data = dat, threshold = threshold,
                   range_M = range(m), nu_fixed = att$nu_fixed, log = log_row))
     }
     messages <- c(messages, paste0(att$algo, if(att$nu_fixed) "(nu=0)" else "", ": ",
@@ -404,7 +399,7 @@ gg_component <- function(m, W, label, opts, threshold = NULL){
                         truncated = !is.null(threshold), converged = FALSE, iterations = NA,
                         nu = 0, n = nrow(dat), fallback = TRUE,
                         note = paste(messages, collapse = "; "), stringsAsFactors = FALSE)
-  list(type = "glm", fit = lm_fit, data = dat, threshold = threshold, ranges = ranges,
+  list(type = "glm", fit = lm_fit, data = dat, threshold = threshold,
        range_M = range(m), log = log_row)
 }
 
@@ -416,13 +411,6 @@ gg_density <- function(obj, m, W, opts, zero_outside = FALSE){
     return(numeric(0))
   }
   W <- gg_clean_data(W)
-  if(isTRUE(opts$clamp)){
-    for(v in names(obj$ranges)){
-      if(v %in% names(W)){
-        W[[v]] <- pmin(pmax(W[[v]], obj$ranges[[v]][1]), obj$ranges[[v]][2])
-      }
-    }
-  }
   newdat <- data.frame(.motion = m, W)
   cc <- obj$threshold
 
