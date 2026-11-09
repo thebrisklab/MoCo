@@ -63,23 +63,23 @@
 #'          and set to 0 outside their range of M). With \code{NULL}, MoCo warns when Delta_M looks like a threshold on M.
 #' @param gamlss_options Options for \code{density_method = "gamlss"} (fitted with \code{gamlss} and \code{gamlss.dist}, which are installed with MoCo). Entries left out take their defaults:
 #'                   - \code{family}: \code{"GG"} (generalized gamma; the only family currently supported).
-#'                   - \code{mu}: \code{"linear"} (all covariates entered linearly, default), \code{"smooth"} (continuous covariates entered as \code{pb()} P-splines, the others linearly), or a one-sided formula.
+#'                   - \code{mu}: \code{"smooth"} (continuous covariates entered as \code{pb()} P-splines, the others linearly; default), \code{"linear"} (all covariates entered linearly), or a one-sided formula.
 #'                   - \code{sigma}: \code{"linear"} (default), \code{"smooth"}, \code{"1"} (constant), \code{"A"} (group only), or a one-sided formula.
 #'                   - \code{nu}: \code{"1"} (constant nu, estimated; default) or \code{0} (nu fixed at 0, i.e. the log-normal distribution).
 #'                   - \code{smooth}: names of the continuous covariates that get \code{pb()} when \code{mu} or \code{sigma} is \code{"smooth"}.
-#'                     \code{NULL} (default) uses every numeric covariate with more than 10 distinct values.
+#'                     \code{NULL} (default) uses every numeric covariate with more than 10 distinct values. A \code{pb()} term on a covariate that is mostly zeros
+#'                     (for example a score that is 0 for one group) can fail to converge; name the covariates to smooth in that case.
 #'                   - \code{formula}: optional \code{list(pMX =, pMXD =, pMXZ =, pMXZD =)}, each a \code{list(mu =, sigma =, nu =)} of one-sided formulas (nu may be \code{0}); overrides the settings above for that density.
 #'                   - \code{method}: algorithms tried in order until one converges, any of \code{"RS"}, \code{"CG"}, \code{"mixed"}. Default \code{c("RS", "CG", "mixed")}.
 #'                   - \code{n.cyc}, \code{c.crit}: maximum number of outer cycles (default 500) and convergence criterion (default 0.001), passed to \code{gamlss.control}.
 #'                   - \code{nu0_fallback}: if no algorithm converges with nu estimated, refit with nu fixed at 0. Default \code{TRUE}. If that also fails, the GLM log-normal density is used for that component, with a warning.
-#'                   - \code{clamp}: clamp continuous covariates to their training range before prediction. Default \code{FALSE}.
 #'                   - \code{trace}: print the gamlss iterations. Default \code{FALSE}.
 #' 
 #' @param cv_folds Number of folds used for cross-fitting when \code{cross_fit = TRUE}. Defaults to 5.
 #' @param cross_fit Logical indicating whether to develop the estimator based on cross-fitting. Defaults to TRUE.
 #' @param test Logical indicating whether to conduct hypothesis testing based on simultaneous confidence band. Defaults to TRUE.
 #' @param fwer A vector of family-wise error rates (FWER) to control for multiple hypothesis testing. Defaults to c(0.05). Set to NULL if test is FALSE.
-#' @param hypo_method Critical-value simulation: "mvn" (default) or "multiplier".
+#' @param hypo_method Critical-value simulation: "multiplier" (Gaussian multiplier bootstrap, default) or "mvn" (multivariate normal draws with the EIF correlation matrix).
 #' @param hypo_n_sim Number of Monte Carlo draws for the simultaneous test. Defaults to 100000, as in the original MoCo; it can be lowered (e.g. to 10000) for quick exploratory runs with many outcomes.
 #' @param hypo_chunk_size Draws processed per simulation batch.
 #' @param hypo_seed Critical-value simulation seed, separate from nuisance seeds.
@@ -98,8 +98,6 @@
 #'   \item{z_score}{A p-length vector of z_score for each functional connectivity if \code{test} is TRUE.}
 #'   \item{fwer_critical_value}{Critical value(s) of the simultaneous confidence band (the (1 - FWER) quantile of the maximum absolute z-statistic) for each specified FWER.}
 #'   \item{significant_regions}{A p-length vector of TRUE or FALSE, indicating significance for each functional connectivity if \code{test} is TRUE.}
-#'   \item{density_log}{With \code{density_method = "gamlss"}: one row per seed, fold and density with the algorithm used, whether nu was fixed at 0, truncation, convergence, iterations, the fitted nu, the sample size, and whether a fallback was needed. \code{NULL} otherwise.}
-#'   \item{weight_diagnostics}{One row per seed and group (A0, A1) with the number, maximum and effective-sample-size ratio of the density-ratio weights pMXD / pMXZ in the efficient influence function. MoCo warns when an effective-sample-size ratio is below 0.1.}
 #' }
 #' 
 #' @examples
@@ -107,16 +105,29 @@
 #' d <- moco_example
 #'
 #' # Fast example (a few seconds): one outcome (Frontoparietal) plus the
-#' # seed-to-self column, a small Super Learner library and GAMLSS motion densities
+#' # seed-to-self column, a small Super Learner library, log-normal GLM motion
+#' # densities, and 10,000 draws for the critical value
 #' fit <- moco(X = d$X, Z = d$Z, A = d$A, M = d$M, Y = d$Y[, 6:7],
 #'             Delta_M = d$Delta_M, Delta_Y = d$Delta_Y,
 #'             SL_library = c("SL.mean", "SL.glm"),
-#'             density_method = "gamlss", cv_folds = 5, seed_rng = 1)
+#'             density_method = "glm", cv_folds = 5, seed_rng = 1,
+#'             hypo_n_sim = 10000)
 #' fit$adj_association
 #' fit$significant_regions
-#' fit$density_log
 #'
-#' # The full GLM, GAMLSS and HAL analysis of the README tutorial (about 50 min
+#' \donttest{
+#' # The same analysis with GAMLSS motion densities (about 20 s): smooth terms
+#' # for age (X2) and IQ (Z2)
+#' fit_gamlss <- moco(X = d$X, Z = d$Z, A = d$A, M = d$M, Y = d$Y[, 6:7],
+#'                    Delta_M = d$Delta_M, Delta_Y = d$Delta_Y,
+#'                    SL_library = c("SL.mean", "SL.glm"),
+#'                    density_method = "gamlss",
+#'                    gamlss_options = list(smooth = c("X2", "Z2")),
+#'                    cv_folds = 5, seed_rng = 1)
+#' fit_gamlss$adj_association
+#' }
+#'
+#' # The full GLM, GAMLSS and HAL analysis of the README tutorial (about 1 hour
 #' # in total) is in an installed script:
 #' # file.show(system.file("examples", "full_analysis.R", package = "MoCo"))
 #'
@@ -155,7 +166,7 @@ moco <- function(
   test = TRUE,
   fwer = 0.05, 
   seed_rng = 1, 
-  hypo_method = "mvn",
+  hypo_method = "multiplier",
   hypo_n_sim = 100000L,
   hypo_chunk_size = 1000L,
   hypo_seed = 1,
@@ -293,8 +304,7 @@ moco <- function(
   # running sum of the participant-level efficient influence functions across runs
   eif_sum <- NULL
   
-  # density fit log and density-ratio weight diagnostics across runs
-  density_log <- NULL
+  # density-ratio weight diagnostics across runs (used for the low-ESS warning)
   weight_diagnostics <- NULL
   
   for(i in 1:r){
@@ -336,9 +346,6 @@ moco <- function(
     # store estimation results
     est <- c(est, list(result$est))
     adj_association[i,] <- result$adj_association
-    if(!is.null(result$density_log)){
-      density_log <- rbind(density_log, data.frame(seed = seed_rng[i], result$density_log, row.names = NULL))
-    }
     if(!is.null(result$weight_diagnostics)){
       weight_diagnostics <- rbind(weight_diagnostics, data.frame(seed = seed_rng[i], group = rownames(result$weight_diagnostics),
                                                                  result$weight_diagnostics, row.names = NULL))
@@ -356,8 +363,8 @@ moco <- function(
   
   # flag unstable density-ratio weights
   if(!is.null(weight_diagnostics) && any(weight_diagnostics$ess_ratio < 0.1, na.rm = TRUE)){
-    warning("The effective-sample-size ratio of the density-ratio weights pMXD / pMXZ is below 0.1 for at least one group and seed ",
-            "(see weight_diagnostics). The motion density models may be too flexible or misspecified.", call. = FALSE)
+    warning("The effective-sample-size ratio of the density-ratio weights pMXD / pMXZ is below 0.1 for at least one group and seed. ",
+            "The motion density models may be too flexible or misspecified.", call. = FALSE)
   }
   
   # merge multi-run estimation results
@@ -410,17 +417,13 @@ moco <- function(
       adj_association = adj_association,
       z_score = z_score,
       fwer_critical_value = fwer_critical_value,
-      significant_regions = significant_regions,
-      density_log = density_log,
-      weight_diagnostics = weight_diagnostics)
+      significant_regions = significant_regions)
     )
   }
   
   return(list(
     est = est,
-    adj_association = adj_association,
-    density_log = density_log,
-    weight_diagnostics = weight_diagnostics)
+    adj_association = adj_association)
   )
 }
 
