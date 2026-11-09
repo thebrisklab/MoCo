@@ -15,7 +15,8 @@ continuous brain phenotypes.
 ## Highlights
 
 - A single high-level function, `moco()`, supports HAL, log-normal GLM, and
-  GAMLSS models (generalized gamma) for conditional motion densities.
+  GAMLSS models (generalized gamma, right-truncated at `Delta_M_threshold`
+  when `Delta_M` is a threshold on motion) for conditional motion densities.
 - Nuisance regressions can be estimated with Super Learner or user-specified
   GLMs.
 - Cross-fitting and repeated cross-fitting are supported; repeated seeds are
@@ -93,7 +94,7 @@ moco(
   Delta_M_threshold = NULL,
   gamlss_options = list(
     family = "GG",
-    mu = "linear",
+    mu = "smooth",
     sigma = "linear",
     nu = "1",
     smooth = NULL
@@ -103,7 +104,7 @@ moco(
   test = TRUE,
   fwer = 0.05,
   seed_rng = 1,
-  hypo_method = "mvn",
+  hypo_method = "multiplier",
   hypo_n_sim = 100000L,
   hypo_chunk_size = 1000L,
   hypo_seed = 1,
@@ -147,7 +148,7 @@ The motion densities conditional on `Delta_M = 1` are fitted on the
 participants with `Delta_M = 1` and evaluated at every observed `M`, including
 participants with `Delta_M = 0`. Outside the range of `M` among the
 `Delta_M = 1` training participants the density is set to zero (GLM, HAL, and
-GAMLSS). With `density_method = "gamlss"` and
+untruncated GAMLSS). With `density_method = "gamlss"` and
 `Delta_M_threshold = c`, the densities are right-truncated at `c` and are zero
 for `M >= c`. `Delta_M` need not be determined by `M` alone (for example, a
 minimum number of frames after censoring).
@@ -192,8 +193,6 @@ configure separately are:
 | `z_score` | EIF-based standardized statistic for each outcome (when `test = TRUE`) |
 | `fwer_critical_value` | Simultaneous critical value for each requested FWER (when `test = TRUE`) |
 | `significant_regions` | Simultaneous-test decisions; a vector for one FWER, a matrix with one row per FWER otherwise (when `test = TRUE`) |
-| `density_log` | GAMLSS fit log, one row per seed, fold, and density (only when `density_method = "gamlss"`; `NULL` otherwise) |
-| `weight_diagnostics` | Density-ratio weights `pMXD / pMXZ` in the EIF: number, maximum, and effective-sample-size ratio, one row per seed and group (`NULL` when `M = NULL`) |
 
 ### Motion-density model
 
@@ -214,7 +213,16 @@ each method has its own options:
 | `"gamlss"` | Generalized gamma GAMLSS, `gamlss::gamlss()` | `gamlss_options`, `Delta_M_threshold` | Flexible distributional regression for positive motion values (faster than HAL, semiparametric) |
 
 Options for a method that is not used are ignored, with a message. Upper or
-lower case is accepted (`"HAL"` or `"hal"`). 
+lower case is accepted (`"HAL"` or `"hal"`). A different method can be used
+for each pair with a named vector, for example
+`density_method = c(pMX = "hal", pMXZ = "gamlss")` (the first entry for `pMX`
+and `pMXD`, the second for `pMXZ` and `pMXZD`), although using the same method
+for both is generally easier to interpret and diagnose.
+
+The former switches `HAL_pMX` and `HAL_pMXZ` and the entries
+`glm_formula$pMX` and `glm_formula$pMXZ` are deprecated. Older scripts that
+use them still run: `moco()` translates them to `density_method` and
+`glm_options` and gives a warning.
 
 #### Highly adaptive lasso
 
@@ -254,7 +262,7 @@ fit_glm <- moco(
 
 #### GAMLSS
 
-GAMLSS is flexible and useful when a log-normal motion model is too restrictive.
+GAMLSS is useful when a log-normal motion model is too restrictive.
 `density_method = "gamlss"` fits all four motion densities with
 `gamlss::gamlss()`, once per training fold, using the generalized gamma (`GG`)
 family. `GG` has a location (`mu`), a scale (`sigma`), and a shape (`nu`)
@@ -272,7 +280,7 @@ while every `Delta_M = 1` participant has lower motion than every
 ```
 Delta_M looks like a threshold on M: every participant with Delta_M = 1 has M <= 0.1989 and every
 participant with Delta_M = 0 and observed M has M >= 0.2001. If Delta_M = as.numeric(M < c), set
-Delta_M_threshold = c...
+Delta_M_threshold = c so that pMXD and pMXZD are fitted with a right-truncated GG. ...
 ```
 
 When `Delta_M` is a quality-control rule that is not a cut on `M` (for
@@ -286,7 +294,7 @@ fit_gamlss <- moco(
   density_method = "gamlss",
   gamlss_options = list(
     mu = "linear",
-    sigma = "linear",
+    sigma = "1",
     nu = "1"
   ),
   cross_fit = TRUE,
@@ -303,15 +311,14 @@ All entries of `gamlss_options` are optional:
 | Entry | Description |
 |---|---|
 | `family` | `"GG"`, the generalized gamma (the only family currently supported); default `"GG"` |
-| `mu` | `"linear"` (`A`, `X`, and, for `pMXZ`/`pMXZD`, `Z` entering linearly; default), `"smooth"` (the same, with `pb()` on the continuous covariates), or a one-sided formula |
+| `mu` | `"smooth"` (`A`, `X`, and, for `pMXZ`/`pMXZD`, `Z`, with `pb()` on the continuous covariates and the others linear; default), `"linear"` (all entering linearly), or a one-sided formula |
 | `sigma` | `"linear"` (default), `"smooth"`, `"1"` (intercept only), `"A"` (group only), or a one-sided formula |
 | `nu` | `"1"` (constant `nu`, estimated; default) or `0` (`nu` fixed at 0, i.e. a log-normal density with the `mu` and `sigma` models above) |
-| `smooth` | Names of the continuous covariates that get `pb()` when `mu` or `sigma` is `"smooth"`; `NULL` (default) uses every numeric covariate with more than 10 distinct values |
+| `smooth` | Names of the continuous covariates that get `pb()` when `mu` or `sigma` is `"smooth"`; `NULL` (default) uses every numeric covariate with more than 10 distinct values. A `pb()` term on a covariate that is mostly zeros (for example, a score that is 0 for one group) can fail to converge, so name the covariates in that case |
 | `formula` | Optional per-density formulas, `list(pMX = , pMXD = , pMXZ = , pMXZD = )`, each a `list(mu = , sigma = , nu = )` of one-sided formulas (`nu` may be `0`); overrides the settings above for that density |
 | `method` | Fitting algorithms tried in order until one converges, any of `"RS"`, `"CG"`, `"mixed"`; default `c("RS", "CG", "mixed")` |
 | `n.cyc`, `c.crit` | Maximum number of outer cycles (default 500) and convergence criterion (default 0.001), passed to `gamlss.control()` |
 | `nu0_fallback` | `TRUE` (default): if no algorithm converges with `nu` estimated, refit with `nu` fixed at 0 |
-| `clamp` | `FALSE` (default); `TRUE` clamps the continuous covariates of prediction rows to each density's training range |
 | `trace` | `FALSE` (default); `TRUE` prints the gamlss iterations |
 
 For example, `gamlss_options = list(mu = "smooth", smooth = c("X2", "Z2"))`
@@ -324,64 +331,44 @@ essentially the log-normal GLM.
 Each density is fitted with the algorithms in `method`, in order, until one
 converges. If none converges with `nu` estimated and `nu0_fallback = TRUE`, the
 fit is repeated with `nu` fixed at 0. If that also fails, the log-normal GLM
-density is used for that component, with a warning. The algorithm used,
-whether `nu` was fixed, truncation, convergence, the number of iterations, the
-fitted `nu`, the sample size, and whether a fallback was needed are recorded
-for each seed, fold, and density in `density_log`. `weight_diagnostics`
-summarizes the density-ratio weights `pMXD / pMXZ` that enter the EIF, and
-`moco()` warns when their effective-sample-size ratio is below 0.1 for either
-group.
+density is used for that component, with a warning that names the density
+and the algorithms tried. `moco()` also warns when the effective-sample-size
+ratio of the density-ratio weights `pMXD / pMXZ` that enter the EIF is below
+0.1 for either group.
 
-### Simultaneous inference
+### Simultaneous inference (`test = TRUE`)
 
-When `test = TRUE` (the default), MoCo performs a simultaneous test across
-the outcomes in `Y`, excluding all-`NA` seed-to-self columns. For each
-requested FWER level, it compares every absolute z-statistic with a common
-critical value: the simulated `(1 - FWER)` quantile of the maximum absolute
-component of a zero-mean Gaussian vector.
+When `test = TRUE` (the default), MoCo runs a simultaneous test across
+all outcomes in `Y`. It compares each |z| with one critical value, the
+(1 - FWER) quantile of the maximum |z| over the outcomes, so the family-wise
+error rate is controlled at each value in `fwer`. For one outcome, this
+reduces to the usual two-sided EIF z-test. Several levels can be requested,
+for example `fwer = c(0.05, 0.10, 0.20)`; `significant_regions` then has one
+row per level. The critical value is simulated
+from the joint correlation of the participant-level EIFs, with one of two
+methods chosen by `hypo_method`:
 
-This procedure provides asymptotic family-wise error-rate control under
-the required regularity conditions, with additional Monte Carlo
-approximation error. For one outcome, it approximates the usual two-sided
-EIF-based z-test.
-
-Several levels can be requested, for example,
-`fwer = c(0.05, 0.10, 0.20)`. In that case, `significant_regions` has one
-row per requested level, in the supplied order.
-
-The Gaussian correlation matrix is estimated from the participant-level
-EIF differences between the two group means. The simulation method is
-selected using `hypo_method`:
-
-| `hypo_method` | Critical-value simulation | Computational cost | Typical use |
+| `hypo_method` | How the critical value is simulated | Cost per draw | When to use |
 |---|---|---|---|
-| `"mvn"` (default) | Simulates a multivariate normal vector with the estimated contrast-EIF correlation matrix. | Setup: approximately O(np² + p³); each draw: O(p²). Forms a p × p matrix. | Usually preferable when the number of outcomes is modest relative to the sample size. |
-| `"multiplier"` | Sums centered contrast EIFs, scaled to unit column norm, using independent standard-normal participant weights. Within each draw, the same participant weights are shared across outcomes. | Each draw: O(np). Avoids forming the p × p correlation matrix. | Useful when the outcome dimension makes the correlation matrix or its decomposition expensive, particularly when p is large relative to n. |
+| `"multiplier"` (default) | Gaussian multiplier bootstrap: each participant's centered, standardized EIF is multiplied by an independent N(0, 1) weight | Grows with n x p; never forms the p x p matrix | Any number of outcomes, including many relative to the sample size (for example, thousands of connectivity edges), where the p x p matrix is large or close to singular |
+| `"mvn"` | Draws from a multivariate normal with the p x p EIF correlation matrix of the outcomes | Grows with the number of outcomes p (one eigendecomposition of the p x p matrix, then p x p per draw); does not depend on n | A faster alternative when the number of outcomes is small or moderate relative to the sample size (for example, a seed with a few to a few hundred target regions) |
 
-Here, `n` is the number of participants and `p` is the number of tested
-outcomes.
+Given the data, both methods simulate the same distribution, so they target
+the same critical value; only the Monte Carlo draws differ.
 
-Conditional on the supplied EIFs, both methods target the same Gaussian
-distribution, up to numerical precision. Their finite Monte Carlo critical
-values can differ.
+Other controls are `hypo_n_sim` (number of draws, default 100,000),
+`hypo_chunk_size` (draws per batch, default 1,000), and `hypo_seed` (Monte
+Carlo seed, default `1`, separate from the nuisance-fitting seeds). The
+default of 100,000 draws keeps the Monte Carlo error of the critical value
+small (about 0.006) and takes seconds for typical numbers of outcomes. For
+quick exploratory runs with many outcomes, `hypo_n_sim` can be lowered (for
+example, to 10,000, with a Monte Carlo error of about 0.02); use the default
+for final results.
 
-Additional controls are:
-
-- `hypo_n_sim`: number of simulation draws; default `100000`.
-- `hypo_chunk_size`: draws processed per batch; default `1000`.
-- `hypo_seed`: simulation seed; default `1`, separate from nuisance-fitting
-  seeds. Changing the simulation method or chunk size can change the
-  finite Monte Carlo result, even with the same seed.
-
-The `hypo_test()` uses arguments `method`, `seed`, `n_sim`,
-and `chunk_size`. It accepts results from a single fitted run or
-appropriately aggregated repeated runs. For repeated runs, first average
-the estimates and participant-aligned EIFs, recompute the covariance from
-the averaged EIFs, and then conduct one joint test.
-
-FWER control applies to the outcomes tested jointly. Running separate
-one-outcome tests does not provide FWER control across the combined
-outcome set.
+`hypo_test()` runs the same test on its own, with arguments `method` (default
+`"mvn"`), `seed`, `n_sim`, and `chunk_size`. Use it directly only when the estimates and
+participant-level EIFs have already been aggregated across repeated seeds
+and the covariance has been recomputed.
 
 ### Multiple outcomes and repeated cross-fitting
 
@@ -503,19 +490,9 @@ fit_glm$significant_regions
 # FALSE FALSE FALSE FALSE TRUE TRUE NA
 ```
 
-The density-ratio weights `pMXD / pMXZ` stay moderate (largest ASD weight
-4.3, effective-sample-size ratio 0.68), so the misfit of the log-normal model
-does not show in the weights here. It shows in accuracy instead: the GLM
-estimates for the fifth outcome and for the null second and fourth outcomes
-are the furthest from the truth of the three models (see the Comparison
-below):
-
-```r
-fit_glm$weight_diagnostics
-#   seed group   n max_weight ess_ratio
-# 1    1    A0 235      1.419     0.978
-# 2    1    A1 136      4.317     0.682
-```
+The misfit of the log-normal model shows in accuracy: the GLM estimates for
+the fifth outcome and for the null second and fourth outcomes are the furthest
+from the truth of the three models (see the Comparison below).
 
 The numerical output above is illustrative; results may vary slightly with R,
 dependency, and numerical-optimization versions.
@@ -561,24 +538,8 @@ fit_gamlss$significant_regions
 # FALSE FALSE FALSE FALSE TRUE TRUE NA
 ```
 
-The fit of each density in each fold is recorded in `density_log` (20 rows
-here: 5 folds by 4 densities); all fits converged with `RS`, without a
-fallback, the estimated shape `nu` is close to its true value of 1, and the
-weights stay small in both groups:
-
-```r
-head(fit_gamlss$density_log[, c("fold", "density", "method", "truncated", "converged", "nu", "n")], 4)
-#   fold density method truncated converged      nu   n
-# 1    1     pMX     RS     FALSE      TRUE  0.8082 295
-# 2    1    pMXD     RS     FALSE      TRUE  0.8798 252
-# 3    1    pMXZ     RS     FALSE      TRUE  0.9092 295
-# 4    1   pMXZD     RS     FALSE      TRUE  0.7565 252
-
-fit_gamlss$weight_diagnostics
-#   seed group   n max_weight ess_ratio
-# 1    1    A0 235      2.250     0.945
-# 2    1    A1 136      2.715     0.617
-```
+All 20 density fits here (5 folds by 4 densities) converge with `RS`, without
+a fallback, so `moco()` gives no GAMLSS warning.
 
 Other models are set in the same list, globally or per density. For example,
 `sigma = "A"` lets the scale differ by group only, which is more stable when
@@ -594,8 +555,9 @@ gamlss_options = list(
 ```
 
 A covariate-dependent scale can extrapolate in a small group and give a few
-extreme weights; `sigma = "A"` is more stable in that case. Check
-`density_log` and `weight_diagnostics` before interpreting the results.
+extreme weights; `sigma = "A"` is more stable in that case. Check for
+convergence and low effective-sample-size warnings before interpreting the
+results.
 
 ### HAL
 
@@ -638,11 +600,6 @@ round(fit_hal$z_score, 4)
 
 fit_hal$significant_regions
 # FALSE FALSE FALSE FALSE TRUE TRUE NA
-
-fit_hal$weight_diagnostics
-#   seed group   n max_weight ess_ratio
-# 1    1    A0 235      1.868     0.944
-# 2    1    A1 136      2.828     0.668
 ```
 
 With the default Super Learner library, the nuisance regressions take most of
@@ -661,8 +618,7 @@ file.show(system.file("examples", "full_analysis.R", package = "MoCo"))
 ### Comparison
 
 Adjusted associations (`adj_association`), z-statistics, simultaneous tests at
-FWER 0.05, and the accuracy and stability of the density-ratio weights for the
-three motion-density models on the example data (seed 1, five folds):
+FWER 0.05, accuracy, and run time for the three motion-density models on the example data (seed 1, five folds):
 
 | Outcome | Truth | GLM | GAMLSS (GG, smooth mu, linear sigma) | HAL |
 |---|---|---|---|---|
@@ -672,10 +628,8 @@ three motion-density models on the example data (seed 1, five folds):
 | 4 Ventral attention | 0 | 0.0385 (1.85) | 0.0135 (0.66) | 0.0197 (1.05) |
 | 5 Limbic | -0.0485 | **-0.0791 (-3.37)** | **-0.0666 (-2.81)** | **-0.0712 (-3.36)** |
 | 6 Frontoparietal | -0.0682 | **-0.0768 (-3.35)** | **-0.0725 (-3.20)** | **-0.0761 (-3.44)** |
-| Critical value | | 2.600 | 2.586 | 2.588 |
+| Critical value | | 2.592 | 2.592 | 2.592 |
 | RMSE (six outcomes) | | 0.030 | 0.020 | 0.023 |
-| Largest weight, ASD | | 4.3 | 2.7 | 2.8 |
-| ESS ratio, ASD | | 0.68 | 0.62 | 0.67 |
 | Approximate density fit time | | a few seconds | about 10 s | about 11 min |
 | Total run time | | 17 min | 17 min | 25 min |
 
@@ -683,7 +637,7 @@ Bold marks outcomes significant at FWER 0.05. Total run time is for the whole `m
 fifth and sixth outcomes and no null outcome. GAMLSS is the most accurate,
 followed by HAL; the log-normal GLM is the least accurate, most visibly for
 the fifth outcome (-0.079 against a truth of -0.048) and the null second
-outcome (-0.053), although its weights stay moderate. GAMLSS takes about the
+outcome (-0.053). GAMLSS takes about the
 same time as GLM, while HAL adds about 11 minutes of density fitting.
 
 ### Which method?
@@ -692,7 +646,8 @@ same time as GLM, while HAL adds about 11 minutes of density fitting.
 - **GAMLSS**: skewed or heteroscedastic motion (`GG`); as accurate as HAL at
   close to GLM cost. Set `Delta_M_threshold` when `Delta_M` is a cut on motion,
   start with a simple `sigma` model (`"A"` or `"1"`) when a group is small, and
-  check `density_log` and `weight_diagnostics` before interpreting the results.
+  check for convergence and low effective-sample-size warnings before
+  interpreting the results.
 - **HAL**: the most flexible, with minimal distributional assumptions and the theoretical guarantees of the nonparametric estimator; slow.
 - Whichever model is used, report it with the analysis and check that the conclusions are robust to the choice.
 
@@ -706,22 +661,24 @@ The complete function documentation is available from R:
 ?plot_moco
 ?GGtr
 ```
+
 ## Reproducibility and diagnostics
 
-- Use named columns in `X` and `Z`, and explicitly define `Delta_M`
-  and `Delta_Y`.
-- Record the analysis cohort, participant order, R/package versions,
-  learner libraries, fold count and seeds.
-- Inspect GAMLSS convergence and distributional fit. Report optimizer
-  changes and fixed-shape or GLM fallbacks using `density_log`.
-- Assess positivity and weight stability. `weight_diagnostics`
-  summarizes EIF density-ratio factors; propensity estimates and
-  complete EIF contributions require additional diagnostics.
-- When comparing simultaneous tests, use the same participants,
-  outcome set and FWER level.
-- For distributed analyses, preserve participant alignment across
-  outcomes and seeds. Aggregate estimates and participant-level EIFs
-  before recomputing covariance and conducting one joint test.
+- Use named columns in `X` and `Z`, especially for GAMLSS.
+- Save analysis-cohort IDs and preserve their order across outcomes and seeds.
+- Define `Delta_M` and `Delta_Y` explicitly in the analysis script.
+- Use the same outcome family when comparing simultaneous tests across methods.
+- Save the R version, package versions, learner library, fold count, and seeds.
+- Examine GAMLSS convergence and distributional diagnostics before interpreting
+  GAMLSS-based results, and report how many fits used a fallback (each
+  fallback gives a warning).
+- Check positivity: summarise the propensities (`gA`, `gDM`, `gDY_AXZ`) and the
+  density ratios used in the influence function,
+  including participants with `Delta_M = 0`, at whose motion values the
+  `Delta_M = 1` densities are also evaluated.
+- In distributed analyses, save estimates and participant-level EIFs for every
+  outcome and seed, then aggregate them before calculating covariance and test
+  statistics.
 
 ## Related software and resources
 
@@ -736,15 +693,3 @@ The complete function documentation is available from R:
   `GG` family.
 - [Yeo seven-network parcellation](https://doi.org/10.1152/jn.00338.2011):
   network definition used in the tutorial.
-
-## Citation
-
-If you use MoCo, please cite the package and its methodological paper:
-
-Ran J, Shultz S, Risk BB, Benkeser D (2026).
-Nonparametric motion control in functional connectivity studies in
-children with autism spectrum disorder.
-Biometrics, 82(2), ujag099.
-https://doi.org/10.1093/biomtc/ujag099
-
-Run `citation("MoCo")` for citation details.
