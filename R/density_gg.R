@@ -5,9 +5,6 @@
 #   pMXD, pMXZD : p(m | a, x[, z], Delta_M = 1), GG on the Delta_M = 1 participants,
 #                 right-truncated at Delta_M_threshold when Delta_M = 1(M < threshold).
 #
-# Naming note: gamlss::pb() finds its working frame by searching the call stack for
-# a call whose text starts with "gamlss". No helper here may have a name that starts
-# with "gamlss", otherwise pb() would pick the wrong frame.
 
 # ---------------------------------------------------------------------------
 # options
@@ -161,9 +158,7 @@ check_Delta_M_threshold <- function(Delta_M_threshold, M, Delta_M, uses_gamlss){
     if(length(m1) > 0 && length(m0) > 0 && max(m1) < min(m0)){
       warning(sprintf(paste0(
         "Delta_M looks like a threshold on M: every participant with Delta_M = 1 has M <= %.4g and every participant ",
-        "with Delta_M = 0 and observed M has M >= %.4g. If Delta_M = as.numeric(M < c), set Delta_M_threshold = c ",
-        "so that pMXD and pMXZD are fitted with a right-truncated GG. An untruncated GG on a sample cut at c ",
-        "often fails to converge or gives biased densities."), max(m1), min(m0)), call. = FALSE)
+        "with Delta_M = 0 and observed M has M >= %.4g. If Delta_M = as.numeric(M < c), set Delta_M_threshold = c "), max(m1), min(m0)), call. = FALSE)
     }
   }
   NULL
@@ -182,7 +177,6 @@ check_Delta_M_threshold <- function(Delta_M_threshold, M, Delta_M, uses_gamlss){
 #' p(m | a, x, z, Delta_M = 1) when \code{Delta_M = 1(M < threshold)}. The construction follows
 #' \code{gamlss.tr::gen.trun(type = "right")}: the score is the GG score minus the derivative of
 #' \eqn{\log F(c)}, computed numerically, and the GG expected information is used as the working weight.
-#' The threshold is written into the family functions, so the object is self-contained.
 #'
 #' @param threshold A positive number, the truncation point c.
 #' @param mu.link,sigma.link,nu.link Link functions, as in \code{gamlss.dist::GG}.
