@@ -11,10 +11,8 @@
 #'   EIF rows must refer to the same participants in the same order across FCs.
 #' @param fwer Family-wise error rates strictly between zero and one.
 #' @param seed Random seed for critical-value simulation (not nuisance fitting).
-#' @param method "mvn" (default) or "multiplier". MVN is usually preferable
-#'   when the number of tested FCs is much smaller than the sample size.
-#' @param n_sim Number of Gaussian draws. Default 10000, as in the original MoCo; it can
-#'   be lowered (e.g. to 10000) for quick exploratory runs with many outcomes.
+#' @param method "mvn" (default) or "multiplier". 
+#' @param n_sim Number of Gaussian draws. Default 10000.
 #' @param chunk_size Draws processed in each memory-bounded batch. Changing
 #'   method or chunk size can change a seeded finite Monte Carlo realization.
 #' @return List with z_score, fwer_critical_value and significant_regions.
