@@ -13,7 +13,7 @@
 #' @param seed Random seed for critical-value simulation (not nuisance fitting).
 #' @param method "mvn" (default) or "multiplier". MVN is usually preferable
 #'   when the number of tested FCs is much smaller than the sample size.
-#' @param n_sim Number of Gaussian draws. Default 100000, as in the original MoCo; it can
+#' @param n_sim Number of Gaussian draws. Default 10000, as in the original MoCo; it can
 #'   be lowered (e.g. to 10000) for quick exploratory runs with many outcomes.
 #' @param chunk_size Draws processed in each memory-bounded batch. Changing
 #'   method or chunk size can change a seeded finite Monte Carlo realization.
@@ -29,7 +29,7 @@
 #' hypo_test(toy, fwer = 0.05, n_sim = 10000)
 #' @export
 hypo_test <- function(result, fwer = 0.05, seed = 1,
-                      n_sim = 100000L, method = c("mvn", "multiplier"),
+                      n_sim = 10000L, method = c("mvn", "multiplier"),
                       chunk_size = 1000L) {
   method <- match.arg(method)
   positive_integer <- function(x, label) {
