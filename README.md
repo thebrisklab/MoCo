@@ -364,7 +364,7 @@ values can differ.
 
 Additional controls are:
 
-- `hypo_n_sim`: number of simulation draws; default `100000`.
+- `hypo_n_sim`: number of simulation draws; default `10000`.
 - `hypo_chunk_size`: draws processed per batch; default `1000`.
 - `hypo_seed`: simulation seed; default `1`, separate from nuisance-fitting
   seeds. Changing the simulation method or chunk size can change the
