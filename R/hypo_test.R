@@ -4,9 +4,6 @@
 #'   conditional Gaussian vector with covariance equal to the empirical EIF
 #'   correlation. "multiplier" uses centered, unit-Euclidean-norm EIF columns
 #'   and independent standard Gaussian observation weights shared across FCs.
-#'   This preserves MoCo's single-step FWER procedure; no step-down or FDX
-#'   augmentation is applied. Monte Carlo realizations differ between methods.
-#'   Only draw-wise maxima are retained, reducing simulation storage.
 #' @param result One-step result with adj_association, eif_mat and cov_mat.
 #'   EIF rows must refer to the same participants in the same order across FCs.
 #' @param fwer Family-wise error rates strictly between zero and one.
