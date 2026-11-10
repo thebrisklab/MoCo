@@ -650,7 +650,6 @@ same time as GLM, while HAL adds about 11 minutes of density fitting.
   check for convergence and low effective-sample-size warnings before
   interpreting the results.
 - **HAL**: the most flexible, with minimal distributional assumptions and the theoretical guarantees of the nonparametric estimator; slow.
-- Whichever model is used, report it with the analysis and check that the conclusions are robust to the choice.
 
 ## Function reference
 
