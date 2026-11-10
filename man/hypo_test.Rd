@@ -3,14 +3,14 @@
 \title{Single-step simultaneous Gaussian inference}
 \usage{
 hypo_test(result, fwer = 0.05, seed = 1,
-  n_sim = 100000L, method = c("mvn", "multiplier"), chunk_size = 1000L)
+  n_sim = 10000L, method = c("mvn", "multiplier"), chunk_size = 1000L)
 }
 \arguments{
 \item{result}{One-step result with adj_association, eif_mat and cov_mat. EIF rows must identify the same participants in the same order across FCs.}
 \item{fwer}{FWER probabilities strictly between zero and one.}
 \item{seed}{Seed for critical-value simulation, separate from nuisance fitting.}
 \item{method}{Gaussian simulation method: \code{"mvn"} (default) or \code{"multiplier"}.}
-\item{n_sim}{Number of simulated Gaussian vectors. Default 100000, as in the original MoCo; it can be lowered (e.g. to 10000) for quick exploratory runs with many outcomes.}
+\item{n_sim}{Number of simulated Gaussian vectors. Default 10000.}
 \item{chunk_size}{Vectors processed per batch. Changing chunk size can change finite Monte Carlo results.}
 }
 \value{A list with \code{z_score}, \code{fwer_critical_value}, and \code{significant_regions}.}
