@@ -80,7 +80,7 @@
 #' @param test Logical indicating whether to conduct hypothesis testing based on simultaneous confidence band. Defaults to TRUE.
 #' @param fwer A vector of family-wise error rates (FWER) to control for multiple hypothesis testing. Defaults to c(0.05). Set to NULL if test is FALSE.
 #' @param hypo_method Critical-value simulation: "multiplier" (Gaussian multiplier bootstrap, default) or "mvn" (multivariate normal draws with the EIF correlation matrix).
-#' @param hypo_n_sim Number of Monte Carlo draws for the simultaneous test. Defaults to 100000, as in the original MoCo; it can be lowered (e.g. to 10000) for quick exploratory runs with many outcomes.
+#' @param hypo_n_sim Number of Monte Carlo draws for the simultaneous test. Defaults to 10000, as in the original MoCo; it can be lowered (e.g. to 10000) for quick exploratory runs with many outcomes.
 #' @param hypo_chunk_size Draws processed per simulation batch.
 #' @param hypo_seed Critical-value simulation seed, separate from nuisance seeds.
 #' @param seed_rng Specifies the value of seed(s) for nuisance regression calculation using super learner. Can be a vector. Defaults to value 1. When several seeds are given, the full analysis is run once per seed; the estimates and the participant-level efficient influence functions are averaged across seeds, the covariance is recomputed from the averaged efficient influence functions, and one simultaneous test is conducted across all outcomes in \code{Y}.
@@ -167,7 +167,7 @@ moco <- function(
   fwer = 0.05, 
   seed_rng = 1, 
   hypo_method = "multiplier",
-  hypo_n_sim = 100000L,
+  hypo_n_sim = 10000L,
   hypo_chunk_size = 1000L,
   hypo_seed = 1,
   ...
