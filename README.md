@@ -274,7 +274,7 @@ while every `Delta_M = 1` participant has lower motion than every
 ```
 Delta_M looks like a threshold on M: every participant with Delta_M = 1 has M <= 0.1989 and every
 participant with Delta_M = 0 and observed M has M >= 0.2001. If Delta_M = as.numeric(M < c), set
-Delta_M_threshold = c so that pMXD and pMXZD are fitted with a right-truncated GG. ...
+Delta_M_threshold = c
 ```
 
 When `Delta_M` is a quality-control rule that is not a cut on `M` (for
