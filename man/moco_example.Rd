@@ -30,8 +30,7 @@ Imaging Data Exchange (ABIDE). The seed is the default mode network, and the
 outcomes are its Fisher-z connectivity with six Yeo networks. Head motion is
 generated from a generalized gamma distribution whose location and spread depend
 on all baseline and post-diagnosis covariates, and motion usability is probabilistic in mean
-framewise displacement, so the GLM, HAL and GAMLSS density options of
-\code{\link[=moco]{moco()}} can be compared.
+framewise displacement.
 }
 \details{
 The true MoCo group differences are 0 for outcomes 1-4 and -0.04845 and -0.06815
