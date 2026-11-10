@@ -80,7 +80,7 @@
 #' @param test Logical indicating whether to conduct hypothesis testing based on simultaneous confidence band. Defaults to TRUE.
 #' @param fwer A vector of family-wise error rates (FWER) to control for multiple hypothesis testing. Defaults to c(0.05). Set to NULL if test is FALSE.
 #' @param hypo_method Critical-value simulation: "multiplier" (Gaussian multiplier bootstrap, default) or "mvn" (multivariate normal draws with the EIF correlation matrix).
-#' @param hypo_n_sim Number of Monte Carlo draws for the simultaneous test. Defaults to 10000, as in the original MoCo; it can be lowered (e.g. to 10000) for quick exploratory runs with many outcomes.
+#' @param hypo_n_sim Number of Monte Carlo draws for the simultaneous test. Defaults to 10000.
 #' @param hypo_chunk_size Draws processed per simulation batch.
 #' @param hypo_seed Critical-value simulation seed, separate from nuisance seeds.
 #' @param seed_rng Specifies the value of seed(s) for nuisance regression calculation using super learner. Can be a vector. Defaults to value 1. When several seeds are given, the full analysis is run once per seed; the estimates and the participant-level efficient influence functions are averaged across seeds, the covariance is recomputed from the averaged efficient influence functions, and one simultaneous test is conducted across all outcomes in \code{Y}.
@@ -173,22 +173,17 @@ moco <- function(
   ...
 ){
   
-  # which density options the user supplied (recorded before any of them is changed)
+  # which density options the user supplied 
   density_method_given <- !missing(density_method)
   HAL_options_given <- !missing(HAL_options)
   glm_options_given <- !missing(glm_options)
   
-  # arguments that were renamed or removed in this version
   dot_args <- list(...)
   dots <- names(dot_args)
   if("thresh" %in% dots){
     stop("The argument 'thresh' has been removed. Please define Delta_M directly, e.g., Delta_M = as.numeric(M < 0.2).")
   }
-  if("seed_rgn" %in% dots){
-    stop("The argument 'seed_rgn' has been renamed to 'seed_rng'.")
-  }
   
-  # deprecated HAL_pMX / HAL_pMXZ: translated to density_method
   if(any(c("HAL_pMX", "HAL_pMXZ") %in% dots)){
     if(!density_method_given){
       hal_pMX <- if(is.null(dot_args[["HAL_pMX"]])) TRUE else isTRUE(dot_args[["HAL_pMX"]])
@@ -202,7 +197,6 @@ moco <- function(
     }
   }
   
-  # deprecated glm_formula$pMX / glm_formula$pMXZ: moved to glm_options
   if(!is.null(glm_formula[["pMX"]]) || !is.null(glm_formula[["pMXZ"]])){
     if(!glm_options_given){
       glm_options <- list(pMX = glm_formula[["pMX"]], pMXZ = glm_formula[["pMXZ"]])
