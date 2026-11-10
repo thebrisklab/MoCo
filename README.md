@@ -355,10 +355,9 @@ selected using `hypo_method`:
 |---|---|---|
 | `"mvn"` | Simulates a multivariate normal vector with the estimated contrast-EIF correlation matrix. | Setup: approximately O(np² + p³); each draw: O(p²). Forms a p × p matrix. | 
 | `"multiplier"`(default) | Sums centered contrast EIFs, scaled to unit column norm, using independent standard-normal participant weights. Within each draw, the same participant weights are shared across outcomes. | Each draw: O(np). Avoids forming the p × p correlation matrix. |
-Here, `n` is the number of participants and `p` is the number of tested
-outcomes.
 
-Conditional on the supplied EIFs, both methods target the same Gaussian
+Here, `n` is the number of participants and `p` is the number of tested
+outcomes. Conditional on the supplied EIFs, both methods target the same Gaussian
 distribution, up to numerical precision. Their finite Monte Carlo critical
 values can differ.
 
