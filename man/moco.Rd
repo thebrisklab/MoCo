@@ -30,7 +30,7 @@ moco(
   fwer = 0.05,
   seed_rng = 1,
   hypo_method = "multiplier",
-  hypo_n_sim = 100000L,
+  hypo_n_sim = 10000L,
   hypo_chunk_size = 1000L,
   hypo_seed = 1,
   ...
@@ -133,7 +133,7 @@ and set to 0 outside their range of M). With \code{NULL}, MoCo warns when Delta_
 
 \item{hypo_method}{Critical-value simulation: "multiplier" (Gaussian multiplier bootstrap, default) or "mvn" (multivariate normal draws with the EIF correlation matrix).}
 
-\item{hypo_n_sim}{Number of Monte Carlo draws for the simultaneous test. Defaults to 100000, as in the original MoCo; it can be lowered (e.g. to 10000) for quick exploratory runs with many outcomes.}
+\item{hypo_n_sim}{Number of Monte Carlo draws for the simultaneous test. Defaults to 10000, as in the original MoCo; it can be lowered (e.g. to 10000) for quick exploratory runs with many outcomes.}
 
 \item{hypo_chunk_size}{Draws processed per simulation batch.}
 
