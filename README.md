@@ -15,8 +15,7 @@ continuous brain phenotypes.
 ## Highlights
 
 - A single high-level function, `moco()`, supports HAL, log-normal GLM, and
-  GAMLSS models (generalized gamma, right-truncated at `Delta_M_threshold`
-  when `Delta_M` is a threshold on motion) for conditional motion densities.
+  GAMLSS (generalized gamma) models for conditional motion densities.
 - Nuisance regressions can be estimated with Super Learner or user-specified
   GLMs.
 - Cross-fitting and repeated cross-fitting are supported; repeated seeds are
@@ -41,18 +40,22 @@ Then load the package:
 library(MoCo)
 ```
 
-Core dependencies, including `SuperLearner`, `haldensify`, `gamlss`, and
-`gamlss.dist`, are installed with MoCo. The default Super Learner library
-(`SL_library`) also uses `SL.earth`, `SL.gam`, `SL.glmnet`, `SL.ranger`, and
-`SL.xgboost`, whose packages are suggested rather than required. Install them
-before running `moco()` with the default library:
+Core dependencies, including `SuperLearner`, `haldensify`, `gamlss`,
+`gamlss.dist`, and `mgcv`, are installed with MoCo. The default Super Learner
+library (`SL_library`) includes `SL.mgcv_gam`, a generalized additive model
+learner provided by MoCo that uses `mgcv::gam()`. It also uses `SL.earth`,
+`SL.glmnet`, `SL.ranger`, and `SL.xgboost`, whose packages are suggested
+rather than required. Install them before running `moco()` with the default
+library:
 
 ```r
-install.packages(c("earth", "gam", "glmnet", "ranger", "xgboost"))
+install.packages(c("earth", "glmnet", "ranger", "xgboost"))
 ```
 
 They are not needed when `SL_library` contains only other learners, for
-example `c("SL.mean", "SL.glm")`. Surface plotting additionally requires
+example `c("SL.mean", "SL.glm")`. The `SuperLearner` learner `SL.gam`, which
+uses the `gam` package, can still be added to `SL_library` after
+`install.packages("gam")`. Surface plotting additionally requires
 `ciftiTools` and Connectome Workbench.
 
 ## Description of the main function
@@ -69,10 +72,11 @@ shown; its other entries are described under GAMLSS options.
 ```r
 moco(
   X, Z, A, M, Y,
-  Delta_M,
+  Delta_M = NULL,
   Delta_Y,
+  thresh = NULL,
   SL_library = c(
-    "SL.earth", "SL.glmnet", "SL.gam", "SL.glm",
+    "SL.earth", "SL.glmnet", "SL.mgcv_gam", "SL.glm",
     "SL.glm.interaction", "SL.step", "SL.step.interaction",
     "SL.xgboost", "SL.ranger", "SL.mean"
   ),
@@ -91,23 +95,21 @@ moco(
     num_knots = c(1000, 500, 250)
   ),
   glm_options = list(pMX = ".", pMXZ = "."),
-  Delta_M_threshold = NULL,
   gamlss_options = list(
-    family = "GG",
     mu = "smooth",
     sigma = "linear",
     nu = "1",
-    smooth = NULL
+    smooth = NULL,
+    trace = TRUE
   ),
   cross_fit = TRUE,
   cv_folds = 5,
+  seed_rng = 1,
   test = TRUE,
   fwer = 0.05,
-  seed_rng = 1,
   hypo_method = "multiplier",
-  hypo_n_sim = 100000L,
-  hypo_seed = 1,
-  ...
+  hypo_n_sim = 10000L,
+  hypo_seed = 1
 )
 ```
 
@@ -131,26 +133,36 @@ on the bundled example data.
 | `Y` | Continuous outcome vector or an `n` by `p` outcome matrix |
 | `Delta_M` | Indicator that motion satisfies the analysis inclusion rule |
 | `Delta_Y` | Indicator that the imaging outcome is observed and usable |
+| `thresh` | Optional motion threshold c; defines `Delta_M = 1(M <= c)` when `Delta_M` is not given, and truncates the GAMLSS densities `pMXD`/`pMXZD` at c |
 
 `A`, `X`, and `Z` must be complete. `Y` may contain missing values in rows for
 which `Delta_Y = 0`. For a seed-based analysis, a seed-to-self outcome column
 may be entirely missing; MoCo restores that position as `NA` in its outputs.
 
-`Delta_M` is required. Participants with missing `M` must have `Delta_M = 0`
-and `Delta_Y = 0`. A motion threshold
-is applied by defining `Delta_M` directly, for example
-`Delta_M = as.numeric(M < 0.2)`; the former `thresh` argument has been removed,
-and `moco()` stops with a message if it is supplied. The definitions of
-`Delta_M` and `Delta_Y` should be prespecified and reported with the analysis.
+`Delta_M` is required unless `thresh` is given. Participants with missing `M`
+must have `Delta_M = 0` and `Delta_Y = 0`. For a motion threshold, give
+`thresh = c` (for example `thresh = 0.2`) instead of `Delta_M`: `moco()` then
+sets `Delta_M = as.numeric(!is.na(M) & M <= c)`. If both are given, `Delta_M`
+must equal that rule. The definitions of `Delta_M` and `Delta_Y` should be
+prespecified and reported with the analysis.
 
 The motion densities conditional on `Delta_M = 1` are fitted on the
 participants with `Delta_M = 1` and evaluated at every observed `M`, including
 participants with `Delta_M = 0`. Outside the range of `M` among the
 `Delta_M = 1` training participants the density is set to zero (GLM, HAL, and
-untruncated GAMLSS). With `density_method = "gamlss"` and
-`Delta_M_threshold = c`, the densities are right-truncated at `c` and are zero
-for `M >= c`. `Delta_M` need not be determined by `M` alone (for example, a
+GAMLSS). `Delta_M` need not be determined by `M` alone (for example, a
 minimum number of frames after censoring).
+
+With `thresh = c` and `density_method = "gamlss"`, `pMXD` and `pMXZD` are
+truncated generalized gamma densities. Because `M` is observed for
+everyone, an ordinary GG is fitted on all participants with observed `M` and
+truncated analytically at `c`:
+`p(m | Delta_M = 1, a, x) = dGG(m | a, x) / pGG(c | a, x)` for `m <= c` and 0
+above `c` (and the same with `z` added for `pMXZD`; `pGG(c)` is floored at
+0.001). `pMX` and `pMXZ` are fitted on `Delta_Y = 1` as described above. With HAL or GLM, `thresh` only defines
+`Delta_M`. If `Delta_M` is supplied without `thresh` and every `M` with
+`Delta_M = 1` is below every `M` with `Delta_M = 0`, a GAMLSS run gives a
+message suggesting `thresh`.
 
 When motion is unavailable, set `M = NULL` (and optionally `X = NULL`) and
 supply `Delta_M`; participants with `Delta_M = 0` are then treated as missing,
@@ -209,7 +221,7 @@ each method has its own options:
 |---|---|---|---|
 | `"hal"` (default) | Highly adaptive lasso, `haldensify::haldensify()` | `HAL_options` | Flexible conditional-density estimation with minimal distributional structure (slower, nonparametric) |
 | `"glm"` | Log-normal GLM, a linear model for `log(M)` | `glm_options` | Parsimonious log-normal motion-density model (faster, but most restrictive parametric assumptions) |
-| `"gamlss"` | Generalized gamma GAMLSS, `gamlss::gamlss()` | `gamlss_options`, `Delta_M_threshold` | Flexible distributional regression for positive motion values (faster than HAL, semiparametric) |
+| `"gamlss"` | Generalized gamma GAMLSS, `gamlss::gamlss()` | `gamlss_options` | Flexible distributional regression for positive motion values (faster than HAL, semiparametric) |
 
 Options for a method that is not used are ignored, with a message. Upper or
 lower case is accepted (`"HAL"` or `"hal"`). A different method can be used
@@ -263,24 +275,6 @@ family. `GG` has a location (`mu`), a scale (`sigma`), and a shape (`nu`)
 parameter and contains the log-normal as the special case `nu = 0`. All
 observed `M` must be positive.
 
-When `Delta_M` is a threshold on motion, `Delta_M = as.numeric(M < c)`, the
-`Delta_M = 1` sample is cut at `c`. Supply `Delta_M_threshold = c` so that
-`pMXD` and `pMXZD` are fitted with a `GG` right-truncated at `c` (see
-`?GGtr`). An untruncated `GG` fitted to a sample cut at `c` often fails to
-converge or gives a badly biased density. If `Delta_M_threshold` is omitted
-while every `Delta_M = 1` participant has lower motion than every
-`Delta_M = 0` participant, `moco()` warns:
-
-```
-Delta_M looks like a threshold on M: every participant with Delta_M = 1 has M <= 0.1989 and every
-participant with Delta_M = 0 and observed M has M >= 0.2001. If Delta_M = as.numeric(M < c), set
-Delta_M_threshold = c
-```
-
-When `Delta_M` is a quality-control rule that is not a cut on `M` (for
-example, a minimum number of frames after censoring), leave
-`Delta_M_threshold = NULL`.
-
 ```r
 fit_gamlss <- moco(
   X = X, Z = Z, A = A, M = M, Y = Y,
@@ -304,29 +298,23 @@ All entries of `gamlss_options` are optional:
 
 | Entry | Description |
 |---|---|
-| `family` | `"GG"`, the generalized gamma (the only family currently supported); default `"GG"` |
 | `mu` | `"smooth"` (`A`, `X`, and, for `pMXZ`/`pMXZD`, `Z`, with `pb()` on the continuous covariates and the others linear; default), `"linear"` (all entering linearly), or a one-sided formula |
 | `sigma` | `"linear"` (default), `"smooth"`, `"1"` (intercept only), `"A"` (group only), or a one-sided formula |
 | `nu` | `"1"` (constant `nu`, estimated; default) or `0` (`nu` fixed at 0, i.e. a log-normal density with the `mu` and `sigma` models above) |
 | `smooth` | Names of the continuous covariates that get `pb()` when `mu` or `sigma` is `"smooth"`; `NULL` (default) uses every numeric covariate with more than 10 distinct values. A `pb()` term on a covariate that is mostly zeros (for example, a score that is 0 for one group) can fail to converge, so name the covariates in that case |
-| `formula` | Optional per-density formulas, `list(pMX = , pMXD = , pMXZ = , pMXZD = )`, each a `list(mu = , sigma = , nu = )` of one-sided formulas (`nu` may be `0`); overrides the settings above for that density |
-| `method` | Fitting algorithms tried in order until one converges, any of `"RS"`, `"CG"`, `"mixed"`; default `c("RS", "CG", "mixed")` |
-| `n.cyc`, `c.crit` | Maximum number of outer cycles (default 500) and convergence criterion (default 0.001), passed to `gamlss.control()` |
-| `nu0_fallback` | `TRUE` (default): if no algorithm converges with `nu` estimated, refit with `nu` fixed at 0 |
-| `trace` | `FALSE` (default); `TRUE` prints the gamlss iterations |
+| `trace` | `TRUE` (default) prints the global deviance at each GAMLSS iteration, as in `gamlss.control(trace = TRUE)`; `FALSE` fits silently |
 
 For example, `gamlss_options = list(mu = "smooth", smooth = c("X2", "Z2"))`
 gives the location model `A + X1 + pb(X2) + X3 + Z1 + pb(Z2) + Z3 + Z4` for
-`pMXZ`, and
-`formula = list(pMXZ = list(mu = ~ A + X1 + pb(X2) + Z2, sigma = ~ A))` sets
-the `pMXZ` model directly. With `nu = 0` and `sigma = "1"`, the GAMLSS fit is
+`pMXZ`, and `mu = ~ A + X1 + pb(X2) + X3` sets the location model directly
+(a formula applies to all four densities, so for `pMX` and `pMXD` it may use
+only `A` and `X`). With `nu = 0` and `sigma = "1"`, the GAMLSS fit is
 essentially the log-normal GLM.
 
-Each density is fitted with the algorithms in `method`, in order, until one
-converges. If none converges with `nu` estimated and `nu0_fallback = TRUE`, the
-fit is repeated with `nu` fixed at 0. If that also fails, the log-normal GLM
-density is used for that component, with a warning that names the density
-and the algorithms tried. `moco()` also warns when the effective-sample-size
+Each density is fitted once with the `RS` algorithm (at most 500 cycles).
+There is no fallback: if a fit does not converge, `moco()` stops with an error
+that names the density; a simpler model (for example `sigma = "A"` or
+`mu = "linear"`) or another `density_method` can then be used. `moco()` also warns when the effective-sample-size
 ratio of the density-ratio weights `pMXD / pMXZ` that enter the EIF is below
 0.1 for either group.
 
@@ -353,8 +341,8 @@ selected using `hypo_method`:
 
 | `hypo_method` | Critical-value simulation | Computational cost | 
 |---|---|---|
-| `"mvn"` | Simulates a multivariate normal vector with the estimated contrast-EIF correlation matrix. | Setup: approximately O(np² + p³); each draw: O(p²). Forms a p × p matrix. | 
-| `"multiplier"`(default) | Sums centered contrast EIFs, scaled to unit column norm, using independent standard-normal participant weights. Within each draw, the same participant weights are shared across outcomes. | Each draw: O(np). Avoids forming the p × p correlation matrix. |
+| `"mvn"` | Draws multivariate normal vectors with the estimated contrast-EIF correlation matrix (`MASS::mvrnorm`). | Setup: approximately O(np² + p³); each draw: O(p²). Forms a p × p matrix. | 
+| `"multiplier"`(default) | Gaussian multiplier bootstrap: each draw is Σᵢ eᵢⱼ gᵢ / √(n σ̂²ⱼ), where eᵢⱼ are the centered contrast EIFs, σ̂²ⱼ = Σᵢ eᵢⱼ² / n, and gᵢ are independent standard-normal participant weights shared across outcomes. | Each draw: O(np). Avoids forming the p × p correlation matrix. |
 
 Here, `n` is the number of participants and `p` is the number of tested
 outcomes. Conditional on the supplied EIFs, both methods target the same Gaussian
@@ -364,13 +352,12 @@ values can differ.
 Additional controls are:
 
 - `hypo_n_sim`: number of simulation draws; default `10000`.
-- `hypo_chunk_size`: draws processed per batch; default `1000`.
 - `hypo_seed`: simulation seed; default `1`, separate from nuisance-fitting
-  seeds. Changing the simulation method or chunk size can change the
-  finite Monte Carlo result, even with the same seed.
+  seeds. Changing the simulation method can change the finite Monte
+  Carlo result, even with the same seed.
 
-The standalone `hypo_test()` uses arguments `method`, `seed`, `n_sim`,
-and `chunk_size`. It accepts results from a single fitted run or
+The standalone `hypo_test()` uses arguments `method`, `seed` and
+`n_sim`. It accepts results from a single fitted run or
 appropriately aggregated repeated runs. For repeated runs, first average
 the estimates and participant-aligned EIFs, recompute the covariance from
 the averaged EIFs, and then conduct one joint test.
@@ -508,8 +495,7 @@ The same analysis with GAMLSS motion densities uses
 `density_method = "gamlss"` and a generalized gamma (`GG`) distribution. Age
 (`X2`) and IQ (`Z2`) enter the location through penalized splines `pb()` and
 the other covariates linearly; the scale depends linearly on all covariates,
-and the shape `nu` is estimated. `Delta_M` is not a cut on `M` in these data,
-so `Delta_M_threshold` is not set:
+and the shape `nu` is estimated:
 
 ```r
 fit_gamlss <- moco(
@@ -543,10 +529,9 @@ fit_gamlss$significant_regions
 # FALSE FALSE FALSE FALSE TRUE TRUE NA
 ```
 
-All 20 density fits here (5 folds by 4 densities) converge with `RS`, without
-a fallback, so `moco()` gives no GAMLSS warning.
+All 20 density fits here (5 folds by 4 densities) converge.
 
-Other models are set in the same list, globally or per density. For example,
+Other models are set in the same list. For example,
 `sigma = "A"` lets the scale differ by group only, which is more stable when
 one group is small, and `nu = 0` with `sigma = "1"` gives essentially the
 log-normal GLM above (not run):
@@ -554,8 +539,7 @@ log-normal GLM above (not run):
 ```r
 gamlss_options = list(
   mu = "smooth", smooth = c("X2", "Z2"),
-  sigma = "A", nu = "1",
-  n.cyc = 500
+  sigma = "A", nu = "1"
 )
 ```
 
@@ -644,8 +628,7 @@ same time as GLM, while HAL adds about 11 minutes of density fitting.
 
 - **Log-normal GLM**: motion that is close to log-normal; fastest.
 - **GAMLSS**: skewed or heteroscedastic motion (`GG`); as accurate as HAL at
-  close to GLM cost. Set `Delta_M_threshold` when `Delta_M` is a cut on motion,
-  start with a simple `sigma` model (`"A"` or `"1"`) when a group is small, and
+  close to GLM cost. Start with a simple `sigma` model (`"A"` or `"1"`) when a group is small, and
   check for convergence and low effective-sample-size warnings before
   interpreting the results.
 - **HAL**: the most flexible, with minimal distributional assumptions and the theoretical guarantees of the nonparametric estimator; slow.
@@ -658,7 +641,7 @@ The complete function documentation is available from R:
 ?moco
 ?hypo_test
 ?plot_moco
-?GGtr
+?SL.mgcv_gam
 ```
 
 ## Reproducibility and diagnostics
@@ -669,8 +652,7 @@ The complete function documentation is available from R:
 - Use the same outcome family when comparing simultaneous tests across methods.
 - Save the R version, package versions, learner library, fold count, and seeds.
 - Examine GAMLSS convergence and distributional diagnostics before interpreting
-  GAMLSS-based results, and report how many fits used a fallback (each
-  fallback gives a warning).
+  GAMLSS-based results.
 - Check positivity: summarise the propensities (`gA`, `gDM`, `gDY_AXZ`) and the
   density ratios used in the influence function,
   including participants with `Delta_M = 0`, at whose motion values the
