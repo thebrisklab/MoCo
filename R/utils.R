@@ -1,52 +1,8 @@
-#' Evaluate EIF for stochastic interventional (in)direct effects
-#'
-#' @param a Either 0 or 1.
-#' @param A A binary vector of length n \code{number of participants} representing the diagnosis status.
-#' @param Delta_Y A binary vector indicating whether the outcome \code{Y} is available and passes quality control.
-#' @param Delta_M A binary vector indicating whether motion is available and meets the motion inclusion criteria.
-#' @param Y A vector of continuous outcome of interest.
-#' @param gA Estimate of P(A = a | X_i), i = 1,...,n.
-#' @param gDM Estimate of P(Delta_M = 1 | A_i = 0, X_i), i = 1,...,n.
-#' @param gDY_AXZ Estimate of P(Delta_Y = 1 | A_i, X_i, Z_i), i = 1,...,n.
-#' @param eta_AXZ Estimate of the motion-standardized mean given (A_i, X_i, Z_i).
-#' @param eta_AXM Estimate of the Z-standardized mean given (A_i, M_i, X_i).
-#' @param xi_AX Estimate of E(eta_AXZ | A_i, X_i).
-#' @param mu Estimate of E(Y | A_i, M_i, X_i, Z_i, Delta_Y = 1).
-#' @param pMXD Estimate of p(M_i | A = 0, X_i, Delta_M = 1).
-#' @param pMXZ Estimate of p(M_i | A_i, X_i, Z_i, Delta_Y = 1).
-#'
-#' @return An n-length vector of the estimated EIF evaluated on the observations.
+# Small shared helpers for MoCo.
 
-make_full_data_eif <- function(a, A, Delta_Y, Delta_M, Y, gA, gDM, gDY_AXZ, eta_AXZ, eta_AXM, xi_AX, mu, pMXD, pMXZ){
-  ipw_a <- as.numeric(A == a)/gA
-  ipw_a_prime <- as.numeric(Delta_Y == 1&A == a)/(gDY_AXZ*gA)
-  ipw_a_MD <- as.numeric(A == 0 & Delta_M == 1)/(((1 - gA)*I(a==1) + gA*I(a==0))*gDM)
-  
-  c_star <- pMXD/pMXZ
-  
-  p1 <- ipw_a_prime * c_star * (Y - mu)
-  p2 <- ipw_a * (eta_AXZ - xi_AX)
-  p3 <- ipw_a_MD * (eta_AXM - xi_AX)
-  p4 <- xi_AX - mean(xi_AX)
-  
-  p1[is.na(p1)] <- 0
-  p3[is.na(p3)] <- 0
-  
-  return(p1 + p2 + p3 + p4)
-}
-
-make_full_data_eif_easy <- function(a, A, Delta_Y, Y, gA, gDY_AXZ, xi_AX, mu) {
-  ipw_a <- as.numeric(A == a) / gA
-  ipw_a_prime <- as.numeric(Delta_Y == 1 & A == a) / (gDY_AXZ * gA)
-  
-  p1 <- ipw_a_prime * (Y - mu)
-  p2 <- ipw_a * (mu - xi_AX)
-  p3 <- xi_AX - mean(xi_AX)
-  
-  p1[is.na(p1)] <- 0
-  
-  return(p1 + p2 + p3)
-}
+# ---------------------------------------------------------------------------
+# output formatting
+# ---------------------------------------------------------------------------
 
 #' Add NA value back indicating seed position
 #'
@@ -62,6 +18,66 @@ add_NA <- function(vec, seed_position){
   
   return(vec)
 }
+
+# ---------------------------------------------------------------------------
+# motion density helpers (shared by the glm, gamlss and hal density methods)
+# ---------------------------------------------------------------------------
+
+# resolve density_method into one method for pMX/pMXD and one for pMXZ/pMXZD
+resolve_density_method <- function(density_method){
+  if(is.null(density_method)){
+    density_method <- "hal"
+  }
+  nms <- names(density_method)
+  if(!is.character(density_method) || !(length(density_method) %in% c(1, 2)) ||
+     !all(tolower(density_method) %in% c("glm", "hal", "gamlss"))){
+    stop("density_method must be \"hal\", \"glm\" or \"gamlss\", or a length-2 vector c(pMX = , pMXZ = ) of these.")
+  }
+  density_method <- tolower(density_method)
+  names(density_method) <- nms
+  if(length(density_method) == 1){
+    density_method <- rep(density_method, 2)
+  }
+  if(!is.null(names(density_method)) && all(names(density_method) %in% c("pMX", "pMXZ"))){
+    density_method <- density_method[c("pMX", "pMXZ")]
+  }
+  names(density_method) <- c("pMX", "pMXZ")
+  density_method
+}
+
+# fill in and check the right-hand sides of the log-normal GLM motion densities
+check_glm_options <- function(glm_options){
+  out <- list(pMX = ".", pMXZ = ".")
+  if(is.null(glm_options)){
+    return(out)
+  }
+  if(!is.list(glm_options) || (length(glm_options) > 0 && is.null(names(glm_options))) ||
+     !all(names(glm_options) %in% c("pMX", "pMXZ"))){
+    stop("glm_options must be a list with entries pMX and/or pMXZ, e.g. list(pMX = \".\", pMXZ = \".\").")
+  }
+  for(nm in names(glm_options)){
+    if(!is.null(glm_options[[nm]])){
+      if(!is.character(glm_options[[nm]]) || length(glm_options[[nm]]) != 1){
+        stop("glm_options$", nm, " must be one character string, the right-hand side of the formula (e.g. \".\").")
+      }
+      out[[nm]] <- glm_options[[nm]]
+    }
+  }
+  out
+}
+
+# summary of the density-ratio weights pMXD / pMXZ that enter the efficient influence function
+weight_summary <- function(w){
+  w <- w[is.finite(w)]
+  if(length(w) == 0){
+    return(c(n = 0, max_weight = NA, ess_ratio = NA))
+  }
+  c(n = length(w), max_weight = max(w), ess_ratio = sum(w)^2 / (length(w) * sum(w^2)))
+}
+
+# ---------------------------------------------------------------------------
+# SuperLearner metalearner fixes
+# ---------------------------------------------------------------------------
 
 #' Temporary fix for convex combination method mean squared error
 #' Relative to existing implementation, we reduce the tolerance at which
@@ -261,4 +277,3 @@ tmp_method.CC_nloglik <- function() {
   }
   list(require = "nloptr", computeCoef = computeCoef, computePred = computePred)
 }
-

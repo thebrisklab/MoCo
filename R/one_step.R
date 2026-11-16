@@ -19,9 +19,10 @@
 #'          or criteria based on scrubbing or the number of remaining frames. \code{Delta_M} must be 0 when \code{M} is missing.
 #' @param Delta_Y A binary vector indicating the non-missingness and whether the brain image data \code{Y} passes quality control after preprocessing. 
 #'          Set \code{Delta_Y = 1} if \code{Y} is usable; otherwise, set \code{Delta_Y = 0}.
+#' @param thresh \code{NULL} or the motion threshold c with \code{Delta_M = 1(M <= c)}; used to truncate the GAMLSS densities pMXD and pMXZD. See \code{\link{moco}}.
 #' 
 #' @param SL_library SuperLearner library for estimating nuisance regressions. 
-#'                   Defaults to c("SL.earth","SL.glmnet","SL.gam","SL.glm", "SL.glm.interaction", "SL.step","SL.step.interaction","SL.xgboost","SL.ranger","SL.mean") if not specified.
+#'                   Defaults to c("SL.earth","SL.glmnet","SL.mgcv_gam","SL.glm", "SL.glm.interaction", "SL.step","SL.step.interaction","SL.xgboost","SL.ranger","SL.mean") if not specified.
 #' @param SL_library_customize Customize SuperLearner library for estimating each nuisance regression. 
 #'                    - \code{gA}: SuperLearner library for estimating the propensity score.
 #'                    - \code{gDM}: SuperLearner library for estimating the probability P(Delta_M = 1 | A, X).
@@ -42,16 +43,17 @@
 #'                    - \code{eta_AXM}: GLM formula for estimating E(mu_AMXZ pMX/pMXZ gDY_AX/gDY_AXZ | A, M, X, Delta_Y = 1).
 #'                    - \code{xi_AX}: GLM formula for estimating E(eta_AXZ | A, X).
 #'                    
-#' @param glm_options Right-hand sides of the log-normal GLM motion densities, used only when \code{density_method = "glm"}:
-#'                   - \code{pMX}: formula for p(m | a, x, Delta_Y = 1) and p(m | a, x, Delta_M = 1). Default \code{"."} (all of \code{A} and \code{X}).
-#'                   - \code{pMXZ}: formula for p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M = 1). Default \code{"."} (all of \code{A}, \code{X} and \code{Z}).
-#'  
+#' @param density_method Motion density method. See \code{\link{moco}}.
 #' @param HAL_options Additional options for highly adaptive lasso (HAL) method.
 #'                   - \code{max_degree}: The highest order of interaction terms for generating basis functions (passed to \code{haldensify}).
 #'                   - \code{lambda_seq}: A numeric sequence of values for the regularization parameter of Lasso regression (passed to \code{haldensify}).
 #'                   - \code{num_knots}: The maximum number of knot points (i.e., bins) for any covariate for generating basis functions (passed to \code{haldensify}).
 #' 
-#' @param density_method,Delta_M_threshold,gamlss_options Motion density method, the threshold that defines \code{Delta_M}, and GAMLSS options. See \code{\link{moco}}.
+#' @param glm_options Right-hand sides of the log-normal GLM motion densities, used only when \code{density_method = "glm"}:
+#'                   - \code{pMX}: formula for p(m | a, x, Delta_Y = 1) and p(m | a, x, Delta_M = 1). Default \code{"."} (all of \code{A} and \code{X}).
+#'                   - \code{pMXZ}: formula for p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M = 1). Default \code{"."} (all of \code{A}, \code{X} and \code{Z}).
+#'  
+#' @param gamlss_options GAMLSS options. See \code{\link{moco}}.
 #' @param seed Random seed set before each SuperLearner fit (one value of \code{seed_rng} in \code{moco()}).
 #' @param ... Not used.
 #' 
@@ -70,7 +72,8 @@ one_step <- function(
     X, Z, A, M, Y, 
     Delta_M, 
     Delta_Y,
-    SL_library = c("SL.earth","SL.glmnet","SL.gam","SL.glm", "SL.glm.interaction", "SL.step","SL.step.interaction","SL.xgboost","SL.ranger","SL.mean"),
+    thresh = NULL,
+    SL_library = c("SL.earth","SL.glmnet","SL.mgcv_gam","SL.glm", "SL.glm.interaction", "SL.step","SL.step.interaction","SL.xgboost","SL.ranger","SL.mean"),
     SL_library_customize = list(
       gA = NULL, 
       gDM = NULL,
@@ -91,14 +94,13 @@ one_step <- function(
       eta_AXM = NULL,
       xi_AX = NULL
     ),
+    density_method = "hal",
     HAL_options = list(
       max_degree = 3, 
       lambda_seq = exp(seq(-1, -10, length = 100)), 
       num_knots = c(1000, 500, 250)
     ),
     glm_options = list(pMX = ".", pMXZ = "."),
-    density_method = "hal",
-    Delta_M_threshold = NULL,
     gamlss_options = NULL,
     seed = 1, 
     ...
@@ -138,7 +140,6 @@ one_step <- function(
     gg_check_packages()
     gg_opts <- gg_check_options(gamlss_options)
   }
-  density_log <- NULL
   weight_diagnostics <- NULL
   
   # SL options
@@ -259,17 +260,17 @@ one_step <- function(
       pMXDn_A0[index_nomissingM] <- stats::predict(pMXD_fit, new_A = M[index_nomissingM], new_W = data.frame(A = 0, X)[index_nomissingM,], trim_min = 0)
     }else if(dens_method["pMX"] == "gamlss"){
       # GAMLSS generalized gamma densities p(m|a,x,Delta_Y=1) and p(m|0,x,Delta_M=1);
-      # pMXD is right-truncated at Delta_M_threshold when it is given
       W <- data.frame(A, X)
       im <- index_nomissingM
       pMX_fit <- gg_component(M[Delta_Y == 1], W[Delta_Y == 1, , drop = FALSE], "pMX", gg_opts)
       pMXn_A <- rep(NA, n)
-      pMXn_A[Delta_Y == 1] <- gg_density(pMX_fit, M[Delta_Y == 1], W[Delta_Y == 1, , drop = FALSE], gg_opts)
+      pMXn_A[Delta_Y == 1] <- gg_density(pMX_fit, M[Delta_Y == 1], W[Delta_Y == 1, , drop = FALSE])
       
-      pMXD_fit <- gg_component(M[Delta_M == 1], W[Delta_M == 1, , drop = FALSE], "pMXD", gg_opts, threshold = Delta_M_threshold)
+      # with thresh, fit an untruncated GG on all participants with observed M and truncate it at thresh
+      fit_D <- if(is.null(thresh)) which(Delta_M == 1) else im
+      pMXD_fit <- gg_component(M[fit_D], W[fit_D, , drop = FALSE], "pMXD", gg_opts)
       pMXDn_A0 <- rep(NA, n)
-      pMXDn_A0[im] <- gg_density(pMXD_fit, M[im], data.frame(A = 0, X)[im, , drop = FALSE], gg_opts, zero_outside = TRUE)
-      density_log <- rbind(density_log, pMX_fit$log, pMXD_fit$log)
+      pMXDn_A0[im] <- gg_density(pMXD_fit, M[im], data.frame(A = 0, X)[im, , drop = FALSE], zero_outside = TRUE, thresh = thresh)
     }else{
       pMX_fit <- stats::glm(paste0("log_M ~ ", glm_options$pMX), family = gaussian(), data = data.frame(log_M = log(M), A, X)[Delta_Y == 1,])
       pMXn_A <- rep(NA, n)
@@ -314,20 +315,19 @@ one_step <- function(
       pMXZDn_A[index_nomissingM] <- stats::predict(pMXZD_fit, new_A = M[index_nomissingM], new_W = data.frame(A, X, Z)[index_nomissingM,], trim_min = 0)
     }else if(dens_method["pMXZ"] == "gamlss"){
       # GAMLSS generalized gamma densities p(m|a,x,z,Delta_Y=1) and p(m|a,x,z,Delta_M=1);
-      # pMXZD is right-truncated at Delta_M_threshold when it is given
       WZ <- data.frame(A, X, Z)
       dy <- Delta_Y == 1
       im <- index_nomissingM
       pMXZ_fit <- gg_component(M[dy], WZ[dy, , drop = FALSE], "pMXZ", gg_opts)
       pMXZn_A0 <- pMXZn_A1 <- pMXZn_A <- rep(NA, n)
-      pMXZn_A[dy] <- gg_density(pMXZ_fit, M[dy], WZ[dy, , drop = FALSE], gg_opts)
-      pMXZn_A0[dy] <- gg_density(pMXZ_fit, M[dy], data.frame(A = 0, X, Z)[dy, , drop = FALSE], gg_opts)
-      pMXZn_A1[dy] <- gg_density(pMXZ_fit, M[dy], data.frame(A = 1, X, Z)[dy, , drop = FALSE], gg_opts)
+      pMXZn_A[dy] <- gg_density(pMXZ_fit, M[dy], WZ[dy, , drop = FALSE])
+      pMXZn_A0[dy] <- gg_density(pMXZ_fit, M[dy], data.frame(A = 0, X, Z)[dy, , drop = FALSE])
+      pMXZn_A1[dy] <- gg_density(pMXZ_fit, M[dy], data.frame(A = 1, X, Z)[dy, , drop = FALSE])
       
-      pMXZD_fit <- gg_component(M[Delta_M == 1], WZ[Delta_M == 1, , drop = FALSE], "pMXZD", gg_opts, threshold = Delta_M_threshold)
+      fit_D <- if(is.null(thresh)) which(Delta_M == 1) else im
+      pMXZD_fit <- gg_component(M[fit_D], WZ[fit_D, , drop = FALSE], "pMXZD", gg_opts)
       pMXZDn_A <- rep(NA, n)
-      pMXZDn_A[im] <- gg_density(pMXZD_fit, M[im], WZ[im, , drop = FALSE], gg_opts, zero_outside = TRUE)
-      density_log <- rbind(density_log, pMXZ_fit$log, pMXZD_fit$log)
+      pMXZDn_A[im] <- gg_density(pMXZD_fit, M[im], WZ[im, , drop = FALSE], zero_outside = TRUE, thresh = thresh)
     }else{
       pMXZ_fit <- stats::glm(paste0("log_M ~ ", glm_options$pMXZ), family = gaussian(), data = data.frame(log_M = log(M), A, X, Z)[Delta_Y == 1,])
       pMXZn_A0 <- pMXZn_A1 <- pMXZn_A <- rep(NA, n)
@@ -489,7 +489,6 @@ one_step <- function(
               adj_association = adj_association,
               eif_mat = eif_mat,
               cov_mat = cov_mat,
-              density_log = density_log,
               weight_diagnostics = weight_diagnostics
   )
   

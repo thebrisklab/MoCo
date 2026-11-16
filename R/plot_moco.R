@@ -5,8 +5,8 @@
 #' @param result A list containing the results of motion-controlled functional connectivity analysis.
 #' @param wb_path The path to the workbench binary for ciftiTools.
 #' @param template_path The path to the template file for the visualization.
-#' @param parcellation The parcellation used in the analysis.
 #' @param plots_path The path where the plots will be saved.
+#' @param parcellation The parcellation used in the analysis.
 #' @param zlim_est The z-axis limits for functional connectivity plots.
 #' @param zlim_association The z-axis limits for association plots.
 #' @return Invisibly, the paths of the three PNG files written to \code{plots_path} (mean connectivity for each group and the significant associations).
@@ -21,8 +21,8 @@
 #' @export
 
 plot_moco <- function(result, wb_path, template_path, 
-                      parcellation = "Yeo_7", 
                       plots_path,
+                      parcellation = "Yeo_7", 
                       zlim_est = c(-0.3, 0.3), 
                       zlim_association = c(-0.1, 0.1)){
   
