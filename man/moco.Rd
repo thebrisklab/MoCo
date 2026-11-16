@@ -10,9 +10,10 @@ moco(
   A,
   M,
   Y,
-  Delta_M,
+  Delta_M = NULL,
   Delta_Y,
-  SL_library = c("SL.earth", "SL.glmnet", "SL.gam", "SL.glm", "SL.glm.interaction",
+  thresh = NULL,
+  SL_library = c("SL.earth", "SL.glmnet", "SL.mgcv_gam", "SL.glm", "SL.glm.interaction",
     "SL.step", "SL.step.interaction", "SL.xgboost", "SL.ranger", "SL.mean"),
   SL_library_customize = list(gA = NULL, gDM = NULL, gDY_AX = NULL, gDY_AXZ = NULL,
     mu_AMXZ = NULL, eta_AXZ = NULL, eta_AXM = NULL, xi_AX = NULL),
@@ -22,18 +23,15 @@ moco(
   HAL_options = list(max_degree = 3, lambda_seq = exp(seq(-1, -10, length = 100)),
     num_knots = c(1000, 500, 250)),
   glm_options = list(pMX = ".", pMXZ = "."),
-  Delta_M_threshold = NULL,
   gamlss_options = NULL,
   cross_fit = TRUE,
   cv_folds = 5,
+  seed_rng = 1,
   test = TRUE,
   fwer = 0.05,
-  seed_rng = 1,
   hypo_method = "multiplier",
   hypo_n_sim = 10000L,
-  hypo_chunk_size = 1000L,
-  hypo_seed = 1,
-  ...
+  hypo_seed = 1
 )
 }
 \arguments{
@@ -53,16 +51,24 @@ If it represents other types of association measures:
 Each (i, j) element denotes participant i's association measure between two brain regions of interest, such as the upper diagonal part of the functional connectivity matrix.
 No NA values are allowed in \code{Y} in this case.}
 
-\item{Delta_M}{Required. A binary (0/1) vector of length n indicating whether motion is available and meets the motion quality control (QC) inclusion criteria.
+\item{Delta_M}{A binary (0/1) vector of length n indicating whether motion is available and meets the motion quality control (QC) inclusion criteria.
 Set \code{Delta_M} = 1 if the participant passes motion QC; otherwise, set \code{Delta_M} = 0.
 Any QC definition can be used, e.g., a threshold on mean framewise displacement (\code{Delta_M = as.numeric(M < 0.2)}),
-or criteria based on scrubbing or the number of remaining frames. \code{Delta_M} must be 0 when \code{M} is missing.}
+or criteria based on scrubbing or the number of remaining frames. \code{Delta_M} must be 0 when \code{M} is missing.
+Required unless \code{thresh} is given (then \code{Delta_M = NULL}, the default, defines it from \code{thresh}).}
 
 \item{Delta_Y}{A binary vector indicating the non-missingness and whether the brain image data \code{Y} passes quality control after preprocessing.
 Set \code{Delta_Y = 1} if \code{Y} is usable; otherwise, set \code{Delta_Y = 0}.}
 
+\item{thresh}{\code{NULL} (default) or one positive number c for a motion threshold, \code{Delta_M = 1(M <= c)}.
+When \code{Delta_M = NULL}, \code{Delta_M} is defined as \code{as.numeric(!is.na(M) & M <= thresh)}; when both are given,
+\code{Delta_M} must equal that rule. With \code{density_method = "gamlss"}, \code{pMXD} and \code{pMXZD} are then fitted as
+untruncated GG densities on all participants with observed \code{M} and truncated analytically at c,
+p(m | Delta_M = 1, a, x) = dGG(m) / pGG(c) for m <= c and 0 above c, with z added for \code{pMXZD} (pGG(c) floored at 0.001).
+\code{pMX} and \code{pMXZ} are fitted on \code{Delta_Y = 1} as usual. With \code{"hal"} or \code{"glm"}, \code{thresh} only defines \code{Delta_M}.}
+
 \item{SL_library}{SuperLearner library for estimating nuisance regressions.
-Defaults to c("SL.earth","SL.glmnet","SL.gam","SL.glm", "SL.glm.interaction", "SL.step","SL.step.interaction","SL.xgboost","SL.ranger","SL.mean") if not specified.}
+Defaults to c("SL.earth","SL.glmnet","SL.mgcv_gam","SL.glm", "SL.glm.interaction", "SL.step","SL.step.interaction","SL.xgboost","SL.ranger","SL.mean") if not specified.}
 
 \item{SL_library_customize}{Customize SuperLearner library for estimating each nuisance regression.
 - \code{gA}: SuperLearner library for estimating the propensity score.
@@ -87,10 +93,9 @@ Defaults to c("SL.earth","SL.glmnet","SL.gam","SL.glm", "SL.glm.interaction", "S
 \item{density_method}{Method for the motion densities p(m | a, x, Delta) and p(m | a, x, z, Delta), with Delta = Delta_Y or Delta_M:
 \code{"hal"} (default; highly adaptive lasso, \code{haldensify}, controlled by \code{HAL_options}),
 \code{"glm"} (log-normal regression, controlled by \code{glm_options}), or
-\code{"gamlss"} (generalized gamma GAMLSS, controlled by \code{gamlss_options} and \code{Delta_M_threshold}).
+\code{"gamlss"} (generalized gamma GAMLSS, controlled by \code{gamlss_options}).
 Upper or lower case is accepted. A length-2 vector \code{c(pMX = , pMXZ = )} sets the two density pairs separately.
-Options for a method that is not used are ignored, with a message. The former arguments \code{HAL_pMX} and
-\code{HAL_pMXZ} are deprecated: when supplied, they are translated to \code{density_method} with a warning.}
+Options for a method that is not used are ignored, with a message.}
 
 \item{HAL_options}{Options for \code{density_method = "hal"}, passed to \code{haldensify::haldensify()}:
 - \code{max_degree}: The highest order of interaction terms for generating basis functions.
@@ -99,47 +104,36 @@ Options for a method that is not used are ignored, with a message. The former ar
 
 \item{glm_options}{Right-hand sides of the log-normal GLM motion densities, used only when \code{density_method = "glm"}:
 - \code{pMX}: formula for p(m | a, x, Delta_Y = 1) and p(m | a, x, Delta_M = 1). Default \code{"."} (all of \code{A} and \code{X}).
-- \code{pMXZ}: formula for p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M = 1). Default \code{"."} (all of \code{A}, \code{X} and \code{Z}).
-The former entries \code{glm_formula$pMX} and \code{glm_formula$pMXZ} are deprecated: when supplied, they are moved to \code{glm_options} with a warning.}
+- \code{pMXZ}: formula for p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M = 1). Default \code{"."} (all of \code{A}, \code{X} and \code{Z}).}
 
-\item{Delta_M_threshold}{Used only with \code{density_method = "gamlss"}. When \code{Delta_M = as.numeric(M < c)}, set \code{Delta_M_threshold = c}:
-p(m | a, x, Delta_M = 1) and p(m | a, x, z, Delta_M = 1) are then fitted with a generalized gamma right-truncated at c (see \code{\link{GGtr}}),
-and set to 0 for M >= c. Defaults to \code{NULL} (Delta_M is not a cut on M; an ordinary generalized gamma is fitted on the Delta_M = 1 participants
-and set to 0 outside their range of M). With \code{NULL}, MoCo warns when Delta_M looks like a threshold on M.}
-
-\item{gamlss_options}{Options for \code{density_method = "gamlss"} (fitted with \code{gamlss} and \code{gamlss.dist}, which are installed with MoCo). Entries left out take their defaults:
-- \code{family}: \code{"GG"} (generalized gamma; the only family currently supported).
+\item{gamlss_options}{Options for \code{density_method = "gamlss"}, which fits generalized gamma (GG) densities with \code{gamlss::gamlss()}
+(\code{gamlss} and \code{gamlss.dist} are installed with MoCo). Entries left out take their defaults:
 - \code{mu}: \code{"smooth"} (continuous covariates entered as \code{pb()} P-splines, the others linearly; default), \code{"linear"} (all covariates entered linearly), or a one-sided formula.
 - \code{sigma}: \code{"linear"} (default), \code{"smooth"}, \code{"1"} (constant), \code{"A"} (group only), or a one-sided formula.
 - \code{nu}: \code{"1"} (constant nu, estimated; default) or \code{0} (nu fixed at 0, i.e. the log-normal distribution).
 - \code{smooth}: names of the continuous covariates that get \code{pb()} when \code{mu} or \code{sigma} is \code{"smooth"}.
 \code{NULL} (default) uses every numeric covariate with more than 10 distinct values. A \code{pb()} term on a covariate that is mostly zeros
 (for example a score that is 0 for one group) can fail to converge; name the covariates to smooth in that case.
-- \code{formula}: optional \code{list(pMX =, pMXD =, pMXZ =, pMXZD =)}, each a \code{list(mu =, sigma =, nu =)} of one-sided formulas (nu may be \code{0}); overrides the settings above for that density.
-- \code{method}: algorithms tried in order until one converges, any of \code{"RS"}, \code{"CG"}, \code{"mixed"}. Default \code{c("RS", "CG", "mixed")}.
-- \code{n.cyc}, \code{c.crit}: maximum number of outer cycles (default 500) and convergence criterion (default 0.001), passed to \code{gamlss.control}.
-- \code{nu0_fallback}: if no algorithm converges with nu estimated, refit with nu fixed at 0. Default \code{TRUE}. If that also fails, the GLM log-normal density is used for that component, with a warning.
-- \code{trace}: print the gamlss iterations. Default \code{FALSE}.}
+- \code{trace}: \code{TRUE} (default) prints the global deviance at each GAMLSS iteration (\code{gamlss.control(trace = )}); \code{FALSE} fits silently.
+With \code{thresh}, \code{pMXD} and \code{pMXZD} are truncated GG densities (see \code{thresh}).
+Each density is fitted once (RS algorithm, at most 500 cycles). There is no fallback: if a GAMLSS fit does not converge, \code{moco()} stops
+with an error; a simpler model (e.g. \code{sigma = "A"} or \code{mu = "linear"}) or another \code{density_method} can then be used.}
 
 \item{cross_fit}{Logical indicating whether to develop the estimator based on cross-fitting. Defaults to TRUE.}
 
 \item{cv_folds}{Number of folds used for cross-fitting when \code{cross_fit = TRUE}. Defaults to 5.}
 
+\item{seed_rng}{Specifies the value of seed(s) for nuisance regression calculation using super learner. Can be a vector. Defaults to value 1. When several seeds are given, the full analysis is run once per seed; the estimates and the participant-level efficient influence functions are averaged across seeds, the covariance is recomputed from the averaged efficient influence functions, and one simultaneous test is conducted across all outcomes in \code{Y}.}
+
 \item{test}{Logical indicating whether to conduct hypothesis testing based on simultaneous confidence band. Defaults to TRUE.}
 
 \item{fwer}{A vector of family-wise error rates (FWER) to control for multiple hypothesis testing. Defaults to c(0.05). Set to NULL if test is FALSE.}
 
-\item{seed_rng}{Specifies the value of seed(s) for nuisance regression calculation using super learner. Can be a vector. Defaults to value 1. When several seeds are given, the full analysis is run once per seed; the estimates and the participant-level efficient influence functions are averaged across seeds, the covariance is recomputed from the averaged efficient influence functions, and one simultaneous test is conducted across all outcomes in \code{Y}.}
+\item{hypo_method}{Critical-value simulation: "multiplier" (Gaussian multiplier bootstrap, default) or "mvn" (multivariate normal draws with the EIF correlation matrix). See \code{\link{hypo_test}}.}
 
-\item{hypo_method}{Critical-value simulation: "multiplier" (Gaussian multiplier bootstrap, default) or "mvn" (multivariate normal draws with the EIF correlation matrix).}
-
-\item{hypo_n_sim}{Number of Monte Carlo draws for the simultaneous test. Defaults to 10000, as in the original MoCo; it can be lowered (e.g. to 10000) for quick exploratory runs with many outcomes.}
-
-\item{hypo_chunk_size}{Draws processed per simulation batch.}
+\item{hypo_n_sim}{Number of Monte Carlo draws for the simultaneous test. Defaults to 10000.}
 
 \item{hypo_seed}{Critical-value simulation seed, separate from nuisance seeds.}
-
-\item{...}{Used only for the deprecated \code{HAL_pMX} and \code{HAL_pMXZ} (see \code{density_method}). Supplying the removed arguments \code{thresh} or \code{seed_rgn} gives an informative error.}
 }
 \value{
 A list with named entries

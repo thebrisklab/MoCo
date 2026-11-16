@@ -8,17 +8,17 @@ fit_mechanism(
   train_dat,
   valid_dat,
   M_indicator,
-  SL_library = c("SL.earth", "SL.glmnet", "SL.gam", "SL.glm", "SL.glm.interaction",
+  thresh = NULL,
+  SL_library = c("SL.earth", "SL.glmnet", "SL.mgcv_gam", "SL.glm", "SL.glm.interaction",
     "SL.step", "SL.step.interaction", "SL.xgboost", "SL.ranger", "SL.mean"),
   SL_library_customize = list(gA = NULL, gDM = NULL, gDY_AX = NULL, gDY_AXZ = NULL,
     mu_AMXZ = NULL, eta_AXZ = NULL, eta_AXM = NULL, xi_AX = NULL),
   glm_formula = list(gA = NULL, gDM = NULL, gDY_AX = NULL, gDY_AXZ = NULL, mu_AMXZ =
     NULL, eta_AXZ = NULL, eta_AXM = NULL, xi_AX = NULL),
+  density_method = "hal",
   HAL_options = list(max_degree = 3, lambda_seq = exp(seq(-1, -10, length = 100)),
     num_knots = c(1000, 500, 250)),
   glm_options = list(pMX = ".", pMXZ = "."),
-  density_method = "hal",
-  Delta_M_threshold = NULL,
   gamlss_options = NULL,
   seed = 1,
   ...
@@ -31,8 +31,10 @@ fit_mechanism(
 
 \item{M_indicator}{A binary value indicating whether motion value is available.}
 
+\item{thresh}{\code{NULL} or the motion threshold c with \code{Delta_M = 1(M <= c)}; used to truncate the GAMLSS densities pMXD and pMXZD. See \code{\link{moco}}.}
+
 \item{SL_library}{SuperLearner library for estimating nuisance regressions.
-Defaults to c("SL.earth","SL.glmnet","SL.gam","SL.glm", "SL.glm.interaction", "SL.step","SL.step.interaction","SL.xgboost","SL.ranger","SL.mean") if not specified.}
+Defaults to c("SL.earth","SL.glmnet","SL.mgcv_gam","SL.glm", "SL.glm.interaction", "SL.step","SL.step.interaction","SL.xgboost","SL.ranger","SL.mean") if not specified.}
 
 \item{SL_library_customize}{Customize SuperLearner library for estimating each nuisance regression.
 - \code{gA}: SuperLearner library for estimating the propensity score.
@@ -54,6 +56,8 @@ Defaults to c("SL.earth","SL.glmnet","SL.gam","SL.glm", "SL.glm.interaction", "S
 - \code{eta_AXM}: GLM formula for estimating E(mu_AMXZ pMX/pMXZ gDY_AX/gDY_AXZ | A, M, X, Delta_Y = 1).
 - \code{xi_AX}: GLM formula for estimating E(eta_AXZ | A, X).}
 
+\item{density_method}{Motion density method. See \code{\link{moco}}.}
+
 \item{HAL_options}{Additional options for highly adaptive lasso (HAL) method.
 - \code{max_degree}: The highest order of interaction terms for generating basis functions (passed to \code{haldensify}).
 - \code{lambda_seq}: A numeric sequence of values for the regularization parameter of Lasso regression (passed to \code{haldensify}).
@@ -63,7 +67,7 @@ Defaults to c("SL.earth","SL.glmnet","SL.gam","SL.glm", "SL.glm.interaction", "S
 - \code{pMX}: formula for p(m | a, x, Delta_Y = 1) and p(m | a, x, Delta_M = 1). Default \code{"."} (all of \code{A} and \code{X}).
 - \code{pMXZ}: formula for p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M = 1). Default \code{"."} (all of \code{A}, \code{X} and \code{Z}).}
 
-\item{density_method, Delta_M_threshold, gamlss_options}{Motion density method, the threshold that defines \code{Delta_M}, and GAMLSS options. See \code{\link{moco}}.}
+\item{gamlss_options}{GAMLSS options. See \code{\link{moco}}.}
 
 \item{seed}{Random seed set before each SuperLearner fit (one value of \code{seed_rng} in \code{moco()}).}
 

@@ -8,8 +8,8 @@ plot_moco(
   result,
   wb_path,
   template_path,
-  parcellation = "Yeo_7",
   plots_path,
+  parcellation = "Yeo_7",
   zlim_est = c(-0.3, 0.3),
   zlim_association = c(-0.1, 0.1)
 )
@@ -21,9 +21,9 @@ plot_moco(
 
 \item{template_path}{The path to the template file for the visualization.}
 
-\item{parcellation}{The parcellation used in the analysis.}
-
 \item{plots_path}{The path where the plots will be saved.}
+
+\item{parcellation}{The parcellation used in the analysis.}
 
 \item{zlim_est}{The z-axis limits for functional connectivity plots.}
 
