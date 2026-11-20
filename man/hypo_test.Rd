@@ -13,7 +13,7 @@ hypo_test(
 )
 }
 \arguments{
-\item{result}{One-step result with adj_association, eif_mat and cov_mat.
+\item{result}{One-step or or one-step cross result with adj_association, eif_mat and cov_mat.
 EIF rows must identify the same participants in the same order across FCs.}
 
 \item{fwer}{FWER probabilities strictly between zero and one.}

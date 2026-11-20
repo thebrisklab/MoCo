@@ -22,7 +22,7 @@ make_full_data_eif(
 )
 }
 \arguments{
-\item{a}{Either 0 or 1.}
+\item{a}{a Diagnosis group (0 or 1) for the group-specific mean.}
 
 \item{A}{A binary vector of length n \code{number of participants} representing the diagnosis status.}
 

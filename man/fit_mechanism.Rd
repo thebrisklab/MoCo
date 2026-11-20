@@ -2,7 +2,7 @@
 % Please edit documentation in R/one_step_cross.R
 \name{fit_mechanism}
 \alias{fit_mechanism}
-\title{Non-parametric efficient motion-controlled brain phenotype estimators}
+\title{Non-parametric efficient motion-controlled brain phenotype estimators: fit nuisance models and evaluate one validation fold}
 \usage{
 fit_mechanism(
   train_dat,
@@ -31,41 +31,48 @@ fit_mechanism(
 
 \item{M_indicator}{A binary value indicating whether motion value is available.}
 
-\item{thresh}{\code{NULL} or the motion threshold c with \code{Delta_M = 1(M <= c)}; used to truncate the GAMLSS densities pMXD and pMXZD. See \code{\link{moco}}.}
+\item{thresh}{\code{NULL} or the motion threshold c with \code{Delta_M = 1(M <= c)}; used to truncate the GAMLSS and GLM densities pMXD and pMXZD. See \code{\link{moco}}.}
 
 \item{SL_library}{SuperLearner library for estimating nuisance regressions.
 Defaults to c("SL.earth","SL.glmnet","SL.mgcv_gam","SL.glm", "SL.glm.interaction", "SL.step","SL.step.interaction","SL.xgboost","SL.ranger","SL.mean") if not specified.}
 
 \item{SL_library_customize}{Customize SuperLearner library for estimating each nuisance regression.
-- \code{gA}: SuperLearner library for estimating the propensity score.
-- \code{gDM}: SuperLearner library for estimating the probability P(Delta_M = 1 | A, X).
-- \code{gDY_AX}: SuperLearner library for estimating the probability P(Delta_Y = 1 | A, X).
-- \code{gDY_AXZ}: SuperLearner library for estimating the probability P(Delta_Y = 1 | A, X, Z).
-- \code{mu_AMXZ}: SuperLearner library for estimating the outcome regression E(Y | Delta_Y = 1, A, M, X, Z).
-- \code{eta_AXZ}: SuperLearner library for estimating E(mu_AMXZ pMXD / pMXZD | A, X, Z, Delta_M = 1).
-- \code{eta_AXM}: SuperLearner library for estimating E(mu_AMXZ pMX/pMXZ gDY_AX/gDY_AXZ | A, M, X, Delta_Y = 1).
-- \code{xi_AX}: SuperLearner library for estimating E(eta_AXZ | A, X).}
+\itemize{
+\item \code{gA}: SuperLearner library for estimating the propensity score.
+\item \code{gDM}: SuperLearner library for estimating the probability P(Delta_M = 1 | A, X).
+\item \code{gDY_AX}: SuperLearner library for estimating the probability P(Delta_Y = 1 | A, X).
+\item \code{gDY_AXZ}: SuperLearner library for estimating the probability P(Delta_Y = 1 | A, X, Z).
+\item \code{mu_AMXZ}: SuperLearner library for estimating the outcome regression E(Y | Delta_Y = 1, A, M, X, Z).
+\item \code{eta_AXZ}: SuperLearner library for estimating E(mu_AMXZ pMXD / pMXZD | A, X, Z, Delta_M = 1).
+\item \code{eta_AXM}: SuperLearner library for estimating E(mu_AMXZ pMX/pMXZ gDY_AX/gDY_AXZ | A, M, X, Delta_Y = 1).
+\item \code{xi_AX}: SuperLearner library for estimating E(eta_AXZ | A, X).
+}}
 
 \item{glm_formula}{All glm formulas default to NULL, indicating SuperLearner will be used for nuisance regressions.
-- \code{gA}: GLM formula for estimating the propensity score.
-- \code{gDM}: GLM formula for estimating the probability P(Delta_M = 1 | A, X).
-- \code{gDY_AX}: GLM formula for estimating the probability P(Delta_Y = 1 | A, X).
-- \code{gDY_AXZ}: GLM formula for estimating the probability P(Delta_Y = 1 | A, X, Z).
-- \code{mu_AMXZ}: GLM formula for estimating the outcome regression E(Y | Delta_Y = 1, A, M, X, Z).
-- \code{eta_AXZ}: GLM formula for estimating E(mu_AMXZ pMXD / pMXZD | A, X, Z, Delta_M = 1).
-- \code{eta_AXM}: GLM formula for estimating E(mu_AMXZ pMX/pMXZ gDY_AX/gDY_AXZ | A, M, X, Delta_Y = 1).
-- \code{xi_AX}: GLM formula for estimating E(eta_AXZ | A, X).}
+\itemize{
+\item \code{gA}: GLM formula for estimating the propensity score.
+\item \code{gDM}: GLM formula for estimating the probability P(Delta_M = 1 | A, X).
+\item \code{gDY_AX}: GLM formula for estimating the probability P(Delta_Y = 1 | A, X).
+\item \code{gDY_AXZ}: GLM formula for estimating the probability P(Delta_Y = 1 | A, X, Z).
+\item \code{mu_AMXZ}: GLM formula for estimating the outcome regression E(Y | Delta_Y = 1, A, M, X, Z).
+\item \code{eta_AXZ}: GLM formula for estimating E(mu_AMXZ pMXD / pMXZD | A, X, Z, Delta_M = 1).
+\item \code{eta_AXM}: GLM formula for estimating E(mu_AMXZ pMX/pMXZ gDY_AX/gDY_AXZ | A, M, X, Delta_Y = 1).
+\item \code{xi_AX}: GLM formula for estimating E(eta_AXZ | A, X).
+}}
 
 \item{density_method}{Motion density method. See \code{\link{moco}}.}
 
 \item{HAL_options}{Additional options for highly adaptive lasso (HAL) method.
-- \code{max_degree}: The highest order of interaction terms for generating basis functions (passed to \code{haldensify}).
-- \code{lambda_seq}: A numeric sequence of values for the regularization parameter of Lasso regression (passed to \code{haldensify}).
-- \code{num_knots}: The maximum number of knot points (i.e., bins) for any covariate for generating basis functions (passed to \code{haldensify}).}
+\itemize{
+\item \code{max_degree}: The highest order of interaction terms for generating basis functions (passed to \code{haldensify}).
+\item \code{lambda_seq}: A numeric sequence of values for the regularization parameter of Lasso regression (passed to \code{haldensify}).
+\item \code{num_knots}: The maximum number of knot points (i.e., bins) for any covariate for generating basis functions (passed to \code{haldensify}).
+}}
 
 \item{glm_options}{Right-hand sides of the log-normal GLM motion densities, used only when \code{density_method = "glm"}:
 - \code{pMX}: formula for p(m | a, x, Delta_Y = 1) and p(m | a, x, Delta_M = 1). Default \code{"."} (all of \code{A} and \code{X}).
-- \code{pMXZ}: formula for p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M = 1). Default \code{"."} (all of \code{A}, \code{X} and \code{Z}).}
+- \code{pMXZ}: formula for p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M = 1). Default \code{"."} (all of \code{A}, \code{X} and \code{Z}).
+With \code{thresh}, \code{pMXD} and \code{pMXZD} are truncated log-normal densities (see \code{thresh}).}
 
 \item{gamlss_options}{GAMLSS options. See \code{\link{moco}}.}
 
@@ -83,7 +90,7 @@ A list with named entries
 }
 }
 \description{
-Non-parametric efficient motion-controlled brain phenotype estimators
+Non-parametric efficient motion-controlled brain phenotype estimators: fit nuisance models and evaluate one validation fold
 }
 \details{
 Compute non-parametric efficient motion-controlled brain phenotype estimators (MoCo) using one-step cross-fitting

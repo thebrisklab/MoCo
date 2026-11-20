@@ -15,7 +15,10 @@ plot_moco(
 )
 }
 \arguments{
-\item{result}{A list containing the results of motion-controlled functional connectivity analysis.}
+\item{result}{A moco() result with est, adj_association and one
+significance value per parcel. Select one significance row before
+plotting a result with multiple FWER levels. A list containing the
+results of motion-controlled functional connectivity analysis.}
 
 \item{wb_path}{The path to the workbench binary for ciftiTools.}
 

@@ -2,7 +2,7 @@
 % Please edit documentation in R/moco.R
 \name{moco}
 \alias{moco}
-\title{Non-parametric efficient motion-controlled brain phenotype estimators}
+\title{Estimate motion-controlled group means and associations}
 \usage{
 moco(
   X,
@@ -39,9 +39,9 @@ moco(
 
 \item{Z}{A dataframe or matrix of covariates representing brain phenotypes.}
 
-\item{A}{A binary vector of length n (number of participants), serving as a group indicator, such as diagnosis group or control group.}
+\item{A}{A binary vector of length n (number of participants), serving as a group indicator, such as diagnosis group (1) or control group (0).}
 
-\item{M}{A numeric vector of length n representing continuous motion values for each participant.}
+\item{M}{A numeric vector of length n representing continuous motion values for each participant. For example mean FD in mm.}
 
 \item{Y}{A matrix of dimension n x p, where n is the number of participants, and p is the number of regions of interest.
 If it represents seed-based association measures:
@@ -62,49 +62,57 @@ Set \code{Delta_Y = 1} if \code{Y} is usable; otherwise, set \code{Delta_Y = 0}.
 
 \item{thresh}{\code{NULL} (default) or one positive number c for a motion threshold, \code{Delta_M = 1(M <= c)}.
 When \code{Delta_M = NULL}, \code{Delta_M} is defined as \code{as.numeric(!is.na(M) & M <= thresh)}; when both are given,
-\code{Delta_M} must equal that rule. With \code{density_method = "gamlss"}, \code{pMXD} and \code{pMXZD} are then fitted as
-untruncated GG densities on all participants with observed \code{M} and truncated analytically at c,
-p(m | Delta_M = 1, a, x) = dGG(m) / pGG(c) for m <= c and 0 above c, with z added for \code{pMXZD} (pGG(c) floored at 0.001).
-\code{pMX} and \code{pMXZ} are fitted on \code{Delta_Y = 1} as usual. With \code{"hal"} or \code{"glm"}, \code{thresh} only defines \code{Delta_M}.}
+\code{Delta_M} must equal that rule. With \code{density_method = "gamlss"} or \code{"glm"}, \code{pMXD} and \code{pMXZD} are then fitted as
+untruncated GG or log-normal densities on all participants with observed \code{M} and truncated analytically at c,
+p(m | Delta_M = 1, a, x) = f(m | a, x) / F(c | a, x) for m <= c and 0 above c, with z added for \code{pMXZD}
+(f and F are the fitted density and CDF; F(c | a, x) is floored at 0.001).
+\code{pMX} and \code{pMXZ} are fitted on \code{Delta_Y = 1} as usual. With \code{"hal"}, \code{thresh} only defines \code{Delta_M}.}
 
 \item{SL_library}{SuperLearner library for estimating nuisance regressions.
 Defaults to c("SL.earth","SL.glmnet","SL.mgcv_gam","SL.glm", "SL.glm.interaction", "SL.step","SL.step.interaction","SL.xgboost","SL.ranger","SL.mean") if not specified.}
 
 \item{SL_library_customize}{Customize SuperLearner library for estimating each nuisance regression.
-- \code{gA}: SuperLearner library for estimating the propensity score.
-- \code{gDM}: SuperLearner library for estimating the probability P(Delta_M = 1 | A, X).
-- \code{gDY_AX}: SuperLearner library for estimating the probability P(Delta_Y = 1 | A, X).
-- \code{gDY_AXZ}: SuperLearner library for estimating the probability P(Delta_Y = 1 | A, X, Z).
-- \code{mu_AMXZ}: SuperLearner library for estimating the outcome regression E(Y | Delta_Y = 1, A, M, X, Z).
-- \code{eta_AXZ}: SuperLearner library for estimating E(mu_AMXZ pMXD / pMXZD | A, X, Z, Delta_M = 1).
-- \code{eta_AXM}: SuperLearner library for estimating E(mu_AMXZ pMX/pMXZ gDY_AX/gDY_AXZ | A, M, X, Delta_Y = 1).
-- \code{xi_AX}: SuperLearner library for estimating E(eta_AXZ | A, X).}
+\itemize{
+\item \code{gA}: SuperLearner library for estimating the propensity score.
+\item \code{gDM}: SuperLearner library for estimating the probability P(Delta_M = 1 | A, X).
+\item \code{gDY_AX}: SuperLearner library for estimating the probability P(Delta_Y = 1 | A, X).
+\item \code{gDY_AXZ}: SuperLearner library for estimating the probability P(Delta_Y = 1 | A, X, Z).
+\item \code{mu_AMXZ}: SuperLearner library for estimating the outcome regression E(Y | Delta_Y = 1, A, M, X, Z).
+\item \code{eta_AXZ}: SuperLearner library for estimating E(mu_AMXZ pMXD / pMXZD | A, X, Z, Delta_M = 1).
+\item \code{eta_AXM}: SuperLearner library for estimating E(mu_AMXZ pMX/pMXZ gDY_AX/gDY_AXZ | A, M, X, Delta_Y = 1).
+\item \code{xi_AX}: SuperLearner library for estimating E(eta_AXZ | A, X).
+}}
 
 \item{glm_formula}{All glm formulas default to NULL, indicating SuperLearner will be used for nuisance regressions.
-- \code{gA}: GLM formula for estimating the propensity score.
-- \code{gDM}: GLM formula for estimating the probability P(Delta_M = 1 | A, X).
-- \code{gDY_AX}: GLM formula for estimating the probability P(Delta_Y = 1 | A, X).
-- \code{gDY_AXZ}: GLM formula for estimating the probability P(Delta_Y = 1 | A, X, Z).
-- \code{mu_AMXZ}: GLM formula for estimating the outcome regression E(Y | Delta_Y = 1, A, M, X, Z).
-- \code{eta_AXZ}: GLM formula for estimating E(mu_AMXZ pMXD / pMXZD | A, X, Z, Delta_M = 1).
-- \code{eta_AXM}: GLM formula for estimating E(mu_AMXZ pMX/pMXZ gDY_AX/gDY_AXZ | A, M, X, Delta_Y = 1).
-- \code{xi_AX}: GLM formula for estimating E(eta_AXZ | A, X).}
+\itemize{
+\item \code{gA}: GLM formula for estimating the propensity score.
+\item \code{gDM}: GLM formula for estimating the probability P(Delta_M = 1 | A, X).
+\item \code{gDY_AX}: GLM formula for estimating the probability P(Delta_Y = 1 | A, X).
+\item \code{gDY_AXZ}: GLM formula for estimating the probability P(Delta_Y = 1 | A, X, Z).
+\item \code{mu_AMXZ}: GLM formula for estimating the outcome regression E(Y | Delta_Y = 1, A, M, X, Z).
+\item \code{eta_AXZ}: GLM formula for estimating E(mu_AMXZ pMXD / pMXZD | A, X, Z, Delta_M = 1).
+\item \code{eta_AXM}: GLM formula for estimating E(mu_AMXZ pMX/pMXZ gDY_AX/gDY_AXZ | A, M, X, Delta_Y = 1).
+\item \code{xi_AX}: GLM formula for estimating E(eta_AXZ | A, X).
+}}
 
 \item{density_method}{Method for the motion densities p(m | a, x, Delta) and p(m | a, x, z, Delta), with Delta = Delta_Y or Delta_M:
 \code{"hal"} (default; highly adaptive lasso, \code{haldensify}, controlled by \code{HAL_options}),
 \code{"glm"} (log-normal regression, controlled by \code{glm_options}), or
 \code{"gamlss"} (generalized gamma GAMLSS, controlled by \code{gamlss_options}).
-Upper or lower case is accepted. A length-2 vector \code{c(pMX = , pMXZ = )} sets the two density pairs separately.
+Upper or lower case is accepted. A length-2 vector \code{c(pMX = , pMXZ = )} sets the density pairs separately.
 Options for a method that is not used are ignored, with a message.}
 
 \item{HAL_options}{Options for \code{density_method = "hal"}, passed to \code{haldensify::haldensify()}:
-- \code{max_degree}: The highest order of interaction terms for generating basis functions.
-- \code{lambda_seq}: A numeric sequence of values for the regularization parameter of Lasso regression.
-- \code{num_knots}: The maximum number of knot points (i.e., bins) for any covariate for generating basis functions.}
+\itemize{
+\item \code{max_degree}: The highest order of interaction terms for generating basis functions.
+\item \code{lambda_seq}: A numeric sequence of values for the regularization parameter of Lasso regression.
+\item \code{num_knots}: The maximum number of knot points (i.e., bins) for any covariate for generating basis functions.
+}}
 
 \item{glm_options}{Right-hand sides of the log-normal GLM motion densities, used only when \code{density_method = "glm"}:
 - \code{pMX}: formula for p(m | a, x, Delta_Y = 1) and p(m | a, x, Delta_M = 1). Default \code{"."} (all of \code{A} and \code{X}).
-- \code{pMXZ}: formula for p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M = 1). Default \code{"."} (all of \code{A}, \code{X} and \code{Z}).}
+- \code{pMXZ}: formula for p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M = 1). Default \code{"."} (all of \code{A}, \code{X} and \code{Z}).
+With \code{thresh}, \code{pMXD} and \code{pMXZD} are truncated log-normal densities (see \code{thresh}).}
 
 \item{gamlss_options}{Options for \code{density_method = "gamlss"}, which fits generalized gamma (GG) densities with \code{gamlss::gamlss()}
 (\code{gamlss} and \code{gamlss.dist} are installed with MoCo). Entries left out take their defaults:
@@ -114,10 +122,12 @@ Options for a method that is not used are ignored, with a message.}
 - \code{smooth}: names of the continuous covariates that get \code{pb()} when \code{mu} or \code{sigma} is \code{"smooth"}.
 \code{NULL} (default) uses every numeric covariate with more than 10 distinct values. A \code{pb()} term on a covariate that is mostly zeros
 (for example a score that is 0 for one group) can fail to converge; name the covariates to smooth in that case.
+- \code{method}: \code{"RS"} (default), \code{"CG"}, or \code{"mixed"}. Mixed calls \code{mixed()} with GAMLSS defaults: one RS iteration followed by up to 20 CG iterations, independent of \code{n.cyc}.
+- \code{n.cyc}: maximum outer iterations for RS or CG (default 500); a positive whole number. It does not set the mixed schedule.
+- \code{c.crit}: positive convergence tolerance (default 0.001).
 - \code{trace}: \code{TRUE} (default) prints the global deviance at each GAMLSS iteration (\code{gamlss.control(trace = )}); \code{FALSE} fits silently.
 With \code{thresh}, \code{pMXD} and \code{pMXZD} are truncated GG densities (see \code{thresh}).
-Each density is fitted once (RS algorithm, at most 500 cycles). There is no fallback: if a GAMLSS fit does not converge, \code{moco()} stops
-with an error; a simpler model (e.g. \code{sigma = "A"} or \code{mu = "linear"}) or another \code{density_method} can then be used.}
+Each density is fitted once using the selected algorithm and controls (defaults: RS, 500 cycles, tolerance 0.001).}
 
 \item{cross_fit}{Logical indicating whether to develop the estimator based on cross-fitting. Defaults to TRUE.}
 
@@ -146,10 +156,10 @@ A list with named entries
 }
 }
 \description{
-Non-parametric efficient motion-controlled brain phenotype estimators
+Estimate motion-controlled group means and associations
 }
 \details{
-Compute non-parametric efficient motion-controlled brain phenotype estimators (MoCo)
+Compute motion-controlled brain phenotype estimators (MoCo): estimate group-specific brain-phenotype means and their contrast using one-step estimation, optional cross-fitting and simulations inference.
 }
 \examples{
 data(moco_example)
