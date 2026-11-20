@@ -1,11 +1,11 @@
-#' Non-parametric efficient motion-controlled brain phenotype estimators
+#' Estimate motion-controlled group means and associations
 #' 
-#' @details Compute non-parametric efficient motion-controlled brain phenotype estimators (MoCo)
+#' @details Compute motion-controlled brain phenotype estimators (MoCo): estimate group-specific brain-phenotype means and their contrast using one-step estimation, optional cross-fitting and simulations inference.
 #' 
 #' @param X A dataframe or matrix containing demographic confounders that would ideally be balanced in a randomized controlled trial.
 #' @param Z A dataframe or matrix of covariates representing brain phenotypes.
-#' @param A A binary vector of length n (number of participants), serving as a group indicator, such as diagnosis group or control group.
-#' @param M A numeric vector of length n representing continuous motion values for each participant.
+#' @param A A binary vector of length n (number of participants), serving as a group indicator, such as diagnosis group (1) or control group (0).
+#' @param M A numeric vector of length n representing continuous motion values for each participant. For example mean FD in mm.
 #' @param Y A matrix of dimension n x p, where n is the number of participants, and p is the number of regions of interest.
 #'          If it represents seed-based association measures:
 #'            Each (i, j) element denotes participant i's association measure between the seed region and region j.
@@ -22,10 +22,11 @@
 #'          Set \code{Delta_Y = 1} if \code{Y} is usable; otherwise, set \code{Delta_Y = 0}.
 #' @param thresh \code{NULL} (default) or one positive number c for a motion threshold, \code{Delta_M = 1(M <= c)}.
 #'          When \code{Delta_M = NULL}, \code{Delta_M} is defined as \code{as.numeric(!is.na(M) & M <= thresh)}; when both are given,
-#'          \code{Delta_M} must equal that rule. With \code{density_method = "gamlss"}, \code{pMXD} and \code{pMXZD} are then fitted as
-#'          untruncated GG densities on all participants with observed \code{M} and truncated analytically at c,
-#'          p(m | Delta_M = 1, a, x) = dGG(m) / pGG(c) for m <= c and 0 above c, with z added for \code{pMXZD} (pGG(c) floored at 0.001).
-#'          \code{pMX} and \code{pMXZ} are fitted on \code{Delta_Y = 1} as usual. With \code{"hal"} or \code{"glm"}, \code{thresh} only defines \code{Delta_M}.
+#'          \code{Delta_M} must equal that rule. With \code{density_method = "gamlss"} or \code{"glm"}, \code{pMXD} and \code{pMXZD} are then fitted as
+#'          untruncated GG or log-normal densities on all participants with observed \code{M} and truncated analytically at c,
+#'          p(m | Delta_M = 1, a, x) = f(m | a, x) / F(c | a, x) for m <= c and 0 above c, with z added for \code{pMXZD}
+#'          (f and F are the fitted density and CDF; F(c | a, x) is floored at 0.001).
+#'          \code{pMX} and \code{pMXZ} are fitted on \code{Delta_Y = 1} as usual. With \code{"hal"}, \code{thresh} only defines \code{Delta_M}.
 #' 
 #' @param SL_library SuperLearner library for estimating nuisance regressions. 
 #'                   Defaults to c("SL.earth","SL.glmnet","SL.mgcv_gam","SL.glm", "SL.glm.interaction", "SL.step","SL.step.interaction","SL.xgboost","SL.ranger","SL.mean") if not specified.
@@ -53,7 +54,7 @@
 #'          \code{"hal"} (default; highly adaptive lasso, \code{haldensify}, controlled by \code{HAL_options}),
 #'          \code{"glm"} (log-normal regression, controlled by \code{glm_options}), or
 #'          \code{"gamlss"} (generalized gamma GAMLSS, controlled by \code{gamlss_options}).
-#'          Upper or lower case is accepted. A length-2 vector \code{c(pMX = , pMXZ = )} sets the two density pairs separately.
+#'          Upper or lower case is accepted. A length-2 vector \code{c(pMX = , pMXZ = )} sets the density pairs separately.
 #'          Options for a method that is not used are ignored, with a message.
 #' @param HAL_options Options for \code{density_method = "hal"}, passed to \code{haldensify::haldensify()}:
 #'                   - \code{max_degree}: The highest order of interaction terms for generating basis functions.
@@ -62,6 +63,7 @@
 #' @param glm_options Right-hand sides of the log-normal GLM motion densities, used only when \code{density_method = "glm"}:
 #'                   - \code{pMX}: formula for p(m | a, x, Delta_Y = 1) and p(m | a, x, Delta_M = 1). Default \code{"."} (all of \code{A} and \code{X}).
 #'                   - \code{pMXZ}: formula for p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M = 1). Default \code{"."} (all of \code{A}, \code{X} and \code{Z}).
+#'          With \code{thresh}, \code{pMXD} and \code{pMXZD} are truncated log-normal densities (see \code{thresh}).
 #' @param gamlss_options Options for \code{density_method = "gamlss"}, which fits generalized gamma (GG) densities with \code{gamlss::gamlss()}
 #'          (\code{gamlss} and \code{gamlss.dist} are installed with MoCo). Entries left out take their defaults:
 #'                   - \code{mu}: \code{"smooth"} (continuous covariates entered as \code{pb()} P-splines, the others linearly; default), \code{"linear"} (all covariates entered linearly), or a one-sided formula.
@@ -70,11 +72,12 @@
 #'                   - \code{smooth}: names of the continuous covariates that get \code{pb()} when \code{mu} or \code{sigma} is \code{"smooth"}.
 #'                     \code{NULL} (default) uses every numeric covariate with more than 10 distinct values. A \code{pb()} term on a covariate that is mostly zeros
 #'                     (for example a score that is 0 for one group) can fail to converge; name the covariates to smooth in that case.
+#'                   - \code{method}: \code{"RS"} (default), \code{"CG"}, or \code{"mixed"}. Mixed calls \code{mixed()} with GAMLSS defaults: one RS iteration followed by up to 20 CG iterations, independent of \code{n.cyc}.
+#'                   - \code{n.cyc}: maximum outer iterations for RS or CG (default 500); a positive whole number. It does not set the mixed schedule.
+#'                   - \code{c.crit}: positive convergence tolerance (default 0.001).
 #'                   - \code{trace}: \code{TRUE} (default) prints the global deviance at each GAMLSS iteration (\code{gamlss.control(trace = )}); \code{FALSE} fits silently.
 #'          With \code{thresh}, \code{pMXD} and \code{pMXZD} are truncated GG densities (see \code{thresh}).
-#'          Each density is fitted once (RS algorithm, at most 500 cycles). There is no fallback: if a GAMLSS fit does not converge, \code{moco()} stops
-#'          with an error; a simpler model (e.g. \code{sigma = "A"} or \code{mu = "linear"}) or another \code{density_method} can then be used.
-#' 
+#'          Each density is fitted once using the selected algorithm and controls (defaults: RS, 500 cycles, tolerance 0.001). 
 #' @param cross_fit Logical indicating whether to develop the estimator based on cross-fitting. Defaults to TRUE.
 #' @param cv_folds Number of folds used for cross-fitting when \code{cross_fit = TRUE}. Defaults to 5.
 #' @param seed_rng Specifies the value of seed(s) for nuisance regression calculation using super learner. Can be a vector. Defaults to value 1. When several seeds are given, the full analysis is run once per seed; the estimates and the participant-level efficient influence functions are averaged across seeds, the covariance is recomputed from the averaged efficient influence functions, and one simultaneous test is conducted across all outcomes in \code{Y}.
@@ -169,6 +172,15 @@ moco <- function(
   hypo_seed = 1
 ){
   
+  # Leave the caller's random-number state as it was before the call.
+  had_seed <- exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
+  if (had_seed) old_seed <- get(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
+  on.exit({
+    if (had_seed) assign(".Random.seed", old_seed, envir = .GlobalEnv)
+    else if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE))
+      rm(".Random.seed", envir = .GlobalEnv)
+  }, add = TRUE)
+  
   # which density options the user supplied 
   HAL_options_given <- !missing(HAL_options)
   glm_options_given <- !missing(glm_options)
@@ -189,7 +201,7 @@ moco <- function(
   }
   n <- nrow(Y)
   
-  # thresh: Delta_M = 1(M <= thresh); the GAMLSS densities pMXD/pMXZD are then truncated at thresh
+  # thresh: Delta_M = 1(M <= thresh); the GAMLSS and GLM densities pMXD/pMXZD are then truncated at thresh
   if(!is.null(thresh)){
     if(!is.numeric(thresh) || length(thresh) != 1 || !is.finite(thresh) || thresh <= 0){
       stop("thresh must be one positive number, e.g. thresh = 0.2.")
@@ -256,12 +268,14 @@ moco <- function(
   if(uses_gamlss){
     gg_check_packages()
     gg_check_options(gamlss_options)
-    # Delta_M that looks like a motion threshold, but no thresh given
+  }
+  # Delta_M that looks like a motion threshold, but no thresh given (GAMLSS and GLM densities)
+  if(!is.null(M) && any(dens_method %in% c("gamlss", "glm"))){
     obs <- !is.na(M)
     if(is.null(thresh) && any(obs & Delta_M == 1) && any(obs & Delta_M == 0) &&
        max(M[obs & Delta_M == 1]) < min(M[obs & Delta_M == 0])){
       message("Delta_M looks like a motion threshold: all M with Delta_M = 1 are below all M with Delta_M = 0. ",
-              "If Delta_M = 1(M <= c), supply thresh = c to use the truncated GAMLSS densities.")
+              "If Delta_M = 1(M <= c), supply thresh = c to use the truncated GAMLSS or GLM densities.")
     }
   }
   
@@ -286,9 +300,6 @@ moco <- function(
   
   # running sum of the participant-level efficient influence functions across runs
   eif_sum <- NULL
-  
-  # density-ratio weight diagnostics across runs (used for the low-ESS warning)
-  weight_diagnostics <- NULL
   
   for(i in 1:r){
     
@@ -329,11 +340,6 @@ moco <- function(
     # store estimation results
     est <- c(est, list(result$est))
     adj_association[i,] <- result$adj_association
-    if(!is.null(result$weight_diagnostics)){
-      weight_diagnostics <- rbind(weight_diagnostics, data.frame(seed = seed_rng[i], group = rownames(result$weight_diagnostics),
-                                                                 result$weight_diagnostics, row.names = NULL))
-    }
-    
     # accumulate participant-level efficient influence functions for hypothesis testing
     if(test){
       if(is.null(eif_sum)){
@@ -342,12 +348,6 @@ moco <- function(
         eif_sum <- Map(`+`, eif_sum, result$eif_mat)
       }
     }
-  }
-  
-  # flag unstable density-ratio weights
-  if(!is.null(weight_diagnostics) && any(weight_diagnostics$ess_ratio < 0.1, na.rm = TRUE)){
-    warning("The effective-sample-size ratio of the density-ratio weights pMXD / pMXZ is below 0.1 for at least one group and seed. ",
-            "The motion density models may be too flexible or misspecified.", call. = FALSE)
   }
   
   # merge multi-run estimation results

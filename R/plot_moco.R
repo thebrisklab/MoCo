@@ -2,7 +2,10 @@
 #' 
 #' This function plots motion-controlled mean functional connectivity example results using the provided data and parameters.
 #' 
-#' @param result A list containing the results of motion-controlled functional connectivity analysis.
+#' @param result A moco() result with est, adj_association and one
+#'   significance value per parcel. Select one significance row before
+#'   plotting a result with multiple FWER levels. A list containing the 
+#'   results of motion-controlled functional connectivity analysis.
 #' @param wb_path The path to the workbench binary for ciftiTools.
 #' @param template_path The path to the template file for the visualization.
 #' @param plots_path The path where the plots will be saved.

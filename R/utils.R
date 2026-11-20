@@ -23,56 +23,43 @@ add_NA <- function(vec, seed_position){
 # motion density helpers (shared by the glm, gamlss and hal density methods)
 # ---------------------------------------------------------------------------
 
-# resolve density_method into one method for pMX/pMXD and one for pMXZ/pMXZD
-resolve_density_method <- function(density_method){
-  if(is.null(density_method)){
-    density_method <- "hal"
-  }
-  nms <- names(density_method)
-  if(!is.character(density_method) || !(length(density_method) %in% c(1, 2)) ||
-     !all(tolower(density_method) %in% c("glm", "hal", "gamlss"))){
-    stop("density_method must be \"hal\", \"glm\" or \"gamlss\", or a length-2 vector c(pMX = , pMXZ = ) of these.")
-  }
-  density_method <- tolower(density_method)
-  names(density_method) <- nms
-  if(length(density_method) == 1){
-    density_method <- rep(density_method, 2)
-  }
-  if(!is.null(names(density_method)) && all(names(density_method) %in% c("pMX", "pMXZ"))){
-    density_method <- density_method[c("pMX", "pMXZ")]
-  }
-  names(density_method) <- c("pMX", "pMXZ")
-  density_method
-}
+#' Resolve motion density methods for pMX/pMXD and pMXZ/pMXZD
+#' 
+#' Normalize method values
+#' 
+#' @param density_method NULL, a method string, or a two-element character vector. Values ignore case.
+#' @return A named character vector with entries pMX and pMXZ.
 
-# fill in and check the right-hand sides of the log-normal GLM motion densities
-check_glm_options <- function(glm_options){
-  out <- list(pMX = ".", pMXZ = ".")
-  if(is.null(glm_options)){
-    return(out)
-  }
-  if(!is.list(glm_options) || (length(glm_options) > 0 && is.null(names(glm_options))) ||
-     !all(names(glm_options) %in% c("pMX", "pMXZ"))){
-    stop("glm_options must be a list with entries pMX and/or pMXZ, e.g. list(pMX = \".\", pMXZ = \".\").")
-  }
-  for(nm in names(glm_options)){
-    if(!is.null(glm_options[[nm]])){
-      if(!is.character(glm_options[[nm]]) || length(glm_options[[nm]]) != 1){
-        stop("glm_options$", nm, " must be one character string, the right-hand side of the formula (e.g. \".\").")
-      }
-      out[[nm]] <- glm_options[[nm]]
-    }
-  }
-  out
-}
+resolve_density_method <- function(density_method = NULL) {
+  pairs   <- c("pMX", "pMXZ")
+  allowed <- c("glm", "hal", "gamlss")
+  if (is.null(density_method)) density_method <- "hal"
 
-# summary of the density-ratio weights pMXD / pMXZ that enter the efficient influence function
-weight_summary <- function(w){
-  w <- w[is.finite(w)]
-  if(length(w) == 0){
-    return(c(n = 0, max_weight = NA, ess_ratio = NA))
+  if (!is.character(density_method) ||
+      !length(density_method) %in% 1:2 ||
+      !all(tolower(density_method) %in% allowed)) {
+    stop('density_method must be "hal", "glm" or "gamlss", ',
+         "or a length-2 vector c(pMX = , pMXZ = ) of these.", call. = FALSE)
   }
-  c(n = length(w), max_weight = max(w), ess_ratio = sum(w)^2 / (length(w) * sum(w^2)))
+
+  methods <- tolower(unname(density_method))
+  nms     <- names(density_method)
+
+  # Unnamed input: recycle a single value, otherwise read by position
+  if (is.null(nms)) return(stats::setNames(rep_len(methods, 2L), pairs))
+
+  # A pair with incomplete or unknown names is read by position
+  if (length(methods) == 2L && !all(nms %in% pairs)) {
+    return(stats::setNames(methods, pairs))
+  }
+
+  # Named input must give each of pMX and pMXZ exactly once
+  if (anyDuplicated(nms) || !setequal(nms, pairs)) {
+    stop("Give a method for both 'pMX' and 'pMXZ', each named once.",
+         call. = FALSE)
+  }
+
+  stats::setNames(methods, nms)[pairs]
 }
 
 # ---------------------------------------------------------------------------
@@ -82,6 +69,7 @@ weight_summary <- function(w){
 #' Temporary fix for convex combination method mean squared error
 #' Relative to existing implementation, we reduce the tolerance at which
 #' we declare predictions from a given algorithm the same as another
+
 tmp_method.CC_LS <- function() {
   computeCoef <- function(Z, Y, libraryNames, verbose, obsWeights,
                           errorsInLibrary = NULL, ...) {
@@ -177,6 +165,7 @@ tmp_method.CC_LS <- function() {
 #' we declare predictions from a given algorithm the same as another.
 #' Note that because of the way \code{SuperLearner} is structure, one needs to
 #' install the optimization software separately.
+
 tmp_method.CC_nloglik <- function() {
   computePred <- function(predY, coef, control, ...) {
     if (sum(coef != 0) == 0) {

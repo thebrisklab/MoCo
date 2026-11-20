@@ -2,7 +2,7 @@
 
 #' Evaluate EIF for stochastic interventional (in)direct effects
 #'
-#' @param a Either 0 or 1.
+#' @param a a Diagnosis group (0 or 1) for the group-specific mean.
 #' @param A A binary vector of length n \code{number of participants} representing the diagnosis status.
 #' @param Delta_Y A binary vector indicating whether the outcome \code{Y} is available and passes quality control.
 #' @param Delta_M A binary vector indicating whether motion is available and meets the motion inclusion criteria.
@@ -36,6 +36,19 @@ make_full_data_eif <- function(a, A, Delta_Y, Delta_M, Y, gA, gDM, gDY_AXZ, eta_
   
   return(p1 + p2 + p3 + p4)
 }
+
+#' Compute the reduced EIF used by the missing-motion estimation branch.
+#'
+#' @param a Diagnosis group (0 or 1) for the group-specific mean.
+#' @param A Observed diagnosis vector, aligned to the prediction rows.
+#' @param Delta_Y Outcome-usability indicator for each row.
+#' @param Y Observed outcome vector; unavailable outcomes may be missing.
+#' @param gA Predicted P(A = a | X), evaluated for the supplied group a.
+#' @param gDY_AXZ Predicted P(Delta_Y = 1 | A = a, X, Z).
+#' @param xi_AX Baseline-covariate-standardized prediction at A = a.
+#' @param mu Outcome prediction E(Y | A = a, M, X, Z, Delta_Y = 1).
+#' @return An EIF vector with one value per participant.
+#' @noRd
 
 make_full_data_eif_easy <- function(a, A, Delta_Y, Y, gA, gDY_AXZ, xi_AX, mu) {
   ipw_a <- as.numeric(A == a) / gA

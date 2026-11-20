@@ -8,21 +8,33 @@
 # ---------------------------------------------------------------------------
 # options
 # ---------------------------------------------------------------------------
-
-# fixed fitting settings of gamlss::gamlss() (not user options)
-gg_fit_control <- list(method = "RS", n.cyc = 500, c.crit = 0.001)
-
+#' Default GG motion-density options
+#'
+#' Construct the default GAMLSS option list.
+#'
+#' @return A list with mu, sigma, nu, smooth and trace.
+#' @noRd
 gg_default_options <- function(){
   list(
     mu = "smooth",
     sigma = "linear",
     nu = "1",
     smooth = NULL,
+    method = "RS",
+    n.cyc = 500,
+    c.crit = 0.001,
     trace = TRUE
   )
 }
 
-# fill in defaults and check the user's gamlss_options
+
+#' Validate GG motion-density options
+#' 
+#' @details Combine user settings with defaults and check supported values. nu = "1" means an estimated constant shape; nu = 0 fixes the shape at the lognormal limit.
+#'
+#' @param gamlss_options NULL or a list of GAMLSS density options; see moco().
+#' @return The completed option list.
+#' @noRd
 gg_check_options <- function(gamlss_options){
   opts <- gg_default_options()
   
@@ -60,14 +72,32 @@ gg_check_options <- function(gamlss_options){
   if(!is.null(opts$smooth) && !is.character(opts$smooth)){
     stop("gamlss_options$smooth must be NULL or a character vector of continuous covariate names.")
   }
+  if(!(is.character(opts$method) && length(opts$method) == 1 &&
+       !is.na(opts$method) && opts$method %in% c("RS", "CG", "mixed"))){
+    stop('gamlss_options$method must be "RS", "CG", or "mixed".')
+  }
+  if(!(is.numeric(opts$n.cyc) && length(opts$n.cyc) == 1 &&
+       is.finite(opts$n.cyc) && opts$n.cyc >= 1 &&
+       opts$n.cyc == floor(opts$n.cyc))){
+    stop("gamlss_options$n.cyc must be a positive whole number.")
+  }
+  if(!(is.numeric(opts$c.crit) && length(opts$c.crit) == 1 &&
+       is.finite(opts$c.crit) && opts$c.crit > 0)){
+    stop("gamlss_options$c.crit must be a positive finite number.")
+  }
   if(!(is.logical(opts$trace) && length(opts$trace) == 1 && !is.na(opts$trace))){
     stop("gamlss_options$trace must be TRUE or FALSE.")
   }
   
-  opts
+  return(opts)
 }
 
-# check that the suggested packages are available
+#' Check GG density dependencies
+#'
+#' Check availability of gamlss and gamlss.dist before fitting.
+#'
+#' @return TRUE invisibly, or an error naming a missing package.
+#' @noRd
 gg_check_packages <- function(){
   for(pkg in c("gamlss", "gamlss.dist")){
     if(!requireNamespace(pkg, quietly = TRUE)){
@@ -82,7 +112,13 @@ gg_check_packages <- function(){
 # formulas
 # ---------------------------------------------------------------------------
 
-# plain data frame: drop AsIs class, keep syntactic names
+#' Prepare GAMLSS covariate data
+#'
+#' Convert covariates to a data frame and remove column-level AsIs classes.
+#'
+#' @param W Covariate data frame or an object coercible to one.
+#' @return A data frame with the same covariate values.
+#' @noRd
 gg_clean_data <- function(W){
   W <- as.data.frame(W)
   for(j in seq_along(W)){
@@ -93,13 +129,30 @@ gg_clean_data <- function(W){
   W
 }
 
-# covariates that enter the model: non-constant columns
+#' Identify nonconstant covariates
+#'
+#' Select columns with more than one distinct nonmissing value.
+#'
+#' @param W Covariate data frame.
+#' @return A character vector of selected column names.
+#' @noRd
 gg_covariates <- function(W){
   keep <- vapply(W, function(x) length(unique(x[!is.na(x)])) > 1, logical(1))
   names(W)[keep]
 }
 
-# continuous covariates that receive pb(): the user's list, or numeric columns with > 10 distinct values
+#' Select covariates for P-spline terms
+#'
+#' Choose variables to wrap in pb() when a smooth model is requested.
+#'
+#' @details Automatic selection uses numeric variables with more than 10
+#' distinct values. A is never smoothed.
+#'
+#' @param W Covariate data frame.
+#' @param covars Names of eligible nonconstant covariates.
+#' @param smooth NULL for automatic selection, or explicit covariate names.
+#' @return A character vector of selected names, excluding A.
+#' @noRd
 gg_continuous <- function(W, covars, smooth){
   if(!is.null(smooth)){
     return(intersect(smooth, setdiff(covars, "A")))
@@ -110,6 +163,15 @@ gg_continuous <- function(W, covars, smooth){
   covars[cont]
 }
 
+#' Build a GAMLSS formula right-hand side
+#'
+#' Construct constant, group-only, linear or smooth terms.
+#'
+#' @param type One of "1", "A", "linear" or "smooth".
+#' @param covars Names of nonconstant covariates.
+#' @param cont Names to wrap in pb() for a smooth specification.
+#' @return One character string containing a formula right-hand side.
+#' @noRd
 gg_rhs <- function(type, covars, cont){
   if(identical(type, "1") || length(covars) == 0){
     return("1")
@@ -124,7 +186,15 @@ gg_rhs <- function(type, covars, cont){
   paste(terms, collapse = " + ")
 }
 
-# mu, sigma and nu formulas for one density component
+#' Build the three GG parameter specifications
+#'
+#' Construct location and scale formulas and identify the fixed-zero shape option.
+#'
+#' @param W Covariate data frame for this density component.
+#' @param label Component label used in error messages.
+#' @param opts Validated list returned by gg_check_options().
+#' @return A list with mu, sigma and nu formula strings and a nu_fixed flag.
+#' @noRd
 gg_formulas <- function(W, label, opts){
   covars <- gg_covariates(W)
   cont <- gg_continuous(W, covars, opts$smooth)
@@ -154,8 +224,21 @@ gg_formulas <- function(W, label, opts){
 # fitting
 # ---------------------------------------------------------------------------
 
-# fit one density component with gamlss::gamlss() and the GG family.
-# There is no fallback: if the fit fails or does not converge, moco() stops with an error.
+#' Fit one GG motion-density component
+#'
+#' Fit an ordinary parent or selected-sample GG model with gamlss().
+#'
+#' @details The caller chooses the training rows. With a known motion
+#' threshold, pMXD/pMXZD callers supply all observed-motion training rows
+#' to fit a parent model. pMX/pMXZ callers use Delta_Y = 1 rows. RS uses
+#' at most 500 cycles. trace follows opts$trace.
+#'
+#' @param m Positive observed training motion values.
+#' @param W Aligned training covariates: A and X, optionally Z.
+#' @param label Component name: pMX, pMXD, pMXZ or pMXZD.
+#' @param opts Validated list returned by gg_check_options().
+#' @return A list with fit, data, range_M and nu_fixed.
+#' @noRd
 gg_component <- function(m, W, label, opts){
   W <- gg_clean_data(W)
   dat <- data.frame(.motion = m, W)
@@ -163,14 +246,18 @@ gg_component <- function(m, W, label, opts){
   env <- new.env(parent = asNamespace("gamlss"))
   env$.dat <- dat
   mk <- function(txt){ f <- stats::as.formula(txt); environment(f) <- env; f }
+  # These calls are evaluated inside gamlss(), where its algorithms are defined.
+  # mixed() keeps GAMLSS defaults: 1 RS iteration, then up to 20 CG iterations.
+  # Its iteration schedule is independent of control$n.cyc.
+  method_call <- call(opts$method)
   args <- list(formula = mk(forms$mu), 
                sigma.formula = mk(forms$sigma), 
                nu.formula = mk(forms$nu),
                family = quote(gamlss.dist::GG()), 
                data = quote(.dat), 
-               method = call(gg_fit_control$method),
-               control = gamlss::gamlss.control(n.cyc = gg_fit_control$n.cyc, 
-                                                c.crit = gg_fit_control$c.crit,
+               method = method_call,
+               control = gamlss::gamlss.control(n.cyc = opts$n.cyc, 
+                                                c.crit = opts$c.crit,
                                                 trace = opts$trace))
   if(forms$nu_fixed){
     args$nu.fix <- TRUE
@@ -186,19 +273,56 @@ gg_component <- function(m, W, label, opts){
          " Try a simpler model, e.g. gamlss_options = list(mu = \"linear\", sigma = \"A\"), ",
          "or density_method = \"glm\" or \"hal\".", call. = FALSE)
   }
-  list(fit = fit, 
+  return(list(fit = fit, 
        data = dat, 
        range_M = range(m), 
        nu_fixed = forms$nu_fixed)
+  )
 }
 
-# evaluate a fitted component at motion values m and covariates W.
-# zero_outside = TRUE sets the density to 0 outside the training range of M
-# (used for pMXD/pMXZD, the same rule as the GLM and HAL densities).
-# thresh = c (pMXD/pMXZD with Delta_M = 1(M <= c)): obj is an untruncated GG fitted on
-# all participants with observed M, and the density is truncated analytically,
-# p(m | Delta_M = 1, w) = dGG(m | w) / pGG(c | w) for m <= c and 0 for m > c,
-# with pGG(c | w) floored at floor_cdf.
+#' Evaluate the GG conditioning CDF
+#'
+#' Use the lognormal limit for zero shape and pGG() otherwise.
+#'
+#' @details For abs(nu) <= 1e-6, evaluate plnorm(q, log(mu), sigma),
+#' avoiding the vector pGG() zero-shape bug. Current supported models
+#' have constant nu; mixed-sign vector inputs are not a supported
+#' prediction path in this implementation.
+#'
+#' @param q Evaluation cutoff or vector of cutoffs.
+#' @param mu Positive GG location parameter(s).
+#' @param sigma Positive GG scale parameter(s).
+#' @param nu GG shape parameter(s); current callers supply a constant shape per model.
+#' @return A numeric vector of lower-tail probabilities.
+#' @noRd
+gg_cdf <- function(q, mu, sigma, nu){
+  n <- max(length(q), length(mu), length(sigma), length(nu))
+  q <- rep_len(q, n); mu <- rep_len(mu, n); sigma <- rep_len(sigma, n); nu <- rep_len(nu, n)
+  out <- numeric(n)
+  ln <- abs(nu) <= 1e-6
+  if(any(ln)) out[ln] <- stats::plnorm(q[ln], meanlog = log(mu[ln]), sdlog = sigma[ln])
+  if(any(!ln)) out[!ln] <- gamlss.dist::pGG(q[!ln], mu = mu[!ln], sigma = sigma[!ln], nu = nu[!ln])
+  
+  return(out)
+}
+
+#' Evaluate a GG motion-density component
+#'
+#' Predict GG parameters and optionally condition the density at a motion cutoff.
+#'
+#' @details With thresh, obj must be a parent fit: return f(m)/F(thresh)
+#' for m <= thresh and zero above it. This branch bypasses empirical
+#' range clipping. Activating floor_cdf regularizes the result and changes
+#' its total mass. mu and sigma predictions use their response scales.
+#'
+#' @param obj Fitted component returned by gg_component().
+#' @param m Observed positive motion values at which to evaluate the density.
+#' @param W Prediction covariates aligned to m.
+#' @param zero_outside If TRUE and thresh is NULL, zero predictions outside the training motion range.
+#' @param thresh NULL, or a positive cutoff for analytical conditioning on M <= thresh.
+#' @param floor_cdf Lower bound for the conditioning CDF; default 0.001.
+#' @return A numeric vector of density predictions.
+#' @noRd
 gg_density <- function(obj, m, W, zero_outside = FALSE, thresh = NULL, floor_cdf = 1e-3){
   if(length(m) == 0){
     return(numeric(0))
@@ -213,10 +337,10 @@ gg_density <- function(obj, m, W, zero_outside = FALSE, thresh = NULL, floor_cdf
   })
   d <- gamlss.dist::dGG(m, mu = pars$mu, sigma = pars$sigma, nu = pars$nu)
   if(!is.null(thresh)){
-    Fc <- gamlss.dist::pGG(thresh, mu = pars$mu, sigma = pars$sigma, nu = pars$nu)
+    Fc <- gg_cdf(thresh, mu = pars$mu, sigma = pars$sigma, nu = pars$nu)
     if(mean(Fc < floor_cdf) > 0.01){
       warning("For more than 1% of participants, the fitted P(M <= thresh) is below ", floor_cdf,
-              ", so the truncated GAMLSS density uses that floor. The motion density model may fit poorly near thresh.",
+              ", so the truncated GAMLSS density uses that floor.",
               call. = FALSE)
     }
     d <- d / pmax(Fc, floor_cdf)
@@ -226,5 +350,6 @@ gg_density <- function(obj, m, W, zero_outside = FALSE, thresh = NULL, floor_cdf
   if(zero_outside){
     d[m < obj$range_M[1] | m > obj$range_M[2]] <- 0
   }
-  d
+  
+  return(d)
 }

@@ -1,6 +1,6 @@
-#' Non-parametric efficient motion-controlled brain phenotype estimators
+#' Non-parametric efficient motion-controlled brain phenotype estimators: estimate group means without cross-fitting
 #' 
-#' @details Compute non-parametric efficient motion-controlled brain phenotype estimators (MoCo) using one-step estimation
+#' @details Compute non-parametric efficient motion-controlled brain phenotype estimators (MoCo) using one-step estimation without cross-fitting
 #' 
 #' @param X A dataframe or matrix containing demographic confounders that would ideally be balanced in a randomized controlled trial.
 #' @param Z A dataframe or matrix of covariates representing brain phenotypes.
@@ -19,7 +19,7 @@
 #'          or criteria based on scrubbing or the number of remaining frames. \code{Delta_M} must be 0 when \code{M} is missing.
 #' @param Delta_Y A binary vector indicating the non-missingness and whether the brain image data \code{Y} passes quality control after preprocessing. 
 #'          Set \code{Delta_Y = 1} if \code{Y} is usable; otherwise, set \code{Delta_Y = 0}.
-#' @param thresh \code{NULL} or the motion threshold c with \code{Delta_M = 1(M <= c)}; used to truncate the GAMLSS densities pMXD and pMXZD. See \code{\link{moco}}.
+#' @param thresh \code{NULL} or the motion threshold c with \code{Delta_M = 1(M <= c)}; used to truncate the GAMLSS and GLM densities pMXD and pMXZD. See \code{\link{moco}}.
 #' 
 #' @param SL_library SuperLearner library for estimating nuisance regressions. 
 #'                   Defaults to c("SL.earth","SL.glmnet","SL.mgcv_gam","SL.glm", "SL.glm.interaction", "SL.step","SL.step.interaction","SL.xgboost","SL.ranger","SL.mean") if not specified.
@@ -52,6 +52,7 @@
 #' @param glm_options Right-hand sides of the log-normal GLM motion densities, used only when \code{density_method = "glm"}:
 #'                   - \code{pMX}: formula for p(m | a, x, Delta_Y = 1) and p(m | a, x, Delta_M = 1). Default \code{"."} (all of \code{A} and \code{X}).
 #'                   - \code{pMXZ}: formula for p(m | a, x, z, Delta_Y = 1) and p(m | a, x, z, Delta_M = 1). Default \code{"."} (all of \code{A}, \code{X} and \code{Z}).
+#'          With \code{thresh}, \code{pMXD} and \code{pMXZD} are truncated log-normal densities (see \code{thresh}).
 #'  
 #' @param gamlss_options GAMLSS options. See \code{\link{moco}}.
 #' @param seed Random seed set before each SuperLearner fit (one value of \code{seed_rng} in \code{moco()}).
@@ -140,7 +141,6 @@ one_step <- function(
     gg_check_packages()
     gg_opts <- gg_check_options(gamlss_options)
   }
-  weight_diagnostics <- NULL
   
   # SL options
   if(is.null(SL_library)){
@@ -276,13 +276,14 @@ one_step <- function(
       pMXn_A <- rep(NA, n)
       pMXn_A[Delta_Y == 1] <- (1/M)[Delta_Y == 1] * dnorm(log(M)[Delta_Y == 1], mean = stats::predict(pMX_fit, newdata = data.frame(A, X)[Delta_Y == 1,]), sd = sd(pMX_fit$residuals)) 
       
-      pMXD_fit <- stats::glm(paste0("log_M ~ ", glm_options$pMX), family = gaussian(), data = data.frame(log_M = log(M), A, X)[Delta_M == 1,])
-      # evaluate the fitted density at every non-missing M (Delta_M = 0 participants included), 
-      # and set it to 0 outside the observed range of M among Delta_M = 1 (same rule as haldensify with trim_min = 0)
-      range_M_DM <- range(M[Delta_M == 1])
+      # without thresh: fit on Delta_M = 1, evaluate at every non-missing M (Delta_M = 0 participants included),
+      # and set the density to 0 outside the observed range of M among Delta_M = 1 (same rule as haldensify with trim_min = 0);
+      # with thresh: fit an untruncated log-normal GLM on all participants with observed M and truncate it at thresh
+      fit_D <- if(is.null(thresh)) which(Delta_M == 1) else index_nomissingM
+      pMXD_fit <- stats::glm(paste0("log_M ~ ", glm_options$pMX), family = gaussian(), data = data.frame(log_M = log(M), A, X)[fit_D,])
       pMXDn_A0 <- rep(NA, n)
-      pMXDn_A0[index_nomissingM] <- (1/M[index_nomissingM]) * dnorm(log(M[index_nomissingM]), mean = stats::predict(pMXD_fit, newdata = data.frame(A=0,X)[index_nomissingM,,drop=FALSE]), sd = sd(pMXD_fit$residuals))
-      pMXDn_A0[index_nomissingM][M[index_nomissingM] < range_M_DM[1] | M[index_nomissingM] > range_M_DM[2]] <- 0
+      pMXDn_A0[index_nomissingM] <- lnorm_density(pMXD_fit, M[index_nomissingM], data.frame(A=0,X)[index_nomissingM,,drop=FALSE],
+                                                  range_M = range(M[Delta_M == 1]), thresh = thresh)
     }
     
     if(dens_method["pMXZ"] == "hal"){
@@ -335,21 +336,13 @@ one_step <- function(
       pMXZn_A0[Delta_Y == 1] <- (1/M)[Delta_Y == 1] * dnorm(log(M)[Delta_Y == 1], mean = stats::predict(pMXZ_fit, newdata = data.frame(A = 0, X, Z)[Delta_Y == 1,]), sd = sd(pMXZ_fit$residuals))
       pMXZn_A1[Delta_Y == 1] <- (1/M)[Delta_Y == 1] * dnorm(log(M)[Delta_Y == 1], mean = stats::predict(pMXZ_fit, newdata = data.frame(A = 1, X, Z)[Delta_Y == 1,]), sd = sd(pMXZ_fit$residuals))
       
-      pMXZD_fit <- stats::glm(paste0("log_M ~ ", glm_options$pMXZ), family = gaussian(), data = data.frame(log_M = log(M), A, X, Z)[Delta_M == 1,])
-      # evaluate the fitted density at every non-missing M; 0 outside the observed range of M among Delta_M = 1
-      range_M_DM <- range(M[Delta_M == 1])
+      # same fitting rule as pMXD (Delta_M = 1 without thresh; all observed M, truncated at thresh, with thresh)
+      fit_D <- if(is.null(thresh)) which(Delta_M == 1) else index_nomissingM
+      pMXZD_fit <- stats::glm(paste0("log_M ~ ", glm_options$pMXZ), family = gaussian(), data = data.frame(log_M = log(M), A, X, Z)[fit_D,])
       pMXZDn_A <- rep(NA, n)
-      pMXZDn_A[index_nomissingM] <- (1/M[index_nomissingM]) * dnorm(log(M[index_nomissingM]), mean = stats::predict(pMXZD_fit, newdata = data.frame(A, X, Z)[index_nomissingM,,drop=FALSE]), sd = sd(pMXZD_fit$residuals))
-      pMXZDn_A[index_nomissingM][M[index_nomissingM] < range_M_DM[1] | M[index_nomissingM] > range_M_DM[2]] <- 0
+      pMXZDn_A[index_nomissingM] <- lnorm_density(pMXZD_fit, M[index_nomissingM], data.frame(A, X, Z)[index_nomissingM,,drop=FALSE],
+                                                  range_M = range(M[Delta_M == 1]), thresh = thresh)
     }
-  }
-  
-  # density-ratio weights pMXD / pMXZ that enter the efficient influence function
-  if(M_indicator){
-    weight_diagnostics <- rbind(
-      A0 = weight_summary((pMXDn_A0 / pMXZn_A0)[Delta_Y == 1 & A == 0]),
-      A1 = weight_summary((pMXDn_A0 / pMXZn_A1)[Delta_Y == 1 & A == 1])
-    )
   }
   
   # define parameters for storing results
@@ -488,8 +481,7 @@ one_step <- function(
   out <- list(est = est,
               adj_association = adj_association,
               eif_mat = eif_mat,
-              cov_mat = cov_mat,
-              weight_diagnostics = weight_diagnostics
+              cov_mat = cov_mat
   )
   
   return(out)
