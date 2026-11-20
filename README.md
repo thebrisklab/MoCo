@@ -133,7 +133,7 @@ on the bundled example data.
 | `Y` | Continuous outcome vector or an `n` by `p` outcome matrix |
 | `Delta_M` | Indicator that motion satisfies the analysis inclusion rule |
 | `Delta_Y` | Indicator that the imaging outcome is observed and usable |
-| `thresh` | Optional motion threshold c; defines `Delta_M = 1(M <= c)` when `Delta_M` is not given, and truncates the GAMLSS densities `pMXD`/`pMXZD` at c |
+| `thresh` | Optional motion threshold c; defines `Delta_M = 1(M <= c)` when `Delta_M` is not given, and truncates the GAMLSS and GLM densities `pMXD`/`pMXZD` at c |
 
 `A`, `X`, and `Z` must be complete. `Y` may contain missing values in rows for
 which `Delta_Y = 0`. For a seed-based analysis, a seed-to-self outcome column
@@ -153,16 +153,17 @@ participants with `Delta_M = 0`. Outside the range of `M` among the
 GAMLSS). `Delta_M` need not be determined by `M` alone (for example, a
 minimum number of frames after censoring).
 
-With `thresh = c` and `density_method = "gamlss"`, `pMXD` and `pMXZD` are
-truncated generalized gamma densities. Because `M` is observed for
-everyone, an ordinary GG is fitted on all participants with observed `M` and
-truncated analytically at `c`:
-`p(m | Delta_M = 1, a, x) = dGG(m | a, x) / pGG(c | a, x)` for `m <= c` and 0
-above `c` (and the same with `z` added for `pMXZD`; `pGG(c)` is floored at
-0.001). `pMX` and `pMXZ` are fitted on `Delta_Y = 1` as described above. With HAL or GLM, `thresh` only defines
-`Delta_M`. If `Delta_M` is supplied without `thresh` and every `M` with
-`Delta_M = 1` is below every `M` with `Delta_M = 0`, a GAMLSS run gives a
-message suggesting `thresh`.
+With `thresh = c` and `density_method = "gamlss"` or `"glm"`, `pMXD` and
+`pMXZD` are truncated generalized gamma or log-normal densities. An
+untruncated GG or log-normal GLM is fitted on all participants with observed
+`M` (within each training fold) and truncated analytically at `c`:
+`p(m | Delta_M = 1, a, x) = f(m | a, x) / F(c | a, x)` for `m <= c` and 0
+above `c`, where `f` and `F` are the fitted density and CDF (and the same with
+`z` added for `pMXZD`; `F(c | a, x)` is floored at 0.001). `pMX` and `pMXZ`
+are fitted on `Delta_Y = 1` as described above. With HAL, `thresh` only
+defines `Delta_M`. If `Delta_M` is supplied without `thresh` and every `M`
+with `Delta_M = 1` is below every `M` with `Delta_M = 0`, a GAMLSS or GLM run
+gives a message suggesting `thresh`.
 
 When motion is unavailable, set `M = NULL` (and optionally `X = NULL`) and
 supply `Delta_M`; participants with `Delta_M = 0` are then treated as missing,
@@ -255,7 +256,8 @@ For log-normal GLM motion densities, set `density_method = "glm"`. The
 right-hand sides of the models for `log(M)` are set with `glm_options`:
 `pMX` for `pMX` and `pMXD` (predictors `A` and `X`), and `pMXZ` for `pMXZ`
 and `pMXZD` (predictors `A`, `X`, and `Z`). Both default to `"."`, which uses
-all available predictors:
+all available predictors. With `thresh`, `pMXD` and `pMXZD` are truncated
+log-normal densities (see Input data):
 
 ```r
 fit_glm <- moco(
@@ -302,6 +304,9 @@ All entries of `gamlss_options` are optional:
 | `sigma` | `"linear"` (default), `"smooth"`, `"1"` (intercept only), `"A"` (group only), or a one-sided formula |
 | `nu` | `"1"` (constant `nu`, estimated; default) or `0` (`nu` fixed at 0, i.e. a log-normal density with the `mu` and `sigma` models above) |
 | `smooth` | Names of the continuous covariates that get `pb()` when `mu` or `sigma` is `"smooth"`; `NULL` (default) uses every numeric covariate with more than 10 distinct values. A `pb()` term on a covariate that is mostly zeros (for example, a score that is 0 for one group) can fail to converge, so name the covariates in that case |
+| `method` | `"RS"` (default), `"CG"`, or `"mixed"`. Calls `mixed()` with GAMLSS defaults: one RS iteration followed by up to 20 CG iterations, independent of `n.cyc` |
+| `n.cyc` | Maximum outer iterations for RS or CG; default `500`. A positive whole number. It does not set the mixed schedule |
+| `c.crit` | Positive convergence tolerance; default `0.001` |
 | `trace` | `TRUE` (default) prints the global deviance at each GAMLSS iteration, as in `gamlss.control(trace = TRUE)`; `FALSE` fits silently |
 
 For example, `gamlss_options = list(mu = "smooth", smooth = c("X2", "Z2"))`
@@ -311,12 +316,11 @@ gives the location model `A + X1 + pb(X2) + X3 + Z1 + pb(Z2) + Z3 + Z4` for
 only `A` and `X`). With `nu = 0` and `sigma = "1"`, the GAMLSS fit is
 essentially the log-normal GLM.
 
-Each density is fitted once with the `RS` algorithm (at most 500 cycles).
+Each density is fitted once using the selected algorithm and controls
+(defaults: `method = "RS"`, `n.cyc = 500`, `c.crit = 0.001`).
 There is no fallback: if a fit does not converge, `moco()` stops with an error
 that names the density; a simpler model (for example `sigma = "A"` or
-`mu = "linear"`) or another `density_method` can then be used. `moco()` also warns when the effective-sample-size
-ratio of the density-ratio weights `pMXD / pMXZ` that enter the EIF is below
-0.1 for either group.
+`mu = "linear"`) or another `density_method` can then be used.
 
 ## Simultaneous inference
 
@@ -629,7 +633,7 @@ same time as GLM, while HAL adds about 11 minutes of density fitting.
 - **Log-normal GLM**: motion that is close to log-normal; fastest.
 - **GAMLSS**: skewed or heteroscedastic motion (`GG`); as accurate as HAL at
   close to GLM cost. Start with a simple `sigma` model (`"A"` or `"1"`) when a group is small, and
-  check for convergence and low effective-sample-size warnings before
+  check for convergence before
   interpreting the results.
 - **HAL**: the most flexible, with minimal distributional assumptions and the theoretical guarantees of the nonparametric estimator; slow.
 
