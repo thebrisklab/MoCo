@@ -637,33 +637,6 @@ same time as GLM, while HAL adds about 11 minutes of density fitting.
   interpreting the results.
 - **HAL**: the most flexible, with minimal distributional assumptions and the theoretical guarantees of the nonparametric estimator; slow.
 
-## Function reference
-
-The complete function documentation is available from R:
-
-```r
-?moco
-?hypo_test
-?plot_moco
-?SL.mgcv_gam
-```
-
-## Reproducibility and diagnostics
-
-- Use named columns in `X` and `Z`, especially for GAMLSS.
-- Save analysis-cohort IDs and preserve their order across outcomes and seeds.
-- Define `Delta_M` and `Delta_Y` explicitly in the analysis script.
-- Use the same outcome family when comparing simultaneous tests across methods.
-- Save the R version, package versions, learner library, fold count, and seeds.
-- Examine GAMLSS convergence and distributional diagnostics before interpreting
-  GAMLSS-based results.
-- Check positivity: summarise the propensities (`gA`, `gDM`, `gDY_AXZ`) and the
-  density ratios used in the influence function,
-  including participants with `Delta_M = 0`, at whose motion values the
-  `Delta_M = 1` densities are also evaluated.
-- In distributed analyses, save estimates and participant-level EIFs for every
-  outcome and seed, then aggregate them before calculating covariance and test
-  statistics.
 
 ## Related software and resources
 
