@@ -30,6 +30,7 @@ Imports:
     hal9001,
     haldensify,
     MASS,
+    mgcv,
     nloptr,
     quadprog,
     stats,
@@ -47,4 +48,3 @@ LazyData: true
 URL: https://github.com/thebrisklab/MoCo
 BugReports: https://github.com/thebrisklab/MoCo/issues
 Config/roxygen2/version: 8.1.0
-RoxygenNote: 7.3.1
