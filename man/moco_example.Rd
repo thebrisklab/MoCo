@@ -17,8 +17,9 @@ seed-to-self column \code{Default} is all \code{NA}.}
 }
 }
 \source{
-Simulated. Design motivated by Ran et al. (MoCo) and calibrated to published summaries of
-head motion and quality control in children with and without ASD (Nebel et al. 2022, NeuroImage).
+Simulated. Design motivated by Ran et al. (MoCo); the motion and quality-control
+models are calibrated to target quantiles of children's head motion and to group
+differences in motion exclusion.
 }
 \usage{
 moco_example
@@ -28,12 +29,13 @@ A simulated data set with 400 children that mimics a seed-based resting-state
 analysis of autism spectrum disorder (ASD), motivated by the Autism Brain
 Imaging Data Exchange (ABIDE). The seed is the default mode network, and the
 outcomes are its Fisher-z connectivity with six Yeo networks. Head motion is
-generated from a generalized gamma distribution whose location and spread depend
-on all baseline and post-diagnosis covariates, and motion usability is probabilistic in mean
-framewise displacement.
+generated from a generalized gamma distribution (shape \code{nu = -0.57}) whose location and
+spread depend on all baseline and post-diagnosis covariates, with nonlinear terms in age and
+IQ; motion usability is probabilistic in mean framewise displacement; and connectivity
+depends nonlinearly on motion.
 }
 \details{
-The true MoCo group differences are 0 for outcomes 1-4 and -0.04845 and -0.06815
+The true MoCo group differences are 0 for outcomes 1-4 and -0.04849 and -0.06805
 for outcomes 5 and 6. The generating script is \code{data-raw/moco_example.R} in the
 package source (GitHub repository).
 }
