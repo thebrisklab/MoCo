@@ -549,10 +549,9 @@ gamlss_options = list(
 )
 ```
 
-On these data the linear scale model is less stable than the constant one
-(see the Comparison below): with heavy-tailed motion and a few hundred
-participants per fold, a richer `sigma` model can fit the motion densities
-poorly.
+With heavy-tailed motion and a few hundred participants per fold, a richer
+`sigma` model can fit the motion densities poorly; on these data a constant
+scale is more stable than a linear one.
 
 ### HAL
 
@@ -613,28 +612,38 @@ file.show(system.file("examples", "full_analysis.R", package = "MoCo"))
 
 ### Comparison
 
-Adjusted associations (`adj_association`), z-statistics, simultaneous tests at
-FWER 0.05, accuracy, and run time for the motion-density models on the example
-data (`seed_rng = 123`, `hypo_seed = 123`, five folds):
+Adjusted associations, z-statistics, simultaneous tests at FWER 0.05,
+accuracy, and run time for the three motion-density models and four naive
+methods on the example data (`seed_rng = 123`, `hypo_seed = 123`, five folds).
+Naive LM regresses `Y` on `A`, `X`, and `M` among participants with
+`Delta_Y = 1`; removal LM fits the same model after also removing
+participants who fail motion quality control (`Delta_M = 0`); the naive and
+removal t tests compare group means in the same two samples. The naive
+methods use influence-function z-statistics and the same multiplier
+simultaneous test (`hypo_test()`, 10,000 draws, seed 123).
 
-| Outcome | Truth | GLM | GAMLSS (GG, smooth mu, constant sigma) | GAMLSS (GG, smooth mu, linear sigma) | HAL |
-|---|---|---|---|---|---|
-| 1 Visual | 0 | 0.0147 (z = 0.75) | -0.0010 (-0.05) | -0.0248 (-0.54) | 0.0131 (0.69) |
-| 2 Somatomotor | 0 | 0.0055 (0.20) | -0.0208 (-0.60) | -0.1259 (-1.16) | 0.0237 (0.98) |
-| 3 Dorsal attention | 0 | -0.0347 (-1.83) | -0.0306 (-1.52) | -0.0245 (-0.80) | -0.0371 (-1.98) |
-| 4 Ventral attention | 0 | 0.0211 (1.00) | 0.0270 (1.06) | 0.0929 (1.28) | 0.0342 (1.74) |
-| 5 Limbic | -0.0485 | **-0.0679 (-3.04)** | **-0.0791 (-2.99)** | -0.1619 (-1.56) | **-0.0583 (-2.70)** |
-| 6 Frontoparietal | -0.0681 | -0.0571 (-2.54) | -0.0503 (-2.12) | -0.1037 (-1.96) | **-0.0658 (-3.17)** |
-| Critical value | | 2.588 | 2.579 | 2.486 | 2.580 |
-| RMSE (six outcomes) | | 0.020 | 0.024 | 0.082 | 0.024 |
-| Total run time | | 15 min | 16 min | 16 min | 20 min |
+| Outcome | Truth | GLM | GAMLSS (GG, smooth mu, constant sigma) | HAL | Naive LM | Removal LM | Naive t test | Removal t test |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 0 | 0.0147 (z = 0.75) | -0.0010 (-0.05) | 0.0131 (0.69) | -0.0822 (-1.54) | 0.0156 (0.56) | -0.1004 (-1.19) | 0.0206 (0.35) |
+| 2 | 0 | 0.0055 (0.20) | -0.0208 (-0.60) | 0.0237 (0.98) | 0.1044 (1.98) | 0.0126 (0.37) | 0.1330 (1.59) | 0.0118 (0.20) |
+| 3 | 0 | -0.0347 (-1.83) | -0.0306 (-1.52) | -0.0371 (-1.98) | 0.0515 (1.02) | -0.0433 (-1.47) | 0.0626 (0.79) | -0.0594 (-1.07) |
+| 4 | 0 | 0.0211 (1.00) | 0.0270 (1.06) | 0.0342 (1.74) | -0.0607 (-1.10) | 0.0391 (1.35) | -0.0817 (-0.96) | 0.0431 (0.74) |
+| 5 | -0.0485 | **-0.0679 (-3.04)** | **-0.0791 (-2.99)** | **-0.0583 (-2.70)** | 0.0351 (0.67) | -0.0655 (-2.05) | 0.0527 (0.66) | -0.0731 (-1.24) |
+| 6 | -0.0681 | -0.0571 (-2.54) | -0.0503 (-2.12) | **-0.0658 (-3.17)** | 0.0289 (0.54) | -0.0625 (-2.00) | 0.0386 (0.47) | -0.0783 (-1.31) |
+| Critical value | | 2.588 | 2.579 | 2.580 | 2.288 | 2.538 | 2.190 | 2.324 |
+| RMSE (six outcomes) | | 0.020 | 0.024 | 0.024 | 0.082 | 0.026 | 0.100 | 0.033 |
+| Total run time | | 15 min | 16 min | 20 min | < 1 s | < 1 s | < 1 s | < 1 s |
 
-Bold marks outcomes significant at FWER 0.05. Total run time is for the whole
-`moco()` call with the default Super Learner library. HAL is the only model
-that detects both the fifth and the sixth outcome, and no model flags a null
-outcome. The log-normal GLM and GAMLSS with a constant scale detect the fifth
-outcome only; GAMLSS with a linear scale is unstable on these data and detects
-neither. HAL adds about 5 minutes of density fitting to the GLM run time.
+Bold marks outcomes significant at FWER 0.05. Total run time for MoCo is for
+the whole `moco()` call with the default Super Learner library. HAL is the
+only method that detects both the fifth and the sixth outcome, and no method
+flags a null outcome. The log-normal GLM and GAMLSS detect the fifth outcome
+only. None of the naive methods detects either effect: naive LM, which
+adjusts for motion linearly, has the wrong sign for both outcomes because the
+motion effect is nonlinear and motion is heavy-tailed; removal LM is close to
+the truth but loses power after removing about a quarter of the sample; and
+the t tests are not adjusted for motion or covariates. HAL adds about 5
+minutes of density fitting to the GLM run time.
 
 ### Which method?
 
