@@ -412,30 +412,32 @@ str(moco_example)
 
 The simulated objects are:
 
-- `A`: diagnostic group, coded 1 for ASD (153 children) and 0 for non-ASD;
+- `A`: diagnostic group, coded 1 for ASD (138 children) and 0 for non-ASD;
 - `M`: mean framewise displacement (mm), generated from a generalized gamma
-  distribution (shape `nu = 1`) whose location and spread depend on all
-  covariates in `X` and `Z`: they are larger in ASD, at higher ADOS scores and
-  at younger ages, and smaller at higher IQ and in medicated children, so
-  motion in the ASD group is higher and more variable;
+  distribution (`GG`, shape `nu = -0.57`, a right tail heavier than the
+  log-normal) whose location and spread depend on all covariates in `X` and
+  `Z`, with nonlinear terms in age and IQ: motion is larger in ASD, at higher
+  ADOS scores, at younger ages, and at lower IQ, and smaller in medicated
+  children (median 0.19 mm non-ASD, 0.22 mm ASD);
 - `Delta_M`: motion inclusion; the probability of passing motion quality
-  control falls smoothly with `M` (it is not a fixed cut-off), and 79% of
-  children pass (86% non-ASD, 68% ASD);
+  control falls smoothly with `M` (it is not a fixed cut-off), and 74% of
+  children pass (79% non-ASD, 66% ASD);
 - `Delta_Y`: imaging-data availability and quality (93% available);
 - `X`: sex, age, and handedness;
 - `Z`: ADOS, full-scale IQ, stimulant medication, and nonstimulant medication;
 - `Y`: an `n` by 7 functional-connectivity matrix with columns Visual,
   Somatomotor, DorsalAttention, VentralAttention, Limbic, Frontoparietal, and
-  Default.
+  Default. Connectivity depends nonlinearly on motion, through a quadratic term
+  and a hinge at 0.2 mm, and the motion effect levels off above 1 mm.
 
 The seventh column of `Y` is the seed-to-self position and is therefore
 entirely `NA`. Rows with `Delta_Y = 0` are also missing because their imaging
 outcomes are unavailable. The simulated group differences are zero for the
-first four outcomes, -0.0485 for the fifth (Limbic), and -0.0682 for the sixth
+first four outcomes, -0.0485 for the fifth (Limbic), and -0.0681 for the sixth
 (Frontoparietal). The generating script is
 `data-raw/moco_example.R` in the package source (GitHub repository).
 
-All three fits below use the default Super Learner library for the nuisance
+All fits below use the default Super Learner library for the nuisance
 regressions, five-fold cross-fitting, and simultaneous tests at FWER 0.05; only
 the motion-density model differs.
 
@@ -453,9 +455,10 @@ fit_glm <- moco(
   density_method = "glm",
   cross_fit = TRUE,
   cv_folds = 5,
-  seed_rng = 1,
+  seed_rng = 123,
   test = TRUE,
-  fwer = 0.05
+  fwer = 0.05,
+  hypo_seed = 123
 )
 ```
 
@@ -465,30 +468,30 @@ second represents `A = 1`, and the structural seventh column is restored as
 
 ```r
 round(fit_glm$est, 4)
-# est_A0 -0.2743 -0.1178 -0.1402  0.0062  0.1025  0.1675 NA
-# est_A1 -0.2731 -0.1710 -0.1267  0.0447  0.0234  0.0907 NA
+# est_A0 -0.4972  0.0937  0.0880 -0.2161  0.3189  0.3879 NA
+# est_A1 -0.4826  0.0992  0.0533 -0.1950  0.2510  0.3307 NA
 ```
 
 The adjusted group differences are:
 
 ```r
 round(fit_glm$adj_association, 4)
-#  0.0012 -0.0532  0.0135  0.0385 -0.0791 -0.0768 NA
+#  0.0147  0.0055 -0.0347  0.0211 -0.0679 -0.0571 NA
 ```
 
 The EIF-based test results are:
 
 ```r
 round(fit_glm$z_score, 4)
-#  0.0566 -1.7130  0.6710  1.8463 -3.3666 -3.3470 NA
+#  0.7479  0.2024 -1.8316  1.0007 -3.0381 -2.5390 NA
 
 fit_glm$significant_regions
-# FALSE FALSE FALSE FALSE TRUE TRUE NA
+# FALSE FALSE FALSE FALSE TRUE FALSE NA
 ```
 
-The misfit of the log-normal model shows in accuracy: the GLM estimates for
-the fifth outcome and for the null second and fourth outcomes are the furthest
-from the truth of the three models (see the Comparison below).
+The log-normal GLM detects the fifth outcome but not the sixth (z = -2.54
+against a critical value of 2.59), and its estimate for the fifth outcome is
+too large in magnitude (-0.068 against a truth of -0.048).
 
 The numerical output above is illustrative; results may vary slightly with R,
 dependency, and numerical-optimization versions.
@@ -498,8 +501,8 @@ dependency, and numerical-optimization versions.
 The same analysis with GAMLSS motion densities uses
 `density_method = "gamlss"` and a generalized gamma (`GG`) distribution. Age
 (`X2`) and IQ (`Z2`) enter the location through penalized splines `pb()` and
-the other covariates linearly; the scale depends linearly on all covariates,
-and the shape `nu` is estimated:
+the other covariates linearly; the scale is constant (`sigma = "1"`), and the
+shape `nu` is estimated:
 
 ```r
 fit_gamlss <- moco(
@@ -511,41 +514,45 @@ fit_gamlss <- moco(
   Delta_M = moco_example$Delta_M,
   Delta_Y = moco_example$Delta_Y,
   density_method = "gamlss",
-  gamlss_options = list(mu = "smooth", smooth = c("X2", "Z2"), sigma = "linear"),
+  gamlss_options = list(mu = "smooth", smooth = c("X2", "Z2"), sigma = "1"),
   cross_fit = TRUE,
   cv_folds = 5,
-  seed_rng = 1,
+  seed_rng = 123,
   test = TRUE,
-  fwer = 0.05
+  fwer = 0.05,
+  hypo_seed = 123
 )
 
 round(fit_gamlss$est, 4)
-# est_A0 -0.2732 -0.1213 -0.1388  0.0102  0.0991  0.1703 NA
-# est_A1 -0.2550 -0.1178 -0.1010  0.0238  0.0325  0.0978 NA
+# est_A0 -0.4856  0.0899  0.0837 -0.2027  0.3163  0.3791 NA
+# est_A1 -0.4866  0.0691  0.0531 -0.1757  0.2372  0.3288 NA
 
 round(fit_gamlss$adj_association, 4)
-#  0.0182  0.0035  0.0378  0.0135 -0.0666 -0.0725 NA
+# -0.0010 -0.0208 -0.0306  0.0270 -0.0791 -0.0503 NA
 
 round(fit_gamlss$z_score, 4)
-#  0.9260  0.1415  2.1058  0.6583 -2.8082 -3.2036 NA
+# -0.0482 -0.6027 -1.5192  1.0562 -2.9856 -2.1192 NA
 
 fit_gamlss$significant_regions
-# FALSE FALSE FALSE FALSE TRUE TRUE NA
+# FALSE FALSE FALSE FALSE TRUE FALSE NA
 ```
 
-All 20 density fits here (5 folds by 4 densities) converge.
-
 Other models are set in the same list. For example,
-`sigma = "A"` lets the scale differ by group only, which is more stable when
-one group is small, and `nu = 0` with `sigma = "1"` gives essentially the
-log-normal GLM above (not run):
+`sigma = "A"` lets the scale differ by group only, `sigma = "linear"` makes
+the scale linear in all covariates, and `nu = 0` with `sigma = "1"` gives
+essentially the log-normal GLM above (not run):
 
 ```r
 gamlss_options = list(
   mu = "smooth", smooth = c("X2", "Z2"),
-  sigma = "A", nu = "1"
+  sigma = "linear", nu = "1"
 )
 ```
+
+On these data the linear scale model is less stable than the constant one
+(see the Comparison below): with heavy-tailed motion and a few hundred
+participants per fold, a richer `sigma` model can fit the motion densities
+poorly.
 
 ### HAL
 
@@ -571,33 +578,34 @@ fit_hal <- moco(
   ),
   cross_fit = TRUE,
   cv_folds = 5,
-  seed_rng = 1,
+  seed_rng = 123,
   test = TRUE,
-  fwer = 0.05
+  fwer = 0.05,
+  hypo_seed = 123
 )
 
 round(fit_hal$est, 4)
-# est_A0 -0.2802 -0.1168 -0.1427  0.0065  0.1018  0.1726 NA
-# est_A1 -0.2581 -0.1224 -0.1031  0.0261  0.0306  0.0965 NA
+# est_A0 -0.4696  0.0781  0.0648 -0.1931  0.2919  0.3606 NA
+# est_A1 -0.4565  0.1017  0.0277 -0.1589  0.2335  0.2948 NA
 
 round(fit_hal$adj_association, 4)
-#  0.0221 -0.0055  0.0396  0.0197 -0.0712 -0.0761 NA
+#  0.0131  0.0237 -0.0371  0.0342 -0.0583 -0.0658 NA
 
 round(fit_hal$z_score, 4)
-#  1.1548 -0.2360  2.2415  1.0484 -3.3579 -3.4402 NA
+#  0.6868  0.9763 -1.9773  1.7354 -2.7013 -3.1698 NA
 
 fit_hal$significant_regions
 # FALSE FALSE FALSE FALSE TRUE TRUE NA
 ```
 
 With the default Super Learner library, the nuisance regressions take most of
-the run time: the GLM and GAMLSS fits each took about 17 minutes and the HAL
-fit about 25 minutes (one core each, three fits run at the same time). HAL fitting time grows quickly with the
-sample size, the number of covariates, `max_degree`, and `num_knots`, so HAL
-can be slow for large samples.
+the run time: the GLM and GAMLSS fits each took about 15 to 16 minutes and the
+HAL fit about 20 minutes (one core each, four fits run at the same time). HAL
+fitting time grows quickly with the sample size, the number of covariates,
+`max_degree`, and `num_knots`, so HAL can be slow for large samples.
 
-The three fits and the comparison below are collected in a script installed
-with the package:
+The fits and the comparison below are collected in a script installed with
+the package:
 
 ```r
 file.show(system.file("examples", "full_analysis.R", package = "MoCo"))
@@ -606,27 +614,27 @@ file.show(system.file("examples", "full_analysis.R", package = "MoCo"))
 ### Comparison
 
 Adjusted associations (`adj_association`), z-statistics, simultaneous tests at
-FWER 0.05, accuracy, and run time for the three motion-density models on the example data (seed 1, five folds):
+FWER 0.05, accuracy, and run time for the motion-density models on the example
+data (`seed_rng = 123`, `hypo_seed = 123`, five folds):
 
-| Outcome | Truth | GLM | GAMLSS (GG, smooth mu, linear sigma) | HAL |
-|---|---|---|---|---|
-| 1 Visual | 0 | 0.0012 (z = 0.06) | 0.0182 (0.93) | 0.0221 (1.15) |
-| 2 Somatomotor | 0 | -0.0532 (-1.71) | 0.0035 (0.14) | -0.0055 (-0.24) |
-| 3 Dorsal attention | 0 | 0.0135 (0.67) | 0.0378 (2.11) | 0.0396 (2.24) |
-| 4 Ventral attention | 0 | 0.0385 (1.85) | 0.0135 (0.66) | 0.0197 (1.05) |
-| 5 Limbic | -0.0485 | **-0.0791 (-3.37)** | **-0.0666 (-2.81)** | **-0.0712 (-3.36)** |
-| 6 Frontoparietal | -0.0682 | **-0.0768 (-3.35)** | **-0.0725 (-3.20)** | **-0.0761 (-3.44)** |
-| Critical value | | 2.592 | 2.592 | 2.592 |
-| RMSE (six outcomes) | | 0.030 | 0.020 | 0.023 |
-| Approximate density fit time | | a few seconds | about 10 s | about 11 min |
-| Total run time | | 17 min | 17 min | 25 min |
+| Outcome | Truth | GLM | GAMLSS (GG, smooth mu, constant sigma) | GAMLSS (GG, smooth mu, linear sigma) | HAL |
+|---|---|---|---|---|---|
+| 1 Visual | 0 | 0.0147 (z = 0.75) | -0.0010 (-0.05) | -0.0248 (-0.54) | 0.0131 (0.69) |
+| 2 Somatomotor | 0 | 0.0055 (0.20) | -0.0208 (-0.60) | -0.1259 (-1.16) | 0.0237 (0.98) |
+| 3 Dorsal attention | 0 | -0.0347 (-1.83) | -0.0306 (-1.52) | -0.0245 (-0.80) | -0.0371 (-1.98) |
+| 4 Ventral attention | 0 | 0.0211 (1.00) | 0.0270 (1.06) | 0.0929 (1.28) | 0.0342 (1.74) |
+| 5 Limbic | -0.0485 | **-0.0679 (-3.04)** | **-0.0791 (-2.99)** | -0.1619 (-1.56) | **-0.0583 (-2.70)** |
+| 6 Frontoparietal | -0.0681 | -0.0571 (-2.54) | -0.0503 (-2.12) | -0.1037 (-1.96) | **-0.0658 (-3.17)** |
+| Critical value | | 2.588 | 2.579 | 2.486 | 2.580 |
+| RMSE (six outcomes) | | 0.020 | 0.024 | 0.082 | 0.024 |
+| Total run time | | 15 min | 16 min | 16 min | 20 min |
 
-Bold marks outcomes significant at FWER 0.05. Total run time is for the whole `moco()` call with the default Super Learner library; the approximate density fit time is the extra time each density model adds, estimated from the differences in total run time and from runs of the same design with a compact library (`SL.mean`, `SL.glm`, `SL.glm.interaction`). All three models detect the
-fifth and sixth outcomes and no null outcome. GAMLSS is the most accurate,
-followed by HAL; the log-normal GLM is the least accurate, most visibly for
-the fifth outcome (-0.079 against a truth of -0.048) and the null second
-outcome (-0.053). GAMLSS takes about the
-same time as GLM, while HAL adds about 11 minutes of density fitting.
+Bold marks outcomes significant at FWER 0.05. Total run time is for the whole
+`moco()` call with the default Super Learner library. HAL is the only model
+that detects both the fifth and the sixth outcome, and no model flags a null
+outcome. The log-normal GLM and GAMLSS with a constant scale detect the fifth
+outcome only; GAMLSS with a linear scale is unstable on these data and detects
+neither. HAL adds about 5 minutes of density fitting to the GLM run time.
 
 ### Which method?
 
@@ -637,6 +645,33 @@ same time as GLM, while HAL adds about 11 minutes of density fitting.
   interpreting the results.
 - **HAL**: the most flexible, with minimal distributional assumptions and the theoretical guarantees of the nonparametric estimator; slow.
 
+## Function reference
+
+The complete function documentation is available from R:
+
+```r
+?moco
+?hypo_test
+?plot_moco
+?SL.mgcv_gam
+```
+
+## Reproducibility and diagnostics
+
+- Use named columns in `X` and `Z`, especially for GAMLSS.
+- Save analysis-cohort IDs and preserve their order across outcomes and seeds.
+- Define `Delta_M` and `Delta_Y` explicitly in the analysis script.
+- Use the same outcome family when comparing simultaneous tests across methods.
+- Save the R version, package versions, learner library, fold count, and seeds.
+- Examine GAMLSS convergence and distributional diagnostics before interpreting
+  GAMLSS-based results.
+- Check positivity: summarise the propensities (`gA`, `gDM`, `gDY_AXZ`) and the
+  density ratios used in the influence function,
+  including participants with `Delta_M = 0`, at whose motion values the
+  `Delta_M = 1` densities are also evaluated.
+- In distributed analyses, save estimates and participant-level EIFs for every
+  outcome and seed, then aggregate them before calculating covariance and test
+  statistics.
 
 ## Related software and resources
 
