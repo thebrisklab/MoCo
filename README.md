@@ -414,21 +414,19 @@ The simulated objects are:
 
 - `A`: diagnostic group, coded 1 for ASD (138 children) and 0 for non-ASD;
 - `M`: mean framewise displacement (mm), generated from a generalized gamma
-  distribution (`GG`, shape `nu = -0.57`, a right tail heavier than the
+  distribution (`GG`, a right tail heavier than the
   log-normal) whose location and spread depend on all covariates in `X` and
   `Z`, with nonlinear terms in age and IQ: motion is larger in ASD, at higher
   ADOS scores, at younger ages, and at lower IQ, and smaller in medicated
   children (median 0.19 mm non-ASD, 0.22 mm ASD);
 - `Delta_M`: motion inclusion; the probability of passing motion quality
-  control falls smoothly with `M` (it is not a fixed cut-off), and 74% of
-  children pass (79% non-ASD, 66% ASD);
+  control falls smoothly with `M`, and 74% of children pass (79% non-ASD, 66% ASD);
 - `Delta_Y`: imaging-data availability and quality (93% available);
 - `X`: sex, age, and handedness;
 - `Z`: ADOS, full-scale IQ, stimulant medication, and nonstimulant medication;
 - `Y`: an `n` by 7 functional-connectivity matrix with columns Visual,
   Somatomotor, DorsalAttention, VentralAttention, Limbic, Frontoparietal, and
-  Default. Connectivity depends nonlinearly on motion, through a quadratic term
-  and a hinge at 0.2 mm, and the motion effect levels off above 1 mm.
+  Default.
 
 The seventh column of `Y` is the seed-to-self position and is therefore
 entirely `NA`. Rows with `Delta_Y = 0` are also missing because their imaging
@@ -620,7 +618,7 @@ Naive LM regresses `Y` on `A`, `X`, and `M` among participants with
 participants who fail motion quality control (`Delta_M = 0`); the naive and
 removal t tests compare group means in the same two samples. The naive
 methods use influence-function z-statistics and the same multiplier
-simultaneous test (`hypo_test()`, 10,000 draws, seed 123).
+simultaneous test (`hypo_test()`, 10,000 draws).
 
 | Outcome | Truth | GLM | GAMLSS (GG, smooth mu, constant sigma) | HAL | Naive LM | Removal LM | Naive t test | Removal t test |
 |---|---|---|---|---|---|---|---|---|
@@ -635,52 +633,11 @@ simultaneous test (`hypo_test()`, 10,000 draws, seed 123).
 | Total run time | | 15 min | 16 min | 20 min | < 1 s | < 1 s | < 1 s | < 1 s |
 
 Bold marks outcomes significant at FWER 0.05. Total run time for MoCo is for
-the whole `moco()` call with the default Super Learner library. HAL is the
-only method that detects both the fifth and the sixth outcome, and no method
-flags a null outcome. The log-normal GLM and GAMLSS detect the fifth outcome
-only. None of the naive methods detects either effect: naive LM, which
-adjusts for motion linearly, has the wrong sign for both outcomes because the
-motion effect is nonlinear and motion is heavy-tailed; removal LM is close to
-the truth but loses power after removing about a quarter of the sample; and
+the whole `moco()` call with the default Super Learner library. HAL detects both the fifth and the sixth outcome, 
+and no method flags a null outcome. The log-normal GLM and GAMLSS detect the fifth outcome
+only. None of the naive methods detects either effect and
 the t tests are not adjusted for motion or covariates. HAL adds about 5
 minutes of density fitting to the GLM run time.
-
-### Which method?
-
-- **Log-normal GLM**: motion that is close to log-normal; fastest.
-- **GAMLSS**: skewed or heteroscedastic motion (`GG`); as accurate as HAL at
-  close to GLM cost. Start with a simple `sigma` model (`"A"` or `"1"`) when a group is small, and
-  check for convergence before
-  interpreting the results.
-- **HAL**: the most flexible, with minimal distributional assumptions and the theoretical guarantees of the nonparametric estimator; slow.
-
-## Function reference
-
-The complete function documentation is available from R:
-
-```r
-?moco
-?hypo_test
-?plot_moco
-?SL.mgcv_gam
-```
-
-## Reproducibility and diagnostics
-
-- Use named columns in `X` and `Z`, especially for GAMLSS.
-- Save analysis-cohort IDs and preserve their order across outcomes and seeds.
-- Define `Delta_M` and `Delta_Y` explicitly in the analysis script.
-- Use the same outcome family when comparing simultaneous tests across methods.
-- Save the R version, package versions, learner library, fold count, and seeds.
-- Examine GAMLSS convergence and distributional diagnostics before interpreting
-  GAMLSS-based results.
-- Check positivity: summarise the propensities (`gA`, `gDM`, `gDY_AXZ`) and the
-  density ratios used in the influence function,
-  including participants with `Delta_M = 0`, at whose motion values the
-  `Delta_M = 1` densities are also evaluated.
-- In distributed analyses, save estimates and participant-level EIFs for every
-  outcome and seed, then aggregate them before calculating covariance and test
-  statistics.
 
 ## Related software and resources
 
