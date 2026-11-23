@@ -5,10 +5,9 @@
 #' @param X A dataframe or matrix containing demographic confounders that would ideally be balanced in a randomized controlled trial.
 #' @param Z A dataframe or matrix of covariates representing brain phenotypes.
 #' @param A A binary vector of length n (number of participants), serving as a group indicator, such as diagnosis group (1) or control group (0).
-#' @param M A numeric vector of length n representing continuous motion values for each participant. For example mean FD in mm.
-#'          There is no default: set \code{M = NULL} explicitly when a continuous motion measure is unavailable. \code{Delta_M} is then still required
-#'          (\code{thresh} cannot be used), usable data are redefined as \code{Delta_Y = 1} and \code{Delta_M = 1}, and participants who fail either
-#'          criterion are treated as missing data, similar to Nebel et al. (2022). No motion densities are fitted, so \code{density_method} and its options are not used.
+#' @param M A numeric vector of length n representing continuous motion values for each participant. For example, mean FD in mm.
+#'          If \code{M = NULL}, \code{Delta_Y} defines which participants are treated as non-missing (\code{Delta_Y = 1}) or missing (\code{Delta_Y = 0}) data,
+#'          which results in a method similar to Nebel et al. (2022). No motion densities are fitted, so \code{density_method} and its options are not used.
 #' @param Y A matrix of dimension n x p, where n is the number of participants, and p is the number of regions of interest.
 #'          If it represents seed-based association measures:
 #'            Each (i, j) element denotes participant i's association measure between the seed region and region j.
@@ -21,6 +20,7 @@
 #'          Any QC definition can be used, e.g., a threshold on mean framewise displacement (\code{Delta_M = as.numeric(M < 0.2)}),
 #'          or criteria based on scrubbing or the number of remaining frames. \code{Delta_M} must be 0 when \code{M} is missing.
 #'          Required unless \code{thresh} is given (then \code{Delta_M = NULL}, the default, defines it from \code{thresh}).
+#'          Not used when \code{M = NULL}: leave \code{Delta_M = NULL}.
 #' @param Delta_Y A binary vector indicating the non-missingness and whether the brain image data \code{Y} passes quality control after preprocessing. 
 #'          Set \code{Delta_Y = 1} if \code{Y} is usable; otherwise, set \code{Delta_Y = 0}.
 #' @param thresh \code{NULL} (default) or one positive number c for a motion threshold, \code{Delta_M = 1(M <= c)}.
@@ -244,7 +244,17 @@ moco <- function(
     }
   }
   
-  # check Delta_M: required for every definition of motion quality control
+  # without M, no motion model is fitted: Delta_Y alone defines the missing data and Delta_M is not used
+  if(is.null(M)){
+    if(!is.null(Delta_M)){
+      stop("Delta_M is not used when M = NULL. Set Delta_M = NULL and provide Delta_Y as a 0/1 vector: 0 for every participant ",
+           "to be treated as missing data, including those who fail motion quality control, and 1 for usable data.")
+    }
+    # placeholder so the internal functions receive a vector; it does not enter the estimator
+    Delta_M <- rep(1, n)
+  }
+
+  # check Delta_M: with M, required for every definition of motion quality control
   if(is.null(Delta_M)){
     stop("Delta_M or thresh is required. Please provide a 0/1 vector indicating whether each participant passes motion quality control, ",
          "or thresh = c to define Delta_M = 1(M <= c).")
