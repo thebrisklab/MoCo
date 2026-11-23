@@ -160,7 +160,7 @@ Each density is fitted once using the selected algorithm and controls (defaults:
 \value{
 A list with named entries
 \describe{
-\item{est}{A two times p matrix showing the one-step estimators of the control group and the disease group for each functional connectivity of interest, respectively.}
+\item{est}{A data frame with two rows (\code{est_A0}, \code{est_A1}) and p columns showing the one-step estimators of the control group and the disease group for each functional connectivity of interest, respectively. Columns are named after the columns of \code{Y} (\code{Y1}, ..., \code{Yp} when \code{Y} has no column names).}
 \item{adj_association}{A p-length vector showing the motion-adjusted association for each functional connectivity of interest, respectively.}
 \item{z_score}{A p-length vector of z_score for each functional connectivity if \code{test} is TRUE.}
 \item{fwer_critical_value}{Critical value(s) of the simultaneous confidence band (the (1 - FWER) quantile of the maximum absolute z-statistic) for each specified FWER.}
