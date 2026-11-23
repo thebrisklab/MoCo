@@ -142,8 +142,8 @@ on the bundled example data.
 which `Delta_Y = 0`. For a seed-based analysis, a seed-to-self outcome column
 may be entirely missing; MoCo restores that position as `NA` in its outputs.
 
-`Delta_M` is required unless `thresh` is given. Participants with missing `M`
-must have `Delta_M = 0` and `Delta_Y = 0`. For a motion threshold, give
+When `M` is given, `Delta_M` is required unless `thresh` is given. Participants
+with missing `M` must have `Delta_M = 0` and `Delta_Y = 0`. For a motion threshold, give
 `thresh = c` (for example `thresh = 0.2`) instead of `Delta_M`: `moco()` then
 sets `Delta_M = as.numeric(!is.na(M) & M <= c)`. If both are given, `Delta_M`
 must equal that rule. The definitions of `Delta_M` and `Delta_Y` should be
