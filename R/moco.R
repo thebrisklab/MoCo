@@ -247,7 +247,7 @@ moco <- function(
   # without M, no motion model is fitted: Delta_Y alone defines the missing data and Delta_M is not used
   if(is.null(M)){
     if(!is.null(Delta_M)){
-      stop("Delta_M is not used when M = NULL. Set Delta_M = NULL and provide a 0/1 vector to Delta_Y equal to 0 for every participant ",
+      stop("Delta_M is not used when M = NULL. Set Delta_M = NULL and provide Delta_Y as a 0/1 vector: 0 for every participant ",
            "to be treated as missing data, including those who fail motion quality control, and 1 for usable data.")
     }
     # placeholder so the internal functions receive a vector; it does not enter the estimator
