@@ -50,10 +50,9 @@ moco(
 
 \item{A}{A binary vector of length n (number of participants), serving as a group indicator, such as diagnosis group (1) or control group (0).}
 
-\item{M}{A numeric vector of length n representing continuous motion values for each participant. For example mean FD in mm.
-There is no default: set \code{M = NULL} explicitly when a continuous motion measure is unavailable. \code{Delta_M} is then still required
-(\code{thresh} cannot be used), usable data are redefined as \code{Delta_Y = 1} and \code{Delta_M = 1}, and participants who fail either
-criterion are treated as missing data, similar to Nebel et al. (2022). No motion densities are fitted, so \code{density_method} and its options are not used.}
+\item{M}{A numeric vector of length n representing continuous motion values for each participant. For example, mean FD in mm.
+If \code{M = NULL}, \code{Delta_Y} defines which participants are treated as non-missing (\code{Delta_Y = 1}) or missing (\code{Delta_Y = 0}) data,
+which results in a method similar to Nebel et al. (2022). No motion densities are fitted, so \code{density_method} and its options are not used.}
 
 \item{Y}{A matrix of dimension n x p, where n is the number of participants, and p is the number of regions of interest.
 If it represents seed-based association measures:
