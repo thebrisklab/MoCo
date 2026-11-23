@@ -50,7 +50,10 @@ moco(
 
 \item{A}{A binary vector of length n (number of participants), serving as a group indicator, such as diagnosis group (1) or control group (0).}
 
-\item{M}{A numeric vector of length n representing continuous motion values for each participant. For example mean FD in mm.}
+\item{M}{A numeric vector of length n representing continuous motion values for each participant. For example mean FD in mm.
+There is no default: set \code{M = NULL} explicitly when a continuous motion measure is unavailable. \code{Delta_M} is then still required
+(\code{thresh} cannot be used), usable data are redefined as \code{Delta_Y = 1} and \code{Delta_M = 1}, and participants who fail either
+criterion are treated as missing data, similar to Nebel et al. (2022). No motion densities are fitted, so \code{density_method} and its options are not used.}
 
 \item{Y}{A matrix of dimension n x p, where n is the number of participants, and p is the number of regions of interest.
 If it represents seed-based association measures:
@@ -163,6 +166,11 @@ A list with named entries
 \item{fwer_critical_value}{Critical value(s) of the simultaneous confidence band (the (1 - FWER) quantile of the maximum absolute z-statistic) for each specified FWER.}
 \item{significant_regions}{A p-length vector of TRUE or FALSE, indicating significance for each functional connectivity if \code{test} is TRUE.}
 }
+}
+\references{
+Nebel, M. B., Lidstone, D. E., Wang, L., Benkeser, D., Mostofsky, S. H. and Risk, B. B. (2022).
+Accounting for motion in resting-state fMRI: What part of the spectrum are we characterizing in autism spectrum disorder?
+\emph{NeuroImage}, 257, 119296. \doi{10.1016/j.neuroimage.2022.119296}
 }
 \description{
 Estimate motion-controlled group means and associations
