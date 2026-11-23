@@ -21,7 +21,10 @@ continuous brain phenotypes.
 - Cross-fitting and repeated cross-fitting are supported; repeated seeds are
   combined by averaging the estimates and the participant-level EIFs, followed
   by one simultaneous test.
-- If motion `M = NULL`, a missing data method is implemented using the data availability `Delta_Y = 1`, similar to Nebel et al. (2022).
+- If a continuous motion measure is unavailable, set `M = NULL`: participants
+  who fail motion quality control (`Delta_M = 0`) or lack usable imaging data
+  (`Delta_Y = 0`) are treated as missing data, similar to
+  [Nebel et al. (2022)](https://doi.org/10.1016/j.neuroimage.2022.119296).
 - EIF-based simultaneous confidence bands control the family-wise error rate
   (FWER) across multiple outcomes.
 
@@ -129,7 +132,7 @@ on the bundled example data.
 | `A` | Binary exposure or group indicator |
 | `X` | Baseline covariates |
 | `Z` | Post-exposure covariates used in the selection-bias adjustment |
-| `M` | Continuous motion measure |
+| `M` | Continuous motion measure, or `NULL` when unavailable |
 | `Y` | Continuous outcome vector or an `n` by `p` outcome matrix |
 | `Delta_M` | Indicator that motion satisfies the analysis inclusion rule |
 | `Delta_Y` | Indicator that the imaging outcome is observed and usable |
@@ -165,9 +168,14 @@ defines `Delta_M`. If `Delta_M` is supplied without `thresh` and every `M`
 with `Delta_M = 1` is below every `M` with `Delta_M = 0`, a GAMLSS or GLM run
 gives a message suggesting `thresh`.
 
-When motion is unavailable, set `M = NULL` (and optionally `X = NULL`) and
-supply `Delta_M`; participants with `Delta_M = 0` are then treated as missing,
-as in Nebel et al. (2022).
+When a continuous motion measure is unavailable, set `M = NULL` (and
+optionally `X = NULL`). `M` has no default, so `NULL` must be given
+explicitly. `Delta_M` is still required and `thresh` cannot be used. Usable
+data are then redefined as `Delta_Y = 1` and `Delta_M = 1`, and participants
+who fail either criterion are treated as missing data, similar to
+[Nebel et al. (2022)](https://doi.org/10.1016/j.neuroimage.2022.119296). No
+motion densities are fitted, so `density_method` and its options are not
+used.
 
 ### Nuisance regressions
 
@@ -647,6 +655,8 @@ minutes of density fitting to the GLM run time.
   conditional-density estimation.
 - [gamlss](https://github.com/gamlss-dev/gamlss): generalized additive models
   for location, scale, and shape.
+- [Nebel et al. (2022)](https://doi.org/10.1016/j.neuroimage.2022.119296):
+  the missing-data approach to motion quality control that `M = NULL` follows.
 - [Bethlehem et al. (2022)](https://doi.org/10.1038/s41586-022-04554-y):
   brain charts fitted with generalized-gamma GAMLSS, the basis of the default
   `GG` family.
