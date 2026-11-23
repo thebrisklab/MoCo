@@ -210,11 +210,14 @@ configure separately are:
 
 | Output | Description |
 |---|---|
-| `est` | Adjusted outcome means for `A = 0` and `A = 1` |
+| `est` | Adjusted outcome means for `A = 0` and `A = 1`; a data frame with one column per outcome |
 | `adj_association` | Adjusted difference, `A = 1` minus `A = 0` |
 | `z_score` | EIF-based standardized statistic for each outcome (when `test = TRUE`) |
 | `fwer_critical_value` | Simultaneous critical value for each requested FWER (when `test = TRUE`) |
 | `significant_regions` | Simultaneous-test decisions; a vector for one FWER, a matrix with one row per FWER otherwise (when `test = TRUE`) |
+
+Outputs with one entry per outcome are named after the columns of `Y`
+(`Y1`, ..., `Yp` when `Y` has no column names).
 
 ### Motion-density model
 
