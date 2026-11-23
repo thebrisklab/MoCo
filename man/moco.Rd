@@ -50,7 +50,9 @@ moco(
 
 \item{A}{A binary vector of length n (number of participants), serving as a group indicator, such as diagnosis group (1) or control group (0).}
 
-\item{M}{A numeric vector of length n representing continuous motion values for each participant. For example mean FD in mm.}
+\item{M}{A numeric vector of length n representing continuous motion values for each participant. For example, mean FD in mm.
+If \code{M = NULL}, \code{Delta_Y} defines which participants are treated as non-missing (\code{Delta_Y = 1}) or missing (\code{Delta_Y = 0}) data,
+which results in a method similar to Nebel et al. (2022). No motion densities are fitted, so \code{density_method} and its options are not used.}
 
 \item{Y}{A matrix of dimension n x p, where n is the number of participants, and p is the number of regions of interest.
 If it represents seed-based association measures:
@@ -64,7 +66,8 @@ No NA values are allowed in \code{Y} in this case.}
 Set \code{Delta_M} = 1 if the participant passes motion QC; otherwise, set \code{Delta_M} = 0.
 Any QC definition can be used, e.g., a threshold on mean framewise displacement (\code{Delta_M = as.numeric(M < 0.2)}),
 or criteria based on scrubbing or the number of remaining frames. \code{Delta_M} must be 0 when \code{M} is missing.
-Required unless \code{thresh} is given (then \code{Delta_M = NULL}, the default, defines it from \code{thresh}).}
+Required unless \code{thresh} is given (then \code{Delta_M = NULL}, the default, defines it from \code{thresh}).
+Not used when \code{M = NULL}: leave \code{Delta_M = NULL}.}
 
 \item{Delta_Y}{A binary vector indicating the non-missingness and whether the brain image data \code{Y} passes quality control after preprocessing.
 Set \code{Delta_Y = 1} if \code{Y} is usable; otherwise, set \code{Delta_Y = 0}.}
@@ -163,6 +166,11 @@ A list with named entries
 \item{fwer_critical_value}{Critical value(s) of the simultaneous confidence band (the (1 - FWER) quantile of the maximum absolute z-statistic) for each specified FWER.}
 \item{significant_regions}{A p-length vector of TRUE or FALSE, indicating significance for each functional connectivity if \code{test} is TRUE.}
 }
+}
+\references{
+Nebel, M. B., Lidstone, D. E., Wang, L., Benkeser, D., Mostofsky, S. H. and Risk, B. B. (2022).
+Accounting for motion in resting-state fMRI: What part of the spectrum are we characterizing in autism spectrum disorder?
+\emph{NeuroImage}, 257, 119296. \doi{10.1016/j.neuroimage.2022.119296}
 }
 \description{
 Estimate motion-controlled group means and associations
