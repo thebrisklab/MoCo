@@ -480,11 +480,11 @@ second represents `A = 1`, and the structural seventh column is restored as
 ```r
 round(fit_glm$est, 4)
 #         Visual Somatomotor DorsalAttention VentralAttention Limbic
-# est_A0 -0.4972      0.0935          0.0879          -0.2162 0.3190
-# est_A1 -0.4821      0.0990          0.0533          -0.1951 0.2511
+# est_A0 -0.4972      0.0937          0.0880          -0.2161 0.3189
+# est_A1 -0.4826      0.0992          0.0533          -0.1950 0.2510
 #        Frontoparietal Default
 # est_A0         0.3879      NA
-# est_A1         0.3308      NA
+# est_A1         0.3307      NA
 ```
 
 The adjusted group differences are:
@@ -492,7 +492,7 @@ The adjusted group differences are:
 ```r
 round(fit_glm$adj_association, 4)
 #           Visual      Somatomotor  DorsalAttention VentralAttention
-#           0.0150           0.0055          -0.0346           0.0211
+#           0.0147           0.0055          -0.0347           0.0211
 #           Limbic   Frontoparietal          Default
 #          -0.0679          -0.0571               NA
 ```
@@ -502,9 +502,9 @@ The EIF-based test results are:
 ```r
 round(fit_glm$z_score, 4)
 #           Visual      Somatomotor  DorsalAttention VentralAttention
-#           0.7638           0.2025          -1.8306           0.9981
+#           0.7479           0.2024          -1.8316           1.0007
 #           Limbic   Frontoparietal          Default
-#          -3.0354          -2.5381               NA
+#          -3.0381          -2.5390               NA
 
 fit_glm$significant_regions
 #           Visual      Somatomotor  DorsalAttention VentralAttention
@@ -549,23 +549,23 @@ fit_gamlss <- moco(
 
 round(fit_gamlss$est, 4)
 #         Visual Somatomotor DorsalAttention VentralAttention Limbic
-# est_A0 -0.4855      0.0899          0.0837          -0.2028 0.3164
-# est_A1 -0.4866      0.0691          0.0531          -0.1757 0.2374
+# est_A0 -0.4856      0.0899          0.0837          -0.2027 0.3163
+# est_A1 -0.4866      0.0691          0.0531          -0.1757 0.2372
 #        Frontoparietal Default
-# est_A0         0.3790      NA
-# est_A1         0.3289      NA
+# est_A0         0.3791      NA
+# est_A1         0.3288      NA
 
 round(fit_gamlss$adj_association, 4)
 #           Visual      Somatomotor  DorsalAttention VentralAttention
-#          -0.0011          -0.0208          -0.0305           0.0271
+#          -0.0010          -0.0208          -0.0306           0.0270
 #           Limbic   Frontoparietal          Default
-#          -0.0790          -0.0501               NA
+#          -0.0791          -0.0503               NA
 
 round(fit_gamlss$z_score, 4)
 #           Visual      Somatomotor  DorsalAttention VentralAttention
-#          -0.0516          -0.6032          -1.5162           1.0608
+#          -0.0482          -0.6027          -1.5192           1.0562
 #           Limbic   Frontoparietal          Default
-#          -2.9822          -2.1101               NA
+#          -2.9856          -2.1192               NA
 
 fit_gamlss$significant_regions
 #           Visual      Somatomotor  DorsalAttention VentralAttention
@@ -622,23 +622,23 @@ fit_hal <- moco(
 
 round(fit_hal$est, 4)
 #         Visual Somatomotor DorsalAttention VentralAttention Limbic
-# est_A0 -0.4696      0.0782          0.0647          -0.1931 0.2918
-# est_A1 -0.4564      0.1018          0.0277          -0.1589 0.2334
+# est_A0 -0.4696      0.0781          0.0648          -0.1931 0.2919
+# est_A1 -0.4565      0.1017          0.0277          -0.1589 0.2335
 #        Frontoparietal Default
-# est_A0         0.3605      NA
-# est_A1         0.2949      NA
+# est_A0         0.3606      NA
+# est_A1         0.2948      NA
 
 round(fit_hal$adj_association, 4)
 #           Visual      Somatomotor  DorsalAttention VentralAttention
-#           0.0132           0.0236          -0.0370           0.0342
+#           0.0131           0.0237          -0.0371           0.0342
 #           Limbic   Frontoparietal          Default
-#          -0.0584          -0.0656               NA
+#          -0.0583          -0.0658               NA
 
 round(fit_hal$z_score, 4)
 #           Visual      Somatomotor  DorsalAttention VentralAttention
-#           0.6905           0.9756          -1.9707           1.7358
+#           0.6868           0.9763          -1.9773           1.7354
 #           Limbic   Frontoparietal          Default
-#          -2.7049          -3.1597               NA
+#          -2.7013          -3.1698               NA
 
 fit_hal$significant_regions
 #           Visual      Somatomotor  DorsalAttention VentralAttention
@@ -674,13 +674,13 @@ simultaneous test (`hypo_test()`, 10,000 draws).
 
 | Outcome | Truth | GLM | GAMLSS (GG, smooth mu, constant sigma) | HAL | Naive LM | Removal LM | Naive t test | Removal t test |
 |---|---|---|---|---|---|---|---|---|
-| 1 | 0 | 0.0150 (z = 0.76) | -0.0011 (-0.05) | 0.0132 (0.69) | -0.0822 (-1.54) | 0.0156 (0.56) | -0.1004 (-1.19) | 0.0206 (0.35) |
-| 2 | 0 | 0.0055 (0.20) | -0.0208 (-0.60) | 0.0236 (0.98) | 0.1044 (1.98) | 0.0126 (0.37) | 0.1330 (1.59) | 0.0118 (0.20) |
-| 3 | 0 | -0.0346 (-1.83) | -0.0305 (-1.52) | -0.0370 (-1.97) | 0.0515 (1.02) | -0.0433 (-1.47) | 0.0626 (0.79) | -0.0594 (-1.07) |
-| 4 | 0 | 0.0211 (1.00) | 0.0271 (1.06) | 0.0342 (1.74) | -0.0607 (-1.10) | 0.0391 (1.35) | -0.0817 (-0.96) | 0.0431 (0.74) |
-| 5 | -0.0485 | **-0.0679 (-3.04)** | **-0.0790 (-2.98)** | **-0.0584 (-2.70)** | 0.0351 (0.67) | -0.0655 (-2.05) | 0.0527 (0.66) | -0.0731 (-1.24) |
-| 6 | -0.0681 | -0.0571 (-2.54) | -0.0501 (-2.11) | **-0.0656 (-3.16)** | 0.0289 (0.54) | -0.0625 (-2.00) | 0.0386 (0.47) | -0.0783 (-1.31) |
-| Critical value | | 2.590 | 2.577 | 2.578 | 2.288 | 2.538 | 2.190 | 2.324 |
+| 1 | 0 | 0.0147 (z = 0.75) | -0.0010 (-0.05) | 0.0131 (0.69) | -0.0822 (-1.54) | 0.0156 (0.56) | -0.1004 (-1.19) | 0.0206 (0.35) |
+| 2 | 0 | 0.0055 (0.20) | -0.0208 (-0.60) | 0.0237 (0.98) | 0.1044 (1.98) | 0.0126 (0.37) | 0.1330 (1.59) | 0.0118 (0.20) |
+| 3 | 0 | -0.0347 (-1.83) | -0.0306 (-1.52) | -0.0371 (-1.98) | 0.0515 (1.02) | -0.0433 (-1.47) | 0.0626 (0.79) | -0.0594 (-1.07) |
+| 4 | 0 | 0.0211 (1.00) | 0.0270 (1.06) | 0.0342 (1.74) | -0.0607 (-1.10) | 0.0391 (1.35) | -0.0817 (-0.96) | 0.0431 (0.74) |
+| 5 | -0.0485 | **-0.0679 (-3.04)** | **-0.0791 (-2.99)** | **-0.0583 (-2.70)** | 0.0351 (0.67) | -0.0655 (-2.05) | 0.0527 (0.66) | -0.0731 (-1.24) |
+| 6 | -0.0681 | -0.0571 (-2.54) | -0.0503 (-2.12) | **-0.0658 (-3.17)** | 0.0289 (0.54) | -0.0625 (-2.00) | 0.0386 (0.47) | -0.0783 (-1.31) |
+| Critical value | | 2.588 | 2.579 | 2.580 | 2.288 | 2.538 | 2.190 | 2.324 |
 | RMSE (six outcomes) | | 0.020 | 0.024 | 0.024 | 0.082 | 0.026 | 0.100 | 0.033 |
 | Total run time | | 15 min | 16 min | 20 min | < 1 s | < 1 s | < 1 s | < 1 s |
 
