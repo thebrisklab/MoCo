@@ -12,6 +12,25 @@ test_that("moco() returns the documented components", {
   expect_type(fit$significant_regions, "logical")
 })
 
+test_that("outputs are named after the columns of Y", {
+  outcomes <- c("Frontoparietal", "Default")
+  fit <- fast_moco()
+  expect_named(fit$est, outcomes)
+  expect_named(fit$adj_association, outcomes)
+  expect_named(fit$z_score, outcomes)
+  expect_named(fit$significant_regions, outcomes)
+  expect_type(fit$est["est_A1", "Frontoparietal"], "double")
+
+  # several FWER levels: one row per level, columns named
+  multi <- fast_moco(fwer = c(0.01, 0.05))
+  expect_equal(colnames(multi$significant_regions), outcomes)
+
+  # Y without column names (here a vector) falls back to Y1, ..., Yp
+  unnamed <- fast_moco(Y = moco_example$Y[, 6])
+  expect_named(unnamed$est, "Y1")
+  expect_named(unnamed$adj_association, "Y1")
+})
+
 test_that("the seed-to-self column is returned as NA", {
   fit <- fast_moco()
 
@@ -26,9 +45,8 @@ test_that("moco() outputs are internally consistent", {
   fit <- fast_moco()
 
   # adjusted association is the A = 1 mean minus the A = 0 mean
-  # (fit$est has no column names, so it is indexed as a matrix)
-  est <- as.matrix(fit$est)
-  expect_equal(fit$adj_association[1], unname(est["est_A1", 1] - est["est_A0", 1]))
+  expect_equal(fit$adj_association[["Frontoparietal"]],
+               fit$est["est_A1", "Frontoparietal"] - fit$est["est_A0", "Frontoparietal"])
   # significance is |z| above the simultaneous critical value
   expect_equal(fit$significant_regions[1],
                abs(fit$z_score[1]) > fit$fwer_critical_value)

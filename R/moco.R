@@ -105,11 +105,11 @@
 #' 
 #' @return A list with named entries 
 #' \describe{
-#'   \item{est}{A two times p matrix showing the one-step estimators of the control group and the disease group for each functional connectivity of interest, respectively.}
-#'   \item{adj_association}{A p-length vector showing the motion-adjusted association for each functional connectivity of interest, respectively.}
-#'   \item{z_score}{A p-length vector of z_score for each functional connectivity if \code{test} is TRUE.}
+#'   \item{est}{A data frame with two rows (\code{est_A0}, \code{est_A1}) and p columns showing the one-step estimators of the control group and the disease group for each functional connectivity of interest, respectively. Columns are named after the columns of \code{Y} (\code{Y1}, ..., \code{Yp} when \code{Y} has no column names).}
+#'   \item{adj_association}{A p-length vector, named after the columns of \code{Y}, showing the motion-adjusted association for each functional connectivity of interest, respectively.}
+#'   \item{z_score}{A named p-length vector of z_score for each functional connectivity if \code{test} is TRUE.}
 #'   \item{fwer_critical_value}{Critical value(s) of the simultaneous confidence band (the (1 - FWER) quantile of the maximum absolute z-statistic) for each specified FWER.}
-#'   \item{significant_regions}{A p-length vector of TRUE or FALSE, indicating significance for each functional connectivity if \code{test} is TRUE.}
+#'   \item{significant_regions}{A named p-length vector of TRUE or FALSE, indicating significance for each functional connectivity if \code{test} is TRUE; a matrix with one row per FWER and named columns when several FWER levels are given.}
 #' }
 #' 
 #' @examples
@@ -230,7 +230,13 @@ moco <- function(
     Y <- as.matrix(Y)
   }
   n <- nrow(Y)
-  
+
+  # outcome names for the columns of est (Y1, ..., Yp when Y has no column names)
+  outcome_names <- colnames(Y)
+  if(is.null(outcome_names)){
+    outcome_names <- paste0("Y", seq_len(ncol(Y)))
+  }
+
   # thresh: Delta_M = 1(M <= thresh); the GAMLSS and GLM densities pMXD/pMXZD are then truncated at thresh
   if(!is.null(thresh)){
     if(!is.numeric(thresh) || length(thresh) != 1 || !is.finite(thresh) || thresh <= 0){
@@ -396,7 +402,7 @@ moco <- function(
     est <- t(apply(est, 1, add_NA, seed_position))
   }
   est <- as.data.frame(est, row.names = c('est_A0', 'est_A1'))
-  colnames(est) <- NULL
+  colnames(est) <- outcome_names
   
   # motion-controlled association
   adj_association <- colMeans(adj_association)
@@ -416,6 +422,7 @@ moco <- function(
     if(length(seed_position) != 0){
       z_score <- add_NA(z_score, seed_position)
     }
+    names(z_score) <- outcome_names
     fwer_critical_value <- hypo$fwer_critical_value
     
     # regions with significant associations
@@ -427,12 +434,14 @@ moco <- function(
       for(j in 1:n_fwer){
         significant_regions[j,] <- (abs(z_score) > fwer_critical_value[j])
       }
+      colnames(significant_regions) <- outcome_names
     }
   }
-  
+
   if(length(seed_position) != 0){
     adj_association <- add_NA(adj_association, seed_position)
   }
+  names(adj_association) <- outcome_names
   
   if(test){
     return(list(

@@ -210,11 +210,14 @@ configure separately are:
 
 | Output | Description |
 |---|---|
-| `est` | Adjusted outcome means for `A = 0` and `A = 1` |
+| `est` | Adjusted outcome means for `A = 0` and `A = 1`; a data frame with one column per outcome |
 | `adj_association` | Adjusted difference, `A = 1` minus `A = 0` |
 | `z_score` | EIF-based standardized statistic for each outcome (when `test = TRUE`) |
 | `fwer_critical_value` | Simultaneous critical value for each requested FWER (when `test = TRUE`) |
 | `significant_regions` | Simultaneous-test decisions; a vector for one FWER, a matrix with one row per FWER otherwise (when `test = TRUE`) |
+
+Outputs with one entry per outcome are named after the columns of `Y`
+(`Y1`, ..., `Yp` when `Y` has no column names).
 
 ### Motion-density model
 
@@ -476,25 +479,38 @@ second represents `A = 1`, and the structural seventh column is restored as
 
 ```r
 round(fit_glm$est, 4)
-# est_A0 -0.4972  0.0937  0.0880 -0.2161  0.3189  0.3879 NA
-# est_A1 -0.4826  0.0992  0.0533 -0.1950  0.2510  0.3307 NA
+#         Visual Somatomotor DorsalAttention VentralAttention Limbic
+# est_A0 -0.4972      0.0937          0.0880          -0.2161 0.3189
+# est_A1 -0.4826      0.0992          0.0533          -0.1950 0.2510
+#        Frontoparietal Default
+# est_A0         0.3879      NA
+# est_A1         0.3307      NA
 ```
 
 The adjusted group differences are:
 
 ```r
 round(fit_glm$adj_association, 4)
-#  0.0147  0.0055 -0.0347  0.0211 -0.0679 -0.0571 NA
+#           Visual      Somatomotor  DorsalAttention VentralAttention
+#           0.0147           0.0055          -0.0347           0.0211
+#           Limbic   Frontoparietal          Default
+#          -0.0679          -0.0571               NA
 ```
 
 The EIF-based test results are:
 
 ```r
 round(fit_glm$z_score, 4)
-#  0.7479  0.2024 -1.8316  1.0007 -3.0381 -2.5390 NA
+#           Visual      Somatomotor  DorsalAttention VentralAttention
+#           0.7479           0.2024          -1.8316           1.0007
+#           Limbic   Frontoparietal          Default
+#          -3.0381          -2.5390               NA
 
 fit_glm$significant_regions
-# FALSE FALSE FALSE FALSE TRUE FALSE NA
+#           Visual      Somatomotor  DorsalAttention VentralAttention
+#            FALSE            FALSE            FALSE            FALSE
+#           Limbic   Frontoparietal          Default
+#             TRUE            FALSE               NA
 ```
 
 The log-normal GLM detects the fifth outcome but not the sixth (z = -2.54
@@ -532,17 +548,30 @@ fit_gamlss <- moco(
 )
 
 round(fit_gamlss$est, 4)
-# est_A0 -0.4856  0.0899  0.0837 -0.2027  0.3163  0.3791 NA
-# est_A1 -0.4866  0.0691  0.0531 -0.1757  0.2372  0.3288 NA
+#         Visual Somatomotor DorsalAttention VentralAttention Limbic
+# est_A0 -0.4856      0.0899          0.0837          -0.2027 0.3163
+# est_A1 -0.4866      0.0691          0.0531          -0.1757 0.2372
+#        Frontoparietal Default
+# est_A0         0.3791      NA
+# est_A1         0.3288      NA
 
 round(fit_gamlss$adj_association, 4)
-# -0.0010 -0.0208 -0.0306  0.0270 -0.0791 -0.0503 NA
+#           Visual      Somatomotor  DorsalAttention VentralAttention
+#          -0.0010          -0.0208          -0.0306           0.0270
+#           Limbic   Frontoparietal          Default
+#          -0.0791          -0.0503               NA
 
 round(fit_gamlss$z_score, 4)
-# -0.0482 -0.6027 -1.5192  1.0562 -2.9856 -2.1192 NA
+#           Visual      Somatomotor  DorsalAttention VentralAttention
+#          -0.0482          -0.6027          -1.5192           1.0562
+#           Limbic   Frontoparietal          Default
+#          -2.9856          -2.1192               NA
 
 fit_gamlss$significant_regions
-# FALSE FALSE FALSE FALSE TRUE FALSE NA
+#           Visual      Somatomotor  DorsalAttention VentralAttention
+#            FALSE            FALSE            FALSE            FALSE
+#           Limbic   Frontoparietal          Default
+#             TRUE            FALSE               NA
 ```
 
 Other models are set in the same list. For example,
@@ -592,17 +621,30 @@ fit_hal <- moco(
 )
 
 round(fit_hal$est, 4)
-# est_A0 -0.4696  0.0781  0.0648 -0.1931  0.2919  0.3606 NA
-# est_A1 -0.4565  0.1017  0.0277 -0.1589  0.2335  0.2948 NA
+#         Visual Somatomotor DorsalAttention VentralAttention Limbic
+# est_A0 -0.4696      0.0781          0.0648          -0.1931 0.2919
+# est_A1 -0.4565      0.1017          0.0277          -0.1589 0.2335
+#        Frontoparietal Default
+# est_A0         0.3606      NA
+# est_A1         0.2948      NA
 
 round(fit_hal$adj_association, 4)
-#  0.0131  0.0237 -0.0371  0.0342 -0.0583 -0.0658 NA
+#           Visual      Somatomotor  DorsalAttention VentralAttention
+#           0.0131           0.0237          -0.0371           0.0342
+#           Limbic   Frontoparietal          Default
+#          -0.0583          -0.0658               NA
 
 round(fit_hal$z_score, 4)
-#  0.6868  0.9763 -1.9773  1.7354 -2.7013 -3.1698 NA
+#           Visual      Somatomotor  DorsalAttention VentralAttention
+#           0.6868           0.9763          -1.9773           1.7354
+#           Limbic   Frontoparietal          Default
+#          -2.7013          -3.1698               NA
 
 fit_hal$significant_regions
-# FALSE FALSE FALSE FALSE TRUE TRUE NA
+#           Visual      Somatomotor  DorsalAttention VentralAttention
+#            FALSE            FALSE            FALSE            FALSE
+#           Limbic   Frontoparietal          Default
+#             TRUE             TRUE               NA
 ```
 
 With the default Super Learner library, the nuisance regressions take most of
