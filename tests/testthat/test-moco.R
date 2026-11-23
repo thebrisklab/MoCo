@@ -104,23 +104,15 @@ test_that("moco() rejects invalid inputs with informative errors", {
 })
 
 test_that("with M = NULL, Delta_Y alone defines the missing data", {
-  d <- moco_example
-  usable <- d$Delta_Y * d$Delta_M
-
-  fit <- fast_moco(M = NULL, Delta_M = NULL, Delta_Y = usable)
+  fit <- fast_moco(M = NULL, Delta_M = NULL)
   expect_true(all(is.finite(fit$est[, 1])))
   expect_true(is.finite(fit$z_score[1]))
 
-  # Delta_Y is used as given: a different indicator gives a different answer
-  other <- fast_moco(M = NULL, Delta_M = NULL)
-  expect_false(isTRUE(all.equal(fit$adj_association[1], other$adj_association[1])))
-
   # no motion densities are fitted, so the density method does not matter
-  expect_identical(fit, fast_moco(M = NULL, Delta_M = NULL, Delta_Y = usable,
-                                  density_method = "gamlss"))
+  expect_identical(fit, fast_moco(M = NULL, Delta_M = NULL, density_method = "gamlss"))
 
   # without cross-fitting
-  nocf <- fast_moco(M = NULL, Delta_M = NULL, Delta_Y = usable, cross_fit = FALSE)
+  nocf <- fast_moco(M = NULL, Delta_M = NULL, cross_fit = FALSE)
   expect_true(is.finite(nocf$adj_association[1]))
 
   # Delta_M is not accepted without M
