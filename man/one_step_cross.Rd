@@ -23,7 +23,16 @@ one_step_cross(
   HAL_options = list(max_degree = 3, lambda_seq = exp(seq(-1, -10, length = 100)),
     num_knots = c(1000, 500, 250)),
   glm_options = list(pMX = ".", pMXZ = "."),
-  gamlss_options = NULL,
+  gamlss_options = list(
+  mu = "smooth",
+  sigma = "linear",
+  nu = "1",
+  smooth = NULL,
+  method = "RS",
+  n.cyc = 500,
+  c.crit = 0.001,
+  trace = TRUE
+),
   cv_folds = 5,
   seed = 1,
   ...
