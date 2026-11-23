@@ -126,8 +126,7 @@ one_step <- function(
   M_indicator <- (!is.null(M))
   
   if(!M_indicator){
-    # missingness indicator as in Nebel
-    Delta_Y <- ifelse(Delta_M + Delta_Y == 2, 1, 0)
+    # missing-data approach as in Nebel et al. (2022): Delta_Y alone is the missingness indicator
     # impute M to be all 1's for computation convenience
     M <- rep(1, n)
     # M[Delta_Y == 0] <- NA

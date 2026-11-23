@@ -66,7 +66,8 @@ No NA values are allowed in \code{Y} in this case.}
 Set \code{Delta_M} = 1 if the participant passes motion QC; otherwise, set \code{Delta_M} = 0.
 Any QC definition can be used, e.g., a threshold on mean framewise displacement (\code{Delta_M = as.numeric(M < 0.2)}),
 or criteria based on scrubbing or the number of remaining frames. \code{Delta_M} must be 0 when \code{M} is missing.
-Required unless \code{thresh} is given (then \code{Delta_M = NULL}, the default, defines it from \code{thresh}).}
+Required unless \code{thresh} is given (then \code{Delta_M = NULL}, the default, defines it from \code{thresh}).
+Not used when \code{M = NULL}: leave \code{Delta_M = NULL}.}
 
 \item{Delta_Y}{A binary vector indicating the non-missingness and whether the brain image data \code{Y} passes quality control after preprocessing.
 Set \code{Delta_Y = 1} if \code{Y} is usable; otherwise, set \code{Delta_Y = 0}.}

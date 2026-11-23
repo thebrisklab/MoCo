@@ -20,6 +20,7 @@
 #'          Any QC definition can be used, e.g., a threshold on mean framewise displacement (\code{Delta_M = as.numeric(M < 0.2)}),
 #'          or criteria based on scrubbing or the number of remaining frames. \code{Delta_M} must be 0 when \code{M} is missing.
 #'          Required unless \code{thresh} is given (then \code{Delta_M = NULL}, the default, defines it from \code{thresh}).
+#'          Not used when \code{M = NULL}: leave \code{Delta_M = NULL}.
 #' @param Delta_Y A binary vector indicating the non-missingness and whether the brain image data \code{Y} passes quality control after preprocessing. 
 #'          Set \code{Delta_Y = 1} if \code{Y} is usable; otherwise, set \code{Delta_Y = 0}.
 #' @param thresh \code{NULL} (default) or one positive number c for a motion threshold, \code{Delta_M = 1(M <= c)}.
@@ -243,7 +244,17 @@ moco <- function(
     }
   }
   
-  # check Delta_M: required for every definition of motion quality control
+  # without M, no motion model is fitted: Delta_Y alone defines the missing data and Delta_M is not used
+  if(is.null(M)){
+    if(!is.null(Delta_M)){
+      stop("Delta_M is not used when M = NULL. Leave Delta_M = NULL and code every participant to be treated as missing data, ",
+           "including those who fail motion quality control, as Delta_Y = 0.")
+    }
+    # placeholder so the internal functions receive a vector; it does not enter the estimator
+    Delta_M <- rep(1, n)
+  }
+
+  # check Delta_M: with M, required for every definition of motion quality control
   if(is.null(Delta_M)){
     stop("Delta_M or thresh is required. Please provide a 0/1 vector indicating whether each participant passes motion quality control, ",
          "or thresh = c to define Delta_M = 1(M <= c).")
