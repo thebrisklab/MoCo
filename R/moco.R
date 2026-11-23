@@ -150,21 +150,36 @@ moco <- function(
     eta_AXM = NULL,
     xi_AX = NULL
   ), 
-  glm_formula = list(gA = NULL, 
-                     gDM = NULL,
-                     gDY_AX = NULL,
-                     gDY_AXZ = NULL,
-                     mu_AMXZ = NULL,
-                     eta_AXZ = NULL,
-                     eta_AXM = NULL,
-                     xi_AX = NULL),
+  glm_formula = list(
+    gA = NULL, 
+    gDM = NULL,
+    gDY_AX = NULL,
+    gDY_AXZ = NULL,
+    mu_AMXZ = NULL,
+    eta_AXZ = NULL,
+    eta_AXM = NULL,
+    xi_AX = NULL
+  ),
   density_method = "hal",
-  HAL_options = list(max_degree = 3, 
-                     lambda_seq = exp(seq(-1, -10, length = 100)), 
-                     num_knots = c(1000, 500, 250)),
-  glm_options = list(pMX = ".", 
-                     pMXZ = "."),
-  gamlss_options = NULL,
+  HAL_options = list(
+    max_degree = 3, 
+    lambda_seq = exp(seq(-1, -10, length = 100)), 
+    num_knots = c(1000, 500, 250)
+    ),
+  glm_options = list(
+    pMX = ".", 
+    pMXZ = "."
+  ),
+  gamlss_options = list(
+  mu = "smooth",
+  sigma = "linear",
+  nu = "1",
+  smooth = NULL,
+  method = "RS",
+  n.cyc = 500,
+  c.crit = 0.001,
+  trace = TRUE
+  ),
   cross_fit = TRUE,
   cv_folds = 5,
   seed_rng = 1, 
@@ -187,6 +202,7 @@ moco <- function(
   # which density options the user supplied 
   HAL_options_given <- !missing(HAL_options)
   glm_options_given <- !missing(glm_options)
+  gamlss_options_given <- !missing(gamlss_options)
   
   glm_options <- check_glm_options(glm_options)
   
@@ -263,7 +279,7 @@ moco <- function(
     if(glm_options_given && !any(dens_method == "glm")){
       message("glm_options is only used by density_method = \"glm\"; it is ignored here.")
     }
-    if(!is.null(gamlss_options) && !any(dens_method == "gamlss")){
+    if(gamlss_options_given && !is.null(gamlss_options) && !any(dens_method == "gamlss")){
       message("gamlss_options is only used by density_method = \"gamlss\"; it is ignored here.")
     }
   }
