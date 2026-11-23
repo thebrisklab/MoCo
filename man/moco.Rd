@@ -168,6 +168,10 @@ A list with named entries
 }
 }
 \references{
+Ran, J., Shultz, S., Risk, B. B. and Benkeser, D. (2026).
+Nonparametric motion control in functional connectivity studies in children with autism spectrum disorder.
+\emph{Biometrics}, 82(2), ujag099. \doi{10.1093/biomtc/ujag099}
+
 Nebel, M. B., Lidstone, D. E., Wang, L., Benkeser, D., Mostofsky, S. H. and Risk, B. B. (2022).
 Accounting for motion in resting-state fMRI: What part of the spectrum are we characterizing in autism spectrum disorder?
 \emph{NeuroImage}, 257, 119296. \doi{10.1016/j.neuroimage.2022.119296}
@@ -176,7 +180,7 @@ Accounting for motion in resting-state fMRI: What part of the spectrum are we ch
 Estimate motion-controlled group means and associations
 }
 \details{
-Compute motion-controlled brain phenotype estimators (MoCo): estimate group-specific brain-phenotype means and their contrast using one-step estimation, optional cross-fitting and simulations inference.
+Compute motion-controlled brain phenotype estimators (MoCo): estimate group-specific brain-phenotype means and their contrast using one-step estimation, optional cross-fitting and simulations inference. The method is described in Ran et al. (2026), which is the primary reference to cite when using MoCo.
 }
 \examples{
 data(moco_example)
